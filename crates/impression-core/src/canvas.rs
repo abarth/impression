@@ -48,6 +48,43 @@ impl Canvas {
         }
     }
 
+    /// Sample the composited color at (x, y) across all visible layers,
+    /// over the background color. Returns [R, G, B].
+    pub fn sample_color(&self, x: u32, y: u32) -> [u8; 3] {
+        // Start with the background color at full opacity
+        let mut r = self.background_color.r as f32;
+        let mut g = self.background_color.g as f32;
+        let mut b = self.background_color.b as f32;
+        let mut a: f32 = 1.0;
+
+        for layer in &self.layers {
+            if !layer.visible {
+                continue;
+            }
+            if let Some(px) = layer.pixel(x, y) {
+                let src_a = (px[3] as f32 / 255.0) * layer.opacity;
+                if src_a <= 0.0 {
+                    continue;
+                }
+                let src_r = px[0] as f32;
+                let src_g = px[1] as f32;
+                let src_b = px[2] as f32;
+
+                // Alpha-over compositing (both dst and src in straight alpha)
+                r = src_r * src_a + r * (1.0 - src_a);
+                g = src_g * src_a + g * (1.0 - src_a);
+                b = src_b * src_a + b * (1.0 - src_a);
+                a = src_a + a * (1.0 - src_a);
+            }
+        }
+
+        [
+            (r + 0.5).min(255.0) as u8,
+            (g + 0.5).min(255.0) as u8,
+            (b + 0.5).min(255.0) as u8,
+        ]
+    }
+
     pub fn stroke_begin(&mut self, layer: u32, x: f32, y: f32, pressure: f32) {
         if let Some(l) = self.layers.get_mut(layer as usize) {
             brush::stroke_begin(l, &mut self.stroke_state, &self.brush, x, y, pressure);
@@ -116,6 +153,45 @@ mod tests {
         // Out of bounds
         assert!(!canvas.remove_layer(99));
         assert_eq!(canvas.layers.len(), 2);
+    }
+
+    #[test]
+    fn test_sample_color_background_only() {
+        let canvas = Canvas::new(10, 10);
+        // No layers — should return the background color (white)
+        let c = canvas.sample_color(5, 5);
+        assert_eq!(c, [255, 255, 255]);
+    }
+
+    #[test]
+    fn test_sample_color_with_opaque_layer() {
+        let mut canvas = Canvas::new(10, 10);
+        canvas.add_layer();
+        {
+            let layer = canvas.layer_mut(0).unwrap();
+            let px = layer.pixel_mut(3, 3).unwrap();
+            *px = [255, 0, 0, 255]; // opaque red
+        }
+        let c = canvas.sample_color(3, 3);
+        assert_eq!(c, [255, 0, 0]);
+
+        // Transparent pixel should show background
+        let c2 = canvas.sample_color(0, 0);
+        assert_eq!(c2, [255, 255, 255]);
+    }
+
+    #[test]
+    fn test_sample_color_invisible_layer_ignored() {
+        let mut canvas = Canvas::new(10, 10);
+        canvas.add_layer();
+        {
+            let layer = canvas.layer_mut(0).unwrap();
+            let px = layer.pixel_mut(3, 3).unwrap();
+            *px = [255, 0, 0, 255];
+            layer.visible = false;
+        }
+        let c = canvas.sample_color(3, 3);
+        assert_eq!(c, [255, 255, 255]); // background shows through
     }
 
     #[test]

@@ -35,6 +35,7 @@ export function App() {
         transform={transform}
         pan={pan}
         zoom={zoom}
+        onColorPick={setForeground}
       />
 
       {/* Right panel */}

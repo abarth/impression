@@ -131,6 +131,19 @@ impl ImpressionCanvas {
         self.inner.stroke_end();
     }
 
+    /// Sample the composited color at (x, y). Returns [R, G, B].
+    pub fn sample_color_r(&self, x: u32, y: u32) -> u8 {
+        self.inner.sample_color(x, y)[0]
+    }
+
+    pub fn sample_color_g(&self, x: u32, y: u32) -> u8 {
+        self.inner.sample_color(x, y)[1]
+    }
+
+    pub fn sample_color_b(&self, x: u32, y: u32) -> u8 {
+        self.inner.sample_color(x, y)[2]
+    }
+
     /// Get canvas width.
     pub fn width(&self) -> u32 {
         self.inner.width

@@ -10,12 +10,14 @@ interface CanvasViewportProps {
   transform: ViewTransform;
   pan: (dx: number, dy: number) => void;
   zoom: (delta: number, cx: number, cy: number) => void;
+  onColorPick?: (hex: string) => void;
 }
 
 const cursorMap: Record<Tool, string> = {
   brush: "crosshair",
   pan: "grab",
   zoom: "zoom-in",
+  eyedropper: "crosshair",
 };
 
 export function CanvasViewport({
@@ -25,6 +27,7 @@ export function CanvasViewport({
   transform,
   pan,
   zoom,
+  onColorPick,
 }: CanvasViewportProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const dragStart = useRef<{ x: number; y: number } | null>(null);
@@ -60,7 +63,12 @@ export function CanvasViewport({
     const handlePointerDown = (e: PointerEvent) => {
       const tool = toolRef.current;
 
-      if (tool === "brush" && engine) {
+      if (tool === "eyedropper" && engine && onColorPick) {
+        const { x, y } = screenToCanvas(e.clientX, e.clientY);
+        const [r, g, b] = engine.sampleColor(x, y);
+        const hex = `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
+        onColorPick(hex);
+      } else if (tool === "brush" && engine) {
         viewport.setPointerCapture(e.pointerId);
         const { x, y } = screenToCanvas(e.clientX, e.clientY);
         engine.strokeBegin(
@@ -134,7 +142,7 @@ export function CanvasViewport({
       viewport.removeEventListener("pointerup", handlePointerUp);
       viewport.removeEventListener("wheel", handleWheel);
     };
-  }, [engine, screenToCanvas, toViewportLocal, pan, zoom]);
+  }, [engine, screenToCanvas, toViewportLocal, pan, zoom, onColorPick]);
 
   // Resize canvas to fill the viewport
   useEffect(() => {

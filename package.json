@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build:wasm": "cd crates/impression-core && wasm-pack build --target web --out-dir ../../src/wasm",
-    "dev": "npm run build:wasm && vite",
+    "dev": "vite",
     "build": "npm run build:wasm && vite build",
     "test": "vitest run",
     "test:rust": "cd crates/impression-core && cargo test",

@@ -117,4 +117,14 @@ export class Engine {
   setBackgroundColor(r: number, g: number, b: number): void {
     this.canvas.set_background_color(r, g, b);
   }
+
+  sampleColor(x: number, y: number): [number, number, number] {
+    const ix = Math.floor(x);
+    const iy = Math.floor(y);
+    return [
+      this.canvas.sample_color_r(ix, iy),
+      this.canvas.sample_color_g(ix, iy),
+      this.canvas.sample_color_b(ix, iy),
+    ];
+  }
 }

@@ -113,4 +113,43 @@ describe("useTool keyboard shortcuts", () => {
     act(() => result.current.selectTool("zoom"));
     expect(result.current.activeTool).toBe("zoom");
   });
+
+  it("should switch to eyedropper on I key", () => {
+    const { result } = renderHook(() => useTool());
+    act(() => fireKeyDown("i"));
+    expect(result.current.activeTool).toBe("eyedropper");
+  });
+
+  it("should temporarily switch to eyedropper on Alt while on brush", () => {
+    const { result } = renderHook(() => useTool());
+    expect(result.current.activeTool).toBe("brush");
+
+    act(() => fireKeyDown("Alt"));
+    expect(result.current.activeTool).toBe("eyedropper");
+
+    act(() => fireKeyUp("Alt"));
+    expect(result.current.activeTool).toBe("brush");
+  });
+
+  it("should temporarily switch to zoom on Alt while on pan", () => {
+    const { result } = renderHook(() => useTool());
+    act(() => fireKeyDown("h")); // switch to pan
+    expect(result.current.activeTool).toBe("pan");
+
+    act(() => fireKeyDown("Alt"));
+    expect(result.current.activeTool).toBe("zoom");
+
+    act(() => fireKeyUp("Alt"));
+    expect(result.current.activeTool).toBe("pan");
+  });
+
+  it("should not change tool on Alt when no modifier mapping exists", () => {
+    const { result } = renderHook(() => useTool());
+    act(() => fireKeyDown("z")); // switch to zoom
+    expect(result.current.activeTool).toBe("zoom");
+
+    act(() => fireKeyDown("Alt"));
+    // No mapping for zoom+Alt, should stay on zoom
+    expect(result.current.activeTool).toBe("zoom");
+  });
 });

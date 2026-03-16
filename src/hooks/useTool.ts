@@ -1,13 +1,24 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 
-export type Tool = "brush" | "pan" | "zoom";
+export type Tool = "brush" | "pan" | "zoom" | "eyedropper";
 
 const KEY_TO_TOOL: Record<string, Tool> = {
   b: "brush",
   h: "pan",
   z: "zoom",
+  i: "eyedropper",
 };
 
+/** Context-dependent temporary tool overrides for modifier keys.
+ *  Maps (modifier key, current tool) → temporary tool. */
+const MODIFIER_TEMP_TOOLS: Record<string, Partial<Record<Tool, Tool>>> = {
+  Alt: {
+    brush: "eyedropper",
+    pan: "zoom",
+  },
+};
+
+/** Simple temporary tool keys (not context-dependent). */
 const TEMP_TOOL_KEYS: Record<string, Tool> = {
   " ": "pan",
 };
@@ -36,9 +47,23 @@ export function useTool() {
       // Ignore repeated keydown events from key being held
       if (e.repeat) return;
 
-      const key = e.key.toLowerCase();
+      // Context-dependent modifier keys (Alt/Option)
+      const modifierMap = MODIFIER_TEMP_TOOLS[e.key];
+      if (modifierMap && !tempKeyHeld.current) {
+        setActiveTool((current) => {
+          const targetTool = modifierMap[current];
+          if (targetTool && current !== targetTool) {
+            e.preventDefault();
+            tempKeyHeld.current = e.key;
+            previousTool.current = current;
+            return targetTool;
+          }
+          return current;
+        });
+        return;
+      }
 
-      // Temporary tool activation (hold key)
+      // Simple temporary tool activation (hold key)
       if (TEMP_TOOL_KEYS[e.key] && !tempKeyHeld.current) {
         e.preventDefault();
         tempKeyHeld.current = e.key;
@@ -53,6 +78,7 @@ export function useTool() {
       }
 
       // Permanent tool switch (press key)
+      const key = e.key.toLowerCase();
       const tool = KEY_TO_TOOL[key];
       if (tool) {
         e.preventDefault();
