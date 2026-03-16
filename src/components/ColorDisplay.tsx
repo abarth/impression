@@ -27,7 +27,7 @@ function ColorSwatch({
         <button
           aria-label={label}
           title={label}
-          className={`rounded-[10px] shadow-soft border-2 border-graphite-700
+          className={`rounded-[10px] shadow-soft border-2 border-graphite-750
             hover:border-cream-muted hover:scale-105
             transition-all duration-150 ease-out cursor-pointer ${className}`}
           style={{ backgroundColor: color }}
@@ -37,11 +37,11 @@ function ColorSwatch({
         <Popover.Content
           side="left"
           sideOffset={12}
-          className="z-50 rounded-xl bg-graphite-850 border border-graphite-700
-            p-3.5 shadow-panel animate-in fade-in-0 zoom-in-95 duration-150"
+          className="z-50 rounded-xl bg-graphite-900 border border-graphite-750
+            p-3.5 shadow-panel"
         >
           <HexColorPicker color={color} onChange={onChange} />
-          <Popover.Arrow className="fill-graphite-700" />
+          <Popover.Arrow className="fill-graphite-750" />
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>
@@ -56,15 +56,12 @@ export function ColorDisplay({
   onSwap,
 }: ColorDisplayProps) {
   return (
-    <div
-      className="flex flex-col gap-3 px-4 py-5"
-      style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}
-    >
+    <div className="flex flex-col gap-3 px-4 py-4 border-t border-graphite-850">
       <h3 className="text-[11px] font-medium text-cream-muted tracking-wide uppercase">
         Color
       </h3>
 
-      {/* Overlapping swatches — FG in front, BG behind, like classic design */}
+      {/* Overlapping swatches — FG in front, BG behind */}
       <div className="flex items-end gap-3">
         <div className="relative w-16 h-14">
           {/* Background swatch — positioned behind */}

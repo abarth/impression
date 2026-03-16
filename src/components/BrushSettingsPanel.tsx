@@ -14,7 +14,7 @@ export function BrushSettingsPanel({
   onUpdate,
 }: BrushSettingsPanelProps) {
   return (
-    <div className="flex flex-col gap-4 px-4 py-5">
+    <div className="flex flex-col gap-4 px-4 pt-4 pb-5">
       <h3 className="text-[11px] font-medium text-cream-muted tracking-wide uppercase">
         Brush
       </h3>

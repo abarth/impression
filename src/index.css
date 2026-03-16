@@ -1,37 +1,39 @@
 @import "tailwindcss";
 
 @theme {
-  /* Soft Graphite palette — warm grays with brown undertones */
-  --color-graphite-950: #1c1a18;
-  --color-graphite-900: #252220;
-  --color-graphite-850: #2c2926;
-  --color-graphite-800: #35312d;
-  --color-graphite-700: #443f3a;
-  --color-graphite-600: #5a544d;
-  --color-graphite-500: #78716a;
-  --color-graphite-400: #9c9590;
-  --color-graphite-300: #beb8b2;
-  --color-graphite-200: #d6d0ca;
-  --color-graphite-100: #eae6e1;
-  --color-graphite-50: #f5f2ee;
+  /*
+   * Soft Graphite palette — warm grays with visible brown undertones.
+   * The base panel color (graphite-900) is lifted to ~18% luminance so
+   * the warmth reads clearly on uncalibrated monitors. The canvas
+   * surround (graphite-950) is darker to create clear separation.
+   */
+  --color-graphite-950: #242020;
+  --color-graphite-900: #302b28;
+  --color-graphite-850: #3a3430;
+  --color-graphite-800: #453e39;
+  --color-graphite-750: #504843;
+  --color-graphite-700: #5c534d;
+  --color-graphite-600: #736960;
+  --color-graphite-500: #8d8278;
+  --color-graphite-400: #a89d94;
+  --color-graphite-300: #c4bab2;
+  --color-graphite-200: #dad3cc;
+  --color-graphite-100: #ece8e3;
+  --color-graphite-50: #f7f4f1;
 
-  /* Cream accent for text */
-  --color-cream: #f0ebe4;
-  --color-cream-dim: #c8c1b8;
-  --color-cream-muted: #9e978e;
+  /* Cream text tones */
+  --color-cream: #f2ede6;
+  --color-cream-dim: #cdc5bb;
+  --color-cream-muted: #a59c93;
 
-  /* Warm highlight */
+  /* Warm accent for focus rings and highlights */
   --color-warm-accent: #c4a882;
 
-  /* Soft shadow */
-  --shadow-panel: 0 1px 4px rgba(0, 0, 0, 0.25), 0 0 1px rgba(0, 0, 0, 0.15);
-  --shadow-soft: 0 1px 3px rgba(0, 0, 0, 0.2);
-  --shadow-inset: inset 0 1px 2px rgba(0, 0, 0, 0.2);
-
-  /* Border radius */
-  --radius-panel: 0px;
-  --radius-control: 8px;
-  --radius-button: 10px;
+  /* Shadows — warm-tinted for cohesion */
+  --shadow-panel: 0 2px 8px rgba(30, 20, 10, 0.35),
+    0 0 1px rgba(30, 20, 10, 0.2);
+  --shadow-soft: 0 1px 3px rgba(30, 20, 10, 0.3);
+  --shadow-inset: inset 0 1px 3px rgba(30, 20, 10, 0.35);
 
   /* Font */
   --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
@@ -65,18 +67,18 @@ body,
 }
 
 .react-colorful__saturation {
-  border-radius: 6px !important;
+  border-radius: 8px !important;
   border-bottom: none !important;
 }
 
 .react-colorful__hue {
   height: 14px !important;
   border-radius: 7px !important;
-  margin-top: 10px !important;
+  margin-top: 12px !important;
 }
 
 .react-colorful__pointer {
   width: 18px !important;
   height: 18px !important;
-  border-width: 2px !important;
+  border-width: 2.5px !important;
 }

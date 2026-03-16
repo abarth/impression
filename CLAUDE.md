@@ -20,19 +20,19 @@ A WebGPU painting application with a Rust/WASM drawing engine and React UI.
 
 The UI follows the **Soft Graphite** design language — a warm, muted dark theme inspired by paper and pencil. Key principles:
 
-- **Warm grays** with brown undertones (not blue-gray). Palette defined as `graphite-50` through `graphite-950` in the Tailwind theme.
+- **Warm grays** with visible brown undertones (not blue-gray). Palette defined as `graphite-50` through `graphite-950` in `src/index.css` `@theme` block. The base panel color (`graphite-900` = `#302b28`) is set at ~18% luminance so the warmth reads clearly on uncalibrated monitors.
 - **Cream text** tones (`cream`, `cream-dim`, `cream-muted`) instead of pure white/gray.
 - **Rounded corners** throughout (10px buttons, 8px controls, rounded-lg panels).
-- **Soft shadows** (`shadow-soft`, `shadow-panel`) instead of hard borders for depth.
-- **Generous padding** — panels use `px-4 py-5`, controls have `gap-3.5` spacing.
-- **Subtle dividers** — `rgba(255,255,255,0.05)` inset borders, no hard colored borders.
-- **Thick slider tracks** (6px) with large 16px thumbs that scale on hover.
+- **Soft shadows** (`shadow-soft`, `shadow-panel`, `shadow-inset`) with warm-tinted `rgba(30, 20, 10, ...)` instead of pure black `rgba(0, 0, 0, ...)`. Preferred over hard borders for visual depth.
+- **Generous padding** — panels use `px-4 py-4`/`pt-4 pb-5`, controls have `gap-3.5` spacing.
+- **Panel dividers** — `border-t border-graphite-850` between sections. Sidebar edges use `border-l`/`border-r border-graphite-850`.
+- **Thick slider tracks** (6px) with inset shadow, large 16px thumbs that scale on hover.
 - **Overlapping color swatches** — FG (larger, front) overlaps BG (smaller, behind).
 - **150ms transitions** with `ease-out` for smooth, tactile interactions.
-- **Section headers** — 11px, medium weight, cream-muted, wide tracking, uppercase.
+- **Section headers** — 11px, medium weight, `text-cream-muted`, wide tracking, uppercase.
 - The aesthetic keeps the interface quiet so the artwork takes center stage.
 
-When modifying or adding UI components, follow these patterns. Use the `graphite-*` and `cream-*` color tokens. Prefer `shadow-soft` over borders. Use `transition-all duration-150 ease-out` for interactive states.
+When modifying or adding UI components, follow these patterns. Use the `graphite-*` and `cream-*` color tokens. Prefer `shadow-soft` over borders. Use `transition-all duration-150 ease-out` for interactive states. Use `border-graphite-850` for dividers between panel sections.
 
 ### Data flow
 

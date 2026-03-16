@@ -38,10 +38,7 @@ export function App() {
       />
 
       {/* Right panel */}
-      <div
-        className="flex flex-col w-56 bg-graphite-900 overflow-y-auto"
-        style={{ boxShadow: "inset 1px 0 0 rgba(255,255,255,0.04)" }}
-      >
+      <div className="flex flex-col w-56 bg-graphite-900 border-l border-graphite-850 overflow-y-auto">
         <BrushSettingsPanel settings={settings} onUpdate={updateSetting} />
         <ColorDisplay
           foreground={colors.foreground}

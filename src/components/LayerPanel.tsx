@@ -17,10 +17,7 @@ export function LayerPanel({
   onSelect,
 }: LayerPanelProps) {
   return (
-    <div
-      className="flex flex-col gap-2 px-4 py-5 flex-1"
-      style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}
-    >
+    <div className="flex flex-col gap-2 px-4 py-4 flex-1 border-t border-graphite-850">
       <div className="flex items-center justify-between">
         <h3 className="text-[11px] font-medium text-cream-muted tracking-wide uppercase">
           Layers
@@ -59,7 +56,7 @@ export function LayerPanel({
                 text-left text-[12px] transition-all duration-150 cursor-pointer
                 ${
                   isActive
-                    ? "bg-graphite-700/70 text-cream shadow-soft"
+                    ? "bg-graphite-800 text-cream shadow-soft"
                     : "text-cream-dim hover:bg-graphite-850"
                 }`}
             >
