@@ -88,9 +88,9 @@ export function CanvasViewport({
         dragStart.current = { x: e.clientX, y: e.clientY };
         pan(dx, dy);
       } else if (tool === "zoom" && dragStart.current) {
-        const dy = e.clientY - dragStart.current.y;
+        const dx = e.clientX - dragStart.current.x;
         dragStart.current = { x: e.clientX, y: e.clientY };
-        zoom(dy, e.clientX, e.clientY);
+        zoom(-dx, e.clientX, e.clientY);
       }
     };
 
