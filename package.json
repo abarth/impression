@@ -1,0 +1,24 @@
+{
+  "name": "impression",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:wasm": "cd crates/impression-core && wasm-pack build --target web --out-dir ../../src/wasm",
+    "dev": "npm run build:wasm && vite",
+    "build": "npm run build:wasm && vite build",
+    "test": "vitest run",
+    "test:rust": "cd crates/impression-core && cargo test",
+    "test:all": "npm run test:rust && npm run test"
+  },
+  "devDependencies": {
+    "@vitest/browser": "^3.0.0",
+    "@webgpu/types": "^0.1.69",
+    "happy-dom": "^16.0.0",
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0",
+    "vite-plugin-top-level-await": "^1.4.0",
+    "vite-plugin-wasm": "^3.3.0",
+    "vitest": "^3.0.0"
+  }
+}

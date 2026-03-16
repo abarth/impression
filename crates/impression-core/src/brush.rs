@@ -1,0 +1,312 @@
+use crate::color::{blend_pixel, Color};
+use crate::layer::Layer;
+
+#[derive(Clone, Debug)]
+pub struct BrushSettings {
+    /// Base diameter in pixels.
+    pub size: f32,
+    /// Distance between stamp centers as a fraction of size (e.g., 0.25 = 25% of diameter).
+    pub spacing: f32,
+    /// Brush color.
+    pub color: Color,
+    /// Opacity of the entire stroke (0.0 - 1.0).
+    pub opacity: f32,
+    /// Per-stamp alpha (0.0 - 1.0).
+    pub flow: f32,
+}
+
+impl Default for BrushSettings {
+    fn default() -> Self {
+        Self {
+            size: 10.0,
+            spacing: 0.25,
+            color: Color::black(),
+            opacity: 1.0,
+            flow: 1.0,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct StrokeState {
+    pub active: bool,
+    pub last_point: Option<(f32, f32, f32)>, // x, y, pressure
+    pub residual_distance: f32,
+}
+
+impl StrokeState {
+    pub fn new() -> Self {
+        Self {
+            active: false,
+            last_point: None,
+            residual_distance: 0.0,
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.active = false;
+        self.last_point = None;
+        self.residual_distance = 0.0;
+    }
+}
+
+/// Draw a filled circle (stamp) onto the layer at the given center with given radius and alpha.
+pub fn stamp_circle(layer: &mut Layer, cx: f32, cy: f32, radius: f32, color: Color, alpha: f32) {
+    if radius <= 0.0 || alpha <= 0.0 {
+        return;
+    }
+
+    let r = radius;
+    let x_min = ((cx - r - 1.0).floor().max(0.0)) as u32;
+    let y_min = ((cy - r - 1.0).floor().max(0.0)) as u32;
+    let x_max = ((cx + r + 1.0).ceil()).min(layer.width as f32 - 1.0) as u32;
+    let y_max = ((cy + r + 1.0).ceil()).min(layer.height as f32 - 1.0) as u32;
+
+    for py in y_min..=y_max {
+        for px in x_min..=x_max {
+            let dx = px as f32 + 0.5 - cx;
+            let dy = py as f32 + 0.5 - cy;
+            let dist = (dx * dx + dy * dy).sqrt();
+
+            if dist > r + 0.5 {
+                continue;
+            }
+
+            // Anti-aliased edge: smoothstep from r-0.5 to r+0.5
+            let edge_alpha = if dist < r - 0.5 {
+                1.0
+            } else {
+                let t = (r + 0.5 - dist).clamp(0.0, 1.0);
+                t * t * (3.0 - 2.0 * t) // smoothstep
+            };
+
+            let final_alpha = alpha * edge_alpha;
+            if let Some(pixel) = layer.pixel_mut(px, py) {
+                blend_pixel(pixel, color, final_alpha);
+            }
+        }
+    }
+    layer.dirty = true;
+}
+
+/// Interpolate points along a segment and stamp circles.
+/// Returns the residual distance for the next segment.
+pub fn interpolate_and_stamp(
+    layer: &mut Layer,
+    x0: f32,
+    y0: f32,
+    p0: f32,
+    x1: f32,
+    y1: f32,
+    p1: f32,
+    brush: &BrushSettings,
+    residual: f32,
+) -> f32 {
+    let dx = x1 - x0;
+    let dy = y1 - y0;
+    let segment_len = (dx * dx + dy * dy).sqrt();
+
+    if segment_len < 0.001 {
+        return residual;
+    }
+
+    let step = (brush.spacing * brush.size).max(1.0);
+    let mut dist = residual;
+
+    while dist <= segment_len {
+        let t = dist / segment_len;
+        let x = x0 + dx * t;
+        let y = y0 + dy * t;
+        let pressure = p0 + (p1 - p0) * t;
+
+        let radius = (brush.size * pressure) / 2.0;
+        stamp_circle(layer, x, y, radius, brush.color, brush.flow);
+        dist += step;
+    }
+
+    dist - segment_len
+}
+
+/// Begin a stroke at the given position.
+pub fn stroke_begin(
+    layer: &mut Layer,
+    state: &mut StrokeState,
+    brush: &BrushSettings,
+    x: f32,
+    y: f32,
+    pressure: f32,
+) {
+    state.active = true;
+    state.last_point = Some((x, y, pressure));
+    state.residual_distance = 0.0;
+
+    // Stamp at the initial point
+    let radius = (brush.size * pressure) / 2.0;
+    stamp_circle(layer, x, y, radius, brush.color, brush.flow);
+}
+
+/// Continue a stroke to the given position.
+pub fn stroke_move(
+    layer: &mut Layer,
+    state: &mut StrokeState,
+    brush: &BrushSettings,
+    x: f32,
+    y: f32,
+    pressure: f32,
+) {
+    if !state.active {
+        return;
+    }
+
+    if let Some((lx, ly, lp)) = state.last_point {
+        let residual = interpolate_and_stamp(
+            layer,
+            lx,
+            ly,
+            lp,
+            x,
+            y,
+            pressure,
+            brush,
+            state.residual_distance,
+        );
+        state.residual_distance = residual;
+    }
+
+    state.last_point = Some((x, y, pressure));
+}
+
+/// End the current stroke.
+pub fn stroke_end(state: &mut StrokeState) {
+    state.reset();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_stamp_circle_center_pixel() {
+        let mut layer = Layer::new(10, 10);
+        stamp_circle(&mut layer, 5.0, 5.0, 2.0, Color::new(255, 0, 0), 1.0);
+
+        // Center pixel should be fully red
+        let px = layer.pixel(5, 5).unwrap();
+        assert_eq!(px[0], 255);
+        assert_eq!(px[1], 0);
+        assert_eq!(px[2], 0);
+        assert_eq!(px[3], 255);
+        assert!(layer.dirty);
+    }
+
+    #[test]
+    fn test_stamp_circle_outside_is_transparent() {
+        let mut layer = Layer::new(10, 10);
+        stamp_circle(&mut layer, 5.0, 5.0, 1.0, Color::new(255, 0, 0), 1.0);
+
+        // Far corner should be transparent
+        let px = layer.pixel(0, 0).unwrap();
+        assert_eq!(px[3], 0);
+    }
+
+    #[test]
+    fn test_interpolation_spacing() {
+        let mut layer = Layer::new(100, 10);
+        let brush = BrushSettings {
+            size: 4.0,
+            spacing: 0.25, // step = 1.0 pixel
+            color: Color::black(),
+            opacity: 1.0,
+            flow: 1.0,
+        };
+
+        // Draw a horizontal line of 10 pixels
+        let residual = interpolate_and_stamp(&mut layer, 0.0, 5.0, 1.0, 10.0, 5.0, 1.0, &brush, 0.0);
+        assert!(residual >= 0.0);
+        // step=1.0, segment=10.0, stamps at 0,1,...,10 -> next at 11, residual=1.0
+        assert!(residual <= 1.01, "residual={residual}");
+
+        // Check that there are stamps along the line
+        // With step=1.0 and segment_len=10.0, we should get stamps at t=0,1,2,...,10
+        let px = layer.pixel(5, 5).unwrap();
+        assert!(px[3] > 0, "Should have drawn at midpoint");
+    }
+
+    #[test]
+    fn test_stroke_lifecycle() {
+        let mut layer = Layer::new(50, 50);
+        let mut state = StrokeState::new();
+        let brush = BrushSettings::default();
+
+        stroke_begin(&mut layer, &mut state, &brush, 10.0, 10.0, 1.0);
+        assert!(state.active);
+        assert!(layer.dirty);
+
+        stroke_move(&mut layer, &mut state, &brush, 20.0, 10.0, 1.0);
+        assert!(state.active);
+
+        stroke_end(&mut state);
+        assert!(!state.active);
+        assert!(state.last_point.is_none());
+    }
+
+    #[test]
+    fn test_pressure_affects_radius() {
+        let mut layer_full = Layer::new(20, 20);
+        let mut layer_half = Layer::new(20, 20);
+
+        // Full pressure stamp
+        stamp_circle(&mut layer_full, 10.0, 10.0, 5.0, Color::black(), 1.0);
+
+        // Half pressure stamp (radius 2.5)
+        stamp_circle(&mut layer_half, 10.0, 10.0, 2.5, Color::black(), 1.0);
+
+        // Count non-transparent pixels
+        let count_full: usize = (0..20)
+            .flat_map(|y| (0..20).map(move |x| (x, y)))
+            .filter(|&(x, y)| layer_full.pixel(x, y).unwrap()[3] > 0)
+            .count();
+
+        let count_half: usize = (0..20)
+            .flat_map(|y| (0..20).map(move |x| (x, y)))
+            .filter(|&(x, y)| layer_half.pixel(x, y).unwrap()[3] > 0)
+            .count();
+
+        assert!(count_full > count_half, "Full pressure should cover more pixels");
+    }
+
+    #[test]
+    fn test_flow_affects_alpha() {
+        let mut layer = Layer::new(10, 10);
+        stamp_circle(&mut layer, 5.0, 5.0, 3.0, Color::black(), 0.5);
+
+        let px = layer.pixel(5, 5).unwrap();
+        // With flow=0.5, center alpha should be about 128
+        assert!((px[3] as f32 - 128.0).abs() < 2.0);
+    }
+
+    #[test]
+    fn test_stamp_circle_zero_radius_noop() {
+        let mut layer = Layer::new(10, 10);
+        stamp_circle(&mut layer, 5.0, 5.0, 0.0, Color::black(), 1.0);
+        assert!(!layer.dirty);
+    }
+
+    #[test]
+    fn test_residual_distance_carries_over() {
+        let mut layer = Layer::new(100, 10);
+        let brush = BrushSettings {
+            size: 10.0,
+            spacing: 0.5, // step = 5.0 pixels
+            ..Default::default()
+        };
+
+        // First segment: 7 pixels long, step=5, stamps at 0 and 5, next at 10 -> residual=10-7=3
+        let residual = interpolate_and_stamp(&mut layer, 0.0, 5.0, 1.0, 7.0, 5.0, 1.0, &brush, 0.0);
+        assert!((residual - 3.0).abs() < 0.01, "residual should be ~3.0, got {}", residual);
+
+        // Second segment: 7 pixels, starting with residual=3, stamp at 3, next at 8 -> residual=8-7=1
+        let residual2 = interpolate_and_stamp(&mut layer, 7.0, 5.0, 1.0, 14.0, 5.0, 1.0, &brush, residual);
+        assert!((residual2 - 1.0).abs() < 0.01, "residual should be ~1.0, got {}", residual2);
+    }
+}
