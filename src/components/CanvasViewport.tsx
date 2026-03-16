@@ -3,6 +3,14 @@ import type { Engine } from "../engine";
 import type { Tool } from "../hooks/useTool";
 import type { ViewTransform } from "../hooks/useViewTransform";
 
+/** Selection combine mode based on modifier keys (matches Photoshop). */
+function getCombineMode(e: PointerEvent): number {
+  if (e.shiftKey && e.altKey) return 3; // intersect
+  if (e.shiftKey) return 1; // add
+  if (e.altKey) return 2; // subtract
+  return 0; // replace
+}
+
 interface CanvasViewportProps {
   canvasRef: RefObject<HTMLCanvasElement | null>;
   engine: Engine | null;
@@ -18,6 +26,8 @@ const cursorMap: Record<Tool, string> = {
   pan: "grab",
   zoom: "zoom-in",
   eyedropper: "crosshair",
+  marquee: "crosshair",
+  lasso: "crosshair",
 };
 
 export function CanvasViewport({
@@ -32,6 +42,9 @@ export function CanvasViewport({
   const viewportRef = useRef<HTMLDivElement>(null);
   const dragStart = useRef<{ x: number; y: number } | null>(null);
   const zoomAnchor = useRef<{ x: number; y: number } | null>(null);
+  const marqueeStart = useRef<{ x: number; y: number } | null>(null);
+  const marqueeMode = useRef<number>(0);
+  const lassoMode = useRef<number>(0);
   const toolRef = useRef(activeTool);
   toolRef.current = activeTool;
 
@@ -68,6 +81,17 @@ export function CanvasViewport({
         const [r, g, b] = engine.sampleColor(x, y);
         const hex = `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
         onColorPick(hex);
+      } else if (tool === "marquee" && engine) {
+        viewport.setPointerCapture(e.pointerId);
+        const { x, y } = screenToCanvas(e.clientX, e.clientY);
+        marqueeStart.current = { x, y };
+        marqueeMode.current = getCombineMode(e);
+      } else if (tool === "lasso" && engine) {
+        viewport.setPointerCapture(e.pointerId);
+        lassoMode.current = getCombineMode(e);
+        engine.selectionLassoBegin();
+        const { x, y } = screenToCanvas(e.clientX, e.clientY);
+        engine.selectionLassoPoint(x, y);
       } else if (tool === "brush" && engine) {
         viewport.setPointerCapture(e.pointerId);
         const { x, y } = screenToCanvas(e.clientX, e.clientY);
@@ -90,7 +114,13 @@ export function CanvasViewport({
       if (e.buttons === 0) return;
       const tool = toolRef.current;
 
-      if (tool === "brush" && engine) {
+      if (tool === "lasso" && engine) {
+        const events = e.getCoalescedEvents?.() ?? [e];
+        for (const ce of events) {
+          const { x, y } = screenToCanvas(ce.clientX, ce.clientY);
+          engine.selectionLassoPoint(x, y);
+        }
+      } else if (tool === "brush" && engine) {
         const events = e.getCoalescedEvents?.() ?? [e];
         for (const ce of events) {
           const { x, y } = screenToCanvas(ce.clientX, ce.clientY);
@@ -113,8 +143,31 @@ export function CanvasViewport({
       }
     };
 
-    const handlePointerUp = (_e: PointerEvent) => {
-      if (toolRef.current === "brush" && engine) {
+    const handlePointerUp = (e: PointerEvent) => {
+      const tool = toolRef.current;
+
+      if (tool === "marquee" && engine && marqueeStart.current) {
+        const { x, y } = screenToCanvas(e.clientX, e.clientY);
+        const sx = marqueeStart.current.x;
+        const sy = marqueeStart.current.y;
+        // Normalize rectangle (handle drag in any direction)
+        const rx = Math.floor(Math.min(sx, x));
+        const ry = Math.floor(Math.min(sy, y));
+        const rw = Math.ceil(Math.abs(x - sx));
+        const rh = Math.ceil(Math.abs(y - sy));
+        if (rw > 0 && rh > 0) {
+          engine.selectionRect(
+            Math.max(0, rx),
+            Math.max(0, ry),
+            rw,
+            rh,
+            marqueeMode.current,
+          );
+        }
+        marqueeStart.current = null;
+      } else if (tool === "lasso" && engine) {
+        engine.selectionLassoEnd(lassoMode.current);
+      } else if (tool === "brush" && engine) {
         engine.strokeEnd();
       }
       dragStart.current = null;

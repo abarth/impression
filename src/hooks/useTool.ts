@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 
-export type Tool = "brush" | "pan" | "zoom" | "eyedropper";
+export type Tool = "brush" | "pan" | "zoom" | "eyedropper" | "marquee" | "lasso";
 
 /** Permanent/spring-loaded tool keys. Tap to switch permanently,
  *  hold (>200ms) to switch temporarily. */
@@ -9,6 +9,8 @@ const KEY_TO_TOOL: Record<string, Tool> = {
   h: "pan",
   z: "zoom",
   i: "eyedropper",
+  m: "marquee",
+  l: "lasso",
 };
 
 /** Modifier keys that always act as temporary overrides.

@@ -1,4 +1,5 @@
 import compositeShaderSource from "../shaders/composite.wgsl?raw";
+import selectionShaderSource from "../shaders/selection.wgsl?raw";
 
 export interface GPUContext {
   device: GPUDevice;
@@ -10,6 +11,12 @@ export interface GPUContext {
   layerBindGroups: GPUBindGroup[];
   opacityBuffers: GPUBuffer[];
   bindGroupLayout: GPUBindGroupLayout;
+  // Selection overlay
+  selectionPipeline: GPURenderPipeline;
+  selectionBindGroupLayout: GPUBindGroupLayout;
+  selectionTexture: GPUTexture | null;
+  selectionBindGroup: GPUBindGroup | null;
+  selectionTimeBuffer: GPUBuffer;
 }
 
 export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
@@ -96,6 +103,68 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
     minFilter: "nearest",
   });
 
+  // Selection overlay pipeline
+  const selectionBindGroupLayout = device.createBindGroupLayout({
+    entries: [
+      {
+        binding: 0,
+        visibility: GPUShaderStage.FRAGMENT,
+        texture: { sampleType: "float" },
+      },
+      {
+        binding: 1,
+        visibility: GPUShaderStage.FRAGMENT,
+        sampler: { type: "filtering" },
+      },
+      {
+        binding: 2,
+        visibility: GPUShaderStage.FRAGMENT,
+        buffer: { type: "uniform" },
+      },
+    ],
+  });
+
+  const selectionShaderModule = device.createShaderModule({
+    code: selectionShaderSource,
+  });
+
+  const selectionPipeline = device.createRenderPipeline({
+    layout: device.createPipelineLayout({
+      bindGroupLayouts: [selectionBindGroupLayout],
+    }),
+    vertex: {
+      module: selectionShaderModule,
+      entryPoint: "vs",
+    },
+    fragment: {
+      module: selectionShaderModule,
+      entryPoint: "fs",
+      targets: [
+        {
+          format,
+          blend: {
+            color: {
+              srcFactor: "src-alpha",
+              dstFactor: "one-minus-src-alpha",
+              operation: "add",
+            },
+            alpha: {
+              srcFactor: "one",
+              dstFactor: "one-minus-src-alpha",
+              operation: "add",
+            },
+          },
+        },
+      ],
+    },
+    primitive: { topology: "triangle-list" },
+  });
+
+  const selectionTimeBuffer = device.createBuffer({
+    size: 4,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+
   return {
     device,
     context,
@@ -106,6 +175,11 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
     layerBindGroups: [],
     opacityBuffers: [],
     bindGroupLayout,
+    selectionPipeline,
+    selectionBindGroupLayout,
+    selectionTexture: null,
+    selectionBindGroup: null,
+    selectionTimeBuffer,
   };
 }
 
@@ -180,6 +254,54 @@ export function uploadLayerTexture(
     { bytesPerRow: width * 4, rowsPerImage: height },
     { width, height },
   );
+}
+
+export function uploadSelectionTexture(
+  gpu: GPUContext,
+  data: Uint8Array,
+  width: number,
+  height: number,
+): void {
+  // Create or recreate texture if size changed
+  if (
+    !gpu.selectionTexture ||
+    gpu.selectionTexture.width !== width ||
+    gpu.selectionTexture.height !== height
+  ) {
+    if (gpu.selectionTexture) gpu.selectionTexture.destroy();
+
+    gpu.selectionTexture = gpu.device.createTexture({
+      size: { width, height },
+      format: "r8unorm",
+      usage:
+        GPUTextureUsage.TEXTURE_BINDING |
+        GPUTextureUsage.COPY_DST,
+    });
+
+    gpu.selectionBindGroup = gpu.device.createBindGroup({
+      layout: gpu.selectionBindGroupLayout,
+      entries: [
+        { binding: 0, resource: gpu.selectionTexture.createView() },
+        { binding: 1, resource: gpu.sampler },
+        { binding: 2, resource: { buffer: gpu.selectionTimeBuffer } },
+      ],
+    });
+  }
+
+  gpu.device.queue.writeTexture(
+    { texture: gpu.selectionTexture },
+    data as unknown as BufferSource,
+    { bytesPerRow: width, rowsPerImage: height },
+    { width, height },
+  );
+}
+
+export function clearSelectionTexture(gpu: GPUContext): void {
+  if (gpu.selectionTexture) {
+    gpu.selectionTexture.destroy();
+    gpu.selectionTexture = null;
+    gpu.selectionBindGroup = null;
+  }
 }
 
 export function updateLayerOpacity(

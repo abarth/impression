@@ -4,6 +4,7 @@ export interface CompositeOptions {
   backgroundColor: [number, number, number];
   layerCount: number;
   getLayerVisible?: (index: number) => boolean;
+  time?: number;
 }
 
 export function composite(gpu: GPUContext, options: CompositeOptions): void {
@@ -38,6 +39,19 @@ export function composite(gpu: GPUContext, options: CompositeOptions): void {
 
     renderPass.setBindGroup(0, gpu.layerBindGroups[i]);
     renderPass.draw(3, 1, 0, 0); // fullscreen triangle
+  }
+
+  // Selection marching ants overlay
+  if (gpu.selectionBindGroup) {
+    const t = (options.time ?? 0) / 1000; // convert ms to seconds
+    gpu.device.queue.writeBuffer(
+      gpu.selectionTimeBuffer,
+      0,
+      new Float32Array([t]),
+    );
+    renderPass.setPipeline(gpu.selectionPipeline);
+    renderPass.setBindGroup(0, gpu.selectionBindGroup);
+    renderPass.draw(3, 1, 0, 0);
   }
 
   renderPass.end();

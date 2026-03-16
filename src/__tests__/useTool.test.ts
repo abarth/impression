@@ -238,3 +238,33 @@ describe("useTool selectTool (programmatic)", () => {
     expect(result.current.activeTool).toBe("zoom");
   });
 });
+
+describe("useTool selection tool shortcuts", () => {
+  it("should switch to marquee on M key tap", () => {
+    const { result } = renderHook(() => useTool());
+    act(() => {
+      fireKeyDown("m");
+      fireKeyUp("m");
+    });
+    expect(result.current.activeTool).toBe("marquee");
+  });
+
+  it("should switch to lasso on L key tap", () => {
+    const { result } = renderHook(() => useTool());
+    act(() => {
+      fireKeyDown("l");
+      fireKeyUp("l");
+    });
+    expect(result.current.activeTool).toBe("lasso");
+  });
+
+  it("should spring-load marquee tool on M hold", () => {
+    const { result } = renderHook(() => useTool());
+    act(() => fireKeyDown("m"));
+    expect(result.current.activeTool).toBe("marquee");
+
+    act(() => vi.advanceTimersByTime(300));
+    act(() => fireKeyUp("m"));
+    expect(result.current.activeTool).toBe("brush");
+  });
+});

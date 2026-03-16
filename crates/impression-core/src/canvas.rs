@@ -1,6 +1,7 @@
 use crate::brush::{self, BrushSettings, StrokeState};
 use crate::color::Color;
 use crate::layer::Layer;
+use crate::selection::SelectionMask;
 
 pub struct Canvas {
     pub width: u32,
@@ -9,6 +10,8 @@ pub struct Canvas {
     pub brush: BrushSettings,
     pub stroke_state: StrokeState,
     pub background_color: Color,
+    pub selection: Option<SelectionMask>,
+    pub lasso_points: Vec<(f32, f32)>,
 }
 
 impl Canvas {
@@ -20,6 +23,8 @@ impl Canvas {
             brush: BrushSettings::default(),
             stroke_state: StrokeState::new(),
             background_color: Color::white(),
+            selection: None,
+            lasso_points: Vec::new(),
         }
     }
 
@@ -86,14 +91,16 @@ impl Canvas {
     }
 
     pub fn stroke_begin(&mut self, layer: u32, x: f32, y: f32, pressure: f32) {
+        let sel = self.selection.as_ref().map(|s| s.data.as_slice());
         if let Some(l) = self.layers.get_mut(layer as usize) {
-            brush::stroke_begin(l, &mut self.stroke_state, &self.brush, x, y, pressure);
+            brush::stroke_begin(l, &mut self.stroke_state, &self.brush, x, y, pressure, sel);
         }
     }
 
     pub fn stroke_move(&mut self, layer: u32, x: f32, y: f32, pressure: f32) {
+        let sel = self.selection.as_ref().map(|s| s.data.as_slice());
         if let Some(l) = self.layers.get_mut(layer as usize) {
-            brush::stroke_move(l, &mut self.stroke_state, &self.brush, x, y, pressure);
+            brush::stroke_move(l, &mut self.stroke_state, &self.brush, x, y, pressure, sel);
         }
     }
 

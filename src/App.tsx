@@ -5,6 +5,7 @@ import { useTool } from "./hooks/useTool";
 import { useBrushSettings } from "./hooks/useBrushSettings";
 import { useColorState } from "./hooks/useColorState";
 import { useLayerManager } from "./hooks/useLayerManager";
+import { useSelection } from "./hooks/useSelection";
 import { CanvasViewport } from "./components/CanvasViewport";
 import { Toolbar } from "./components/Toolbar";
 import { BrushSettingsPanel } from "./components/BrushSettingsPanel";
@@ -21,6 +22,7 @@ export function App() {
     useColorState(engine);
   const { layers, activeIndex, addLayer, removeLayer, selectLayer } =
     useLayerManager(engine);
+  useSelection(engine);
 
   return (
     <div className="flex h-screen w-screen bg-graphite-950">

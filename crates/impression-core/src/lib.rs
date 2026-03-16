@@ -2,6 +2,7 @@ mod brush;
 mod canvas;
 mod color;
 mod layer;
+mod selection;
 
 use wasm_bindgen::prelude::*;
 
@@ -129,6 +130,94 @@ impl ImpressionCanvas {
 
     pub fn stroke_end(&mut self) {
         self.inner.stroke_end();
+    }
+
+    // -- Selection --
+
+    /// Set selection from a rectangle. mode: 0=replace, 1=add, 2=subtract, 3=intersect.
+    pub fn selection_rect(&mut self, x: u32, y: u32, w: u32, h: u32, mode: u8) {
+        let m = selection::CombineMode::from_u8(mode);
+        if m == selection::CombineMode::Replace || self.inner.selection.is_none() {
+            let mut mask = selection::SelectionMask::new(self.inner.width, self.inner.height);
+            mask.fill_rect(x, y, w, h, selection::CombineMode::Replace);
+            self.inner.selection = Some(mask);
+        } else if let Some(ref mut mask) = self.inner.selection {
+            mask.fill_rect(x, y, w, h, m);
+        }
+    }
+
+    /// Start collecting lasso polygon points.
+    pub fn selection_lasso_begin(&mut self) {
+        self.inner.lasso_points.clear();
+    }
+
+    /// Add a point to the lasso polygon.
+    pub fn selection_lasso_point(&mut self, x: f32, y: f32) {
+        self.inner.lasso_points.push((x, y));
+    }
+
+    /// Close the polygon and rasterize into the selection mask.
+    pub fn selection_lasso_end(&mut self, mode: u8) {
+        let points: Vec<(f32, f32)> = self.inner.lasso_points.drain(..).collect();
+        let m = selection::CombineMode::from_u8(mode);
+        if m == selection::CombineMode::Replace || self.inner.selection.is_none() {
+            let mut mask = selection::SelectionMask::new(self.inner.width, self.inner.height);
+            mask.fill_polygon(&points, selection::CombineMode::Replace);
+            self.inner.selection = Some(mask);
+        } else if let Some(ref mut mask) = self.inner.selection {
+            mask.fill_polygon(&points, m);
+        }
+    }
+
+    /// Select all (fill mask with 255).
+    pub fn select_all(&mut self) {
+        let mut mask = selection::SelectionMask::new_full(self.inner.width, self.inner.height);
+        mask.dirty = true;
+        self.inner.selection = Some(mask);
+    }
+
+    /// Clear the selection.
+    pub fn deselect(&mut self) {
+        self.inner.selection = None;
+    }
+
+    /// Returns true if a selection mask is active.
+    pub fn has_selection(&self) -> bool {
+        self.inner.selection.is_some()
+    }
+
+    /// Pointer to selection mask data for GPU upload.
+    pub fn selection_mask_ptr(&self) -> *const u8 {
+        self.inner
+            .selection
+            .as_ref()
+            .map(|s| s.data.as_ptr())
+            .unwrap_or(std::ptr::null())
+    }
+
+    /// Byte length of selection mask data.
+    pub fn selection_mask_len(&self) -> usize {
+        self.inner
+            .selection
+            .as_ref()
+            .map(|s| s.data.len())
+            .unwrap_or(0)
+    }
+
+    /// Check if selection mask has been modified.
+    pub fn is_selection_dirty(&self) -> bool {
+        self.inner
+            .selection
+            .as_ref()
+            .map(|s| s.dirty)
+            .unwrap_or(false)
+    }
+
+    /// Clear selection dirty flag.
+    pub fn clear_selection_dirty(&mut self) {
+        if let Some(ref mut s) = self.inner.selection {
+            s.dirty = false;
+        }
     }
 
     /// Sample the composited color at (x, y). Returns [R, G, B].

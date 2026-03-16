@@ -51,7 +51,16 @@ impl StrokeState {
 }
 
 /// Draw a filled circle (stamp) onto the layer at the given center with given radius and alpha.
-pub fn stamp_circle(layer: &mut Layer, cx: f32, cy: f32, radius: f32, color: Color, alpha: f32) {
+/// If a selection mask is provided, the stamp is clipped to the selected region.
+pub fn stamp_circle(
+    layer: &mut Layer,
+    cx: f32,
+    cy: f32,
+    radius: f32,
+    color: Color,
+    alpha: f32,
+    selection: Option<&[u8]>,
+) {
     if radius <= 0.0 || alpha <= 0.0 {
         return;
     }
@@ -80,7 +89,11 @@ pub fn stamp_circle(layer: &mut Layer, cx: f32, cy: f32, radius: f32, color: Col
                 t * t * (3.0 - 2.0 * t) // smoothstep
             };
 
-            let final_alpha = alpha * edge_alpha;
+            let selection_alpha = match selection {
+                Some(mask) => mask[(py * layer.width + px) as usize] as f32 / 255.0,
+                None => 1.0,
+            };
+            let final_alpha = alpha * edge_alpha * selection_alpha;
             if let Some(pixel) = layer.pixel_mut(px, py) {
                 blend_pixel(pixel, color, final_alpha);
             }
@@ -101,6 +114,7 @@ pub fn interpolate_and_stamp(
     p1: f32,
     brush: &BrushSettings,
     residual: f32,
+    selection: Option<&[u8]>,
 ) -> f32 {
     let dx = x1 - x0;
     let dy = y1 - y0;
@@ -120,7 +134,7 @@ pub fn interpolate_and_stamp(
 
         let effective_size = brush.size * pressure;
         let radius = effective_size / 2.0;
-        stamp_circle(layer, x, y, radius, brush.color, brush.flow);
+        stamp_circle(layer, x, y, radius, brush.color, brush.flow, selection);
 
         // Spacing is relative to the current circle's effective size
         let step = (brush.spacing * effective_size).max(1.0);
@@ -138,6 +152,7 @@ pub fn stroke_begin(
     x: f32,
     y: f32,
     pressure: f32,
+    selection: Option<&[u8]>,
 ) {
     state.active = true;
     state.last_point = Some((x, y, pressure));
@@ -145,7 +160,7 @@ pub fn stroke_begin(
 
     // Stamp at the initial point
     let radius = (brush.size * pressure) / 2.0;
-    stamp_circle(layer, x, y, radius, brush.color, brush.flow);
+    stamp_circle(layer, x, y, radius, brush.color, brush.flow, selection);
 }
 
 /// Continue a stroke to the given position.
@@ -156,6 +171,7 @@ pub fn stroke_move(
     x: f32,
     y: f32,
     pressure: f32,
+    selection: Option<&[u8]>,
 ) {
     if !state.active {
         return;
@@ -172,6 +188,7 @@ pub fn stroke_move(
             pressure,
             brush,
             state.residual_distance,
+            selection,
         );
         state.residual_distance = residual;
     }
@@ -191,7 +208,7 @@ mod tests {
     #[test]
     fn test_stamp_circle_center_pixel() {
         let mut layer = Layer::new(10, 10);
-        stamp_circle(&mut layer, 5.0, 5.0, 2.0, Color::new(255, 0, 0), 1.0);
+        stamp_circle(&mut layer, 5.0, 5.0, 2.0, Color::new(255, 0, 0), 1.0, None);
 
         // Center pixel should be fully red
         let px = layer.pixel(5, 5).unwrap();
@@ -205,7 +222,7 @@ mod tests {
     #[test]
     fn test_stamp_circle_outside_is_transparent() {
         let mut layer = Layer::new(10, 10);
-        stamp_circle(&mut layer, 5.0, 5.0, 1.0, Color::new(255, 0, 0), 1.0);
+        stamp_circle(&mut layer, 5.0, 5.0, 1.0, Color::new(255, 0, 0), 1.0, None);
 
         // Far corner should be transparent
         let px = layer.pixel(0, 0).unwrap();
@@ -224,7 +241,7 @@ mod tests {
         };
 
         // Draw a horizontal line of 10 pixels
-        let residual = interpolate_and_stamp(&mut layer, 0.0, 5.0, 1.0, 10.0, 5.0, 1.0, &brush, 0.0);
+        let residual = interpolate_and_stamp(&mut layer, 0.0, 5.0, 1.0, 10.0, 5.0, 1.0, &brush, 0.0, None);
         assert!(residual >= 0.0);
         // step=1.0, segment=10.0, stamps at 0,1,...,10 -> next at 11, residual=1.0
         assert!(residual <= 1.01, "residual={residual}");
@@ -241,11 +258,11 @@ mod tests {
         let mut state = StrokeState::new();
         let brush = BrushSettings::default();
 
-        stroke_begin(&mut layer, &mut state, &brush, 10.0, 10.0, 1.0);
+        stroke_begin(&mut layer, &mut state, &brush, 10.0, 10.0, 1.0, None);
         assert!(state.active);
         assert!(layer.dirty);
 
-        stroke_move(&mut layer, &mut state, &brush, 20.0, 10.0, 1.0);
+        stroke_move(&mut layer, &mut state, &brush, 20.0, 10.0, 1.0, None);
         assert!(state.active);
 
         stroke_end(&mut state);
@@ -259,10 +276,10 @@ mod tests {
         let mut layer_half = Layer::new(20, 20);
 
         // Full pressure stamp
-        stamp_circle(&mut layer_full, 10.0, 10.0, 5.0, Color::black(), 1.0);
+        stamp_circle(&mut layer_full, 10.0, 10.0, 5.0, Color::black(), 1.0, None);
 
         // Half pressure stamp (radius 2.5)
-        stamp_circle(&mut layer_half, 10.0, 10.0, 2.5, Color::black(), 1.0);
+        stamp_circle(&mut layer_half, 10.0, 10.0, 2.5, Color::black(), 1.0, None);
 
         // Count non-transparent pixels
         let count_full: usize = (0..20)
@@ -281,7 +298,7 @@ mod tests {
     #[test]
     fn test_flow_affects_alpha() {
         let mut layer = Layer::new(10, 10);
-        stamp_circle(&mut layer, 5.0, 5.0, 3.0, Color::black(), 0.5);
+        stamp_circle(&mut layer, 5.0, 5.0, 3.0, Color::black(), 0.5, None);
 
         let px = layer.pixel(5, 5).unwrap();
         // With flow=0.5, center alpha should be about 128
@@ -291,7 +308,7 @@ mod tests {
     #[test]
     fn test_stamp_circle_zero_radius_noop() {
         let mut layer = Layer::new(10, 10);
-        stamp_circle(&mut layer, 5.0, 5.0, 0.0, Color::black(), 1.0);
+        stamp_circle(&mut layer, 5.0, 5.0, 0.0, Color::black(), 1.0, None);
         assert!(!layer.dirty);
     }
 
@@ -305,11 +322,11 @@ mod tests {
         };
 
         // First segment: 7 pixels long, step=5, stamps at 0 and 5, next at 10 -> residual=10-7=3
-        let residual = interpolate_and_stamp(&mut layer, 0.0, 5.0, 1.0, 7.0, 5.0, 1.0, &brush, 0.0);
+        let residual = interpolate_and_stamp(&mut layer, 0.0, 5.0, 1.0, 7.0, 5.0, 1.0, &brush, 0.0, None);
         assert!((residual - 3.0).abs() < 0.01, "residual should be ~3.0, got {}", residual);
 
         // Second segment: 7 pixels, starting with residual=3, stamp at 3, next at 8 -> residual=8-7=1
-        let residual2 = interpolate_and_stamp(&mut layer, 7.0, 5.0, 1.0, 14.0, 5.0, 1.0, &brush, residual);
+        let residual2 = interpolate_and_stamp(&mut layer, 7.0, 5.0, 1.0, 14.0, 5.0, 1.0, &brush, residual, None);
         assert!((residual2 - 1.0).abs() < 0.01, "residual should be ~1.0, got {}", residual2);
     }
 
@@ -353,9 +370,9 @@ mod tests {
         // Verify actual interpolate_and_stamp produces the same behavior:
         // draw with low pressure and count non-transparent columns
         let mut layer_low = Layer::new(200, 10);
-        interpolate_and_stamp(&mut layer_low, 0.0, 5.0, 0.25, 100.0, 5.0, 0.25, &brush, 0.0);
+        interpolate_and_stamp(&mut layer_low, 0.0, 5.0, 0.25, 100.0, 5.0, 0.25, &brush, 0.0, None);
         let mut layer_high = Layer::new(200, 10);
-        interpolate_and_stamp(&mut layer_high, 0.0, 5.0, 1.0, 100.0, 5.0, 1.0, &brush, 0.0);
+        interpolate_and_stamp(&mut layer_high, 0.0, 5.0, 1.0, 100.0, 5.0, 1.0, &brush, 0.0, None);
 
         // Count columns with any drawn pixels for each layer
         let cols_drawn = |layer: &Layer| -> usize {
@@ -390,7 +407,7 @@ mod tests {
         };
 
         // This should not infinite-loop because step is clamped to max(1.0)
-        let residual = interpolate_and_stamp(&mut layer, 0.0, 5.0, 0.0, 50.0, 5.0, 0.0, &brush, 0.0);
+        let residual = interpolate_and_stamp(&mut layer, 0.0, 5.0, 0.0, 50.0, 5.0, 0.0, &brush, 0.0, None);
         assert!(residual >= 0.0);
         assert!(residual <= 1.0);
     }
@@ -408,7 +425,7 @@ mod tests {
             flow: 1.0,
         };
 
-        interpolate_and_stamp(&mut layer, 0.0, 10.0, 0.2, 100.0, 10.0, 1.0, &brush, 0.0);
+        interpolate_and_stamp(&mut layer, 0.0, 10.0, 0.2, 100.0, 10.0, 1.0, &brush, 0.0, None);
 
         // Check that the first half (low pressure region) has stamps drawn
         let first_quarter_has_stamps = (0..25u32)
@@ -419,5 +436,27 @@ mod tests {
         let last_quarter_has_stamps = (75..100u32)
             .any(|x| (0..20u32).any(|y| layer.pixel(x, y).unwrap()[3] > 0));
         assert!(last_quarter_has_stamps, "Should have stamps in high-pressure region");
+    }
+
+    #[test]
+    fn test_stamp_circle_clipped_by_selection() {
+        let mut layer = Layer::new(20, 20);
+        // Selection: only the right half (x >= 10) is selected
+        let mut mask = vec![0u8; 20 * 20];
+        for y in 0..20u32 {
+            for x in 10..20u32 {
+                mask[(y * 20 + x) as usize] = 255;
+            }
+        }
+
+        stamp_circle(&mut layer, 10.0, 10.0, 5.0, Color::new(255, 0, 0), 1.0, Some(&mask));
+
+        // Pixel at (12, 10) is in the selection — should be painted
+        let px_in = layer.pixel(12, 10).unwrap();
+        assert!(px_in[3] > 0, "Selected pixel should be painted");
+
+        // Pixel at (7, 10) is outside the selection — should NOT be painted
+        let px_out = layer.pixel(7, 10).unwrap();
+        assert_eq!(px_out[3], 0, "Unselected pixel should remain transparent");
     }
 }

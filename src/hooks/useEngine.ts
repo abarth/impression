@@ -42,11 +42,12 @@ export function useEngine(
 
       // Render loop
       let running = true;
-      function render() {
+      function render(time: number) {
         if (!running) return;
         composite(gpu, {
           backgroundColor: eng.getBackgroundColor(),
           layerCount: eng.getLayerCount(),
+          time,
         });
         requestAnimationFrame(render);
       }

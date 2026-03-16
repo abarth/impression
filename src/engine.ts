@@ -1,6 +1,13 @@
 import type { ImpressionCanvas } from "./wasm/impression_core";
 import type { GPUContext } from "./gpu";
-import { uploadLayerTexture, createLayerTexture, updateLayerOpacity, removeLayerTexture } from "./gpu";
+import {
+  uploadLayerTexture,
+  createLayerTexture,
+  updateLayerOpacity,
+  removeLayerTexture,
+  uploadSelectionTexture,
+  clearSelectionTexture,
+} from "./gpu";
 
 export class Engine {
   private canvas: ImpressionCanvas;
@@ -116,6 +123,57 @@ export class Engine {
 
   setBackgroundColor(r: number, g: number, b: number): void {
     this.canvas.set_background_color(r, g, b);
+  }
+
+  // Selection methods
+
+  selectionRect(x: number, y: number, w: number, h: number, mode: number): void {
+    this.canvas.selection_rect(x, y, w, h, mode);
+    this.syncSelection();
+  }
+
+  selectionLassoBegin(): void {
+    this.canvas.selection_lasso_begin();
+  }
+
+  selectionLassoPoint(x: number, y: number): void {
+    this.canvas.selection_lasso_point(x, y);
+  }
+
+  selectionLassoEnd(mode: number): void {
+    this.canvas.selection_lasso_end(mode);
+    this.syncSelection();
+  }
+
+  selectAll(): void {
+    this.canvas.select_all();
+    this.syncSelection();
+  }
+
+  deselect(): void {
+    this.canvas.deselect();
+    clearSelectionTexture(this.gpu);
+    this.needsRender = true;
+  }
+
+  hasSelection(): boolean {
+    return this.canvas.has_selection();
+  }
+
+  private syncSelection(): void {
+    if (!this.canvas.is_selection_dirty()) return;
+
+    const ptr = this.canvas.selection_mask_ptr();
+    const len = this.canvas.selection_mask_len();
+    if (len === 0) return;
+
+    const pixels = new Uint8Array(this.wasmMemory.buffer, ptr, len);
+    const width = this.canvas.width();
+    const height = this.canvas.height();
+
+    uploadSelectionTexture(this.gpu, pixels, width, height);
+    this.canvas.clear_selection_dirty();
+    this.needsRender = true;
   }
 
   sampleColor(x: number, y: number): [number, number, number] {
