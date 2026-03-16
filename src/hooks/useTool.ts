@@ -2,6 +2,8 @@ import { useState, useCallback, useEffect, useRef } from "react";
 
 export type Tool = "brush" | "pan" | "zoom" | "eyedropper";
 
+/** Permanent/spring-loaded tool keys. Tap to switch permanently,
+ *  hold (>200ms) to switch temporarily. */
 const KEY_TO_TOOL: Record<string, Tool> = {
   b: "brush",
   h: "pan",
@@ -9,7 +11,7 @@ const KEY_TO_TOOL: Record<string, Tool> = {
   i: "eyedropper",
 };
 
-/** Context-dependent temporary tool overrides for modifier keys.
+/** Modifier keys that always act as temporary overrides.
  *  Maps (modifier key, current tool) → temporary tool. */
 const MODIFIER_TEMP_TOOLS: Record<string, Partial<Record<Tool, Tool>>> = {
   Alt: {
@@ -18,19 +20,27 @@ const MODIFIER_TEMP_TOOLS: Record<string, Partial<Record<Tool, Tool>>> = {
   },
 };
 
-/** Simple temporary tool keys (not context-dependent). */
-const TEMP_TOOL_KEYS: Record<string, Tool> = {
+/** Non-modifier keys that always act as temporary (never permanent). */
+const ALWAYS_TEMP_KEYS: Record<string, Tool> = {
   " ": "pan",
 };
+
+/** Threshold in ms: if a tool key is held longer than this, the switch
+ *  is temporary (spring-loaded) and reverts on release. */
+const SPRING_LOADED_MS = 200;
 
 export function useTool() {
   const [activeTool, setActiveTool] = useState<Tool>("brush");
   const previousTool = useRef<Tool | null>(null);
   const tempKeyHeld = useRef<string | null>(null);
+  const toolKeyDownTime = useRef<number | null>(null);
+  const toolKeyHeld = useRef<string | null>(null);
 
   const selectTool = useCallback((tool: Tool) => {
     previousTool.current = null;
     tempKeyHeld.current = null;
+    toolKeyDownTime.current = null;
+    toolKeyHeld.current = null;
     setActiveTool(tool);
   }, []);
 
@@ -47,7 +57,7 @@ export function useTool() {
       // Ignore repeated keydown events from key being held
       if (e.repeat) return;
 
-      // Context-dependent modifier keys (Alt/Option)
+      // Context-dependent modifier keys (Alt/Option) — always temporary
       const modifierMap = MODIFIER_TEMP_TOOLS[e.key];
       if (modifierMap && !tempKeyHeld.current) {
         setActiveTool((current) => {
@@ -63,12 +73,12 @@ export function useTool() {
         return;
       }
 
-      // Simple temporary tool activation (hold key)
-      if (TEMP_TOOL_KEYS[e.key] && !tempKeyHeld.current) {
+      // Always-temporary keys (Space → Pan)
+      if (ALWAYS_TEMP_KEYS[e.key] && !tempKeyHeld.current) {
         e.preventDefault();
         tempKeyHeld.current = e.key;
         setActiveTool((current) => {
-          const targetTool = TEMP_TOOL_KEYS[e.key];
+          const targetTool = ALWAYS_TEMP_KEYS[e.key];
           if (current !== targetTool) {
             previousTool.current = current;
           }
@@ -77,23 +87,47 @@ export function useTool() {
         return;
       }
 
-      // Permanent tool switch (press key)
+      // Spring-loaded tool keys (B/H/Z/I) — tap for permanent, hold for temporary
       const key = e.key.toLowerCase();
       const tool = KEY_TO_TOOL[key];
-      if (tool) {
+      if (tool && !tempKeyHeld.current) {
         e.preventDefault();
-        previousTool.current = null;
-        tempKeyHeld.current = null;
-        setActiveTool(tool);
+        toolKeyDownTime.current = Date.now();
+        toolKeyHeld.current = key;
+        setActiveTool((current) => {
+          if (current !== tool) {
+            previousTool.current = current;
+          }
+          return tool;
+        });
       }
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
-      // Release temporary tool
+      // Release always-temporary tool (modifier or space)
       if (tempKeyHeld.current === e.key && previousTool.current !== null) {
         setActiveTool(previousTool.current);
         previousTool.current = null;
         tempKeyHeld.current = null;
+        return;
+      }
+
+      // Release spring-loaded tool key
+      const key = e.key.toLowerCase();
+      if (
+        toolKeyHeld.current === key &&
+        previousTool.current !== null &&
+        toolKeyDownTime.current !== null
+      ) {
+        const held = Date.now() - toolKeyDownTime.current;
+        if (held >= SPRING_LOADED_MS) {
+          // Held long enough — revert (spring-loaded)
+          setActiveTool(previousTool.current);
+        }
+        // Tapped quickly — keep the new tool (permanent switch)
+        previousTool.current = null;
+        toolKeyDownTime.current = null;
+        toolKeyHeld.current = null;
       }
     };
 

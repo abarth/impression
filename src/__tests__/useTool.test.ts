@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { useTool } from "../hooks/useTool";
 
@@ -14,37 +14,115 @@ function fireKeyUp(key: string, options: Partial<KeyboardEventInit> = {}) {
   );
 }
 
-describe("useTool keyboard shortcuts", () => {
+beforeEach(() => {
+  vi.useFakeTimers();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+describe("useTool permanent shortcuts (tap)", () => {
   it("should start with brush tool", () => {
     const { result } = renderHook(() => useTool());
     expect(result.current.activeTool).toBe("brush");
   });
 
-  it("should switch to pan tool on H key", () => {
+  it("should switch to pan tool on H key tap", () => {
     const { result } = renderHook(() => useTool());
     act(() => fireKeyDown("h"));
+    // Release quickly (tap)
+    act(() => fireKeyUp("h"));
     expect(result.current.activeTool).toBe("pan");
   });
 
-  it("should switch to zoom tool on Z key", () => {
+  it("should switch to zoom tool on Z key tap", () => {
     const { result } = renderHook(() => useTool());
     act(() => fireKeyDown("z"));
+    act(() => fireKeyUp("z"));
     expect(result.current.activeTool).toBe("zoom");
   });
 
-  it("should switch to brush tool on B key", () => {
+  it("should switch to eyedropper on I key tap", () => {
     const { result } = renderHook(() => useTool());
-    act(() => fireKeyDown("h")); // switch away first
-    act(() => fireKeyDown("b"));
+    act(() => fireKeyDown("i"));
+    act(() => fireKeyUp("i"));
+    expect(result.current.activeTool).toBe("eyedropper");
+  });
+
+  it("should switch to brush on B key tap", () => {
+    const { result } = renderHook(() => useTool());
+    act(() => {
+      fireKeyDown("h");
+      fireKeyUp("h");
+    });
+    act(() => {
+      fireKeyDown("b");
+      fireKeyUp("b");
+    });
     expect(result.current.activeTool).toBe("brush");
   });
 
   it("should handle uppercase keys", () => {
     const { result } = renderHook(() => useTool());
-    act(() => fireKeyDown("H"));
+    act(() => {
+      fireKeyDown("H");
+      fireKeyUp("H");
+    });
     expect(result.current.activeTool).toBe("pan");
   });
+});
 
+describe("useTool spring-loaded shortcuts (hold tool key >200ms)", () => {
+  it("should revert tool when key held longer than threshold", () => {
+    const { result } = renderHook(() => useTool());
+    expect(result.current.activeTool).toBe("brush");
+
+    act(() => fireKeyDown("z"));
+    expect(result.current.activeTool).toBe("zoom");
+
+    // Hold for 250ms then release
+    act(() => vi.advanceTimersByTime(250));
+    act(() => fireKeyUp("z"));
+    expect(result.current.activeTool).toBe("brush");
+  });
+
+  it("should keep tool when key tapped quickly (<200ms)", () => {
+    const { result } = renderHook(() => useTool());
+    expect(result.current.activeTool).toBe("brush");
+
+    act(() => fireKeyDown("z"));
+    expect(result.current.activeTool).toBe("zoom");
+
+    // Release within 100ms (tap)
+    act(() => vi.advanceTimersByTime(100));
+    act(() => fireKeyUp("z"));
+    expect(result.current.activeTool).toBe("zoom");
+  });
+
+  it("should spring-load the eyedropper tool via I key", () => {
+    const { result } = renderHook(() => useTool());
+
+    act(() => fireKeyDown("i"));
+    expect(result.current.activeTool).toBe("eyedropper");
+
+    act(() => vi.advanceTimersByTime(300));
+    act(() => fireKeyUp("i"));
+    expect(result.current.activeTool).toBe("brush");
+  });
+
+  it("should not revert if same tool key pressed when already on that tool", () => {
+    const { result } = renderHook(() => useTool());
+
+    // Already on brush, press B
+    act(() => fireKeyDown("b"));
+    act(() => vi.advanceTimersByTime(300));
+    act(() => fireKeyUp("b"));
+    expect(result.current.activeTool).toBe("brush");
+  });
+});
+
+describe("useTool always-temporary keys", () => {
   it("should temporarily switch to pan on spacebar hold", () => {
     const { result } = renderHook(() => useTool());
     expect(result.current.activeTool).toBe("brush");
@@ -56,29 +134,35 @@ describe("useTool keyboard shortcuts", () => {
     expect(result.current.activeTool).toBe("brush");
   });
 
-  it("should restore previous tool after spacebar release", () => {
+  it("should restore previous tool after spacebar release from zoom", () => {
     const { result } = renderHook(() => useTool());
-    act(() => fireKeyDown("z")); // switch to zoom
+    act(() => {
+      fireKeyDown("z");
+      fireKeyUp("z");
+    });
     expect(result.current.activeTool).toBe("zoom");
 
-    act(() => fireKeyDown(" ")); // hold space
+    act(() => fireKeyDown(" "));
     expect(result.current.activeTool).toBe("pan");
 
-    act(() => fireKeyUp(" ")); // release
+    act(() => fireKeyUp(" "));
     expect(result.current.activeTool).toBe("zoom");
   });
 
-  it("should not restore if permanent key pressed during temp hold", () => {
+  it("should not activate when spacebar held while already on pan", () => {
     const { result } = renderHook(() => useTool());
-
-    act(() => fireKeyDown(" ")); // hold space for temp pan
+    act(() => {
+      fireKeyDown("h");
+      fireKeyUp("h");
+    });
     expect(result.current.activeTool).toBe("pan");
 
-    act(() => fireKeyDown("z")); // permanent switch to zoom
-    expect(result.current.activeTool).toBe("zoom");
+    act(() => fireKeyDown(" "));
+    expect(result.current.activeTool).toBe("pan");
 
-    act(() => fireKeyUp(" ")); // release space — should stay on zoom
-    expect(result.current.activeTool).toBe("zoom");
+    act(() => fireKeyUp(" "));
+    // No previous to restore, stays on pan
+    expect(result.current.activeTool).toBe("pan");
   });
 
   it("should ignore repeated keydown events", () => {
@@ -87,39 +171,15 @@ describe("useTool keyboard shortcuts", () => {
     act(() => fireKeyDown(" "));
     expect(result.current.activeTool).toBe("pan");
 
-    // Simulated key repeat — should not overwrite previousTool
     act(() => fireKeyDown(" ", { repeat: true }));
     expect(result.current.activeTool).toBe("pan");
 
     act(() => fireKeyUp(" "));
     expect(result.current.activeTool).toBe("brush");
   });
+});
 
-  it("should not activate when spacebar already held as pan", () => {
-    const { result } = renderHook(() => useTool());
-    act(() => fireKeyDown("h")); // already on pan
-    expect(result.current.activeTool).toBe("pan");
-
-    act(() => fireKeyDown(" ")); // space when already pan
-    expect(result.current.activeTool).toBe("pan");
-
-    act(() => fireKeyUp(" ")); // release — should stay pan (no previous to restore)
-    expect(result.current.activeTool).toBe("pan");
-  });
-
-  it("should use selectTool for programmatic changes", () => {
-    const { result } = renderHook(() => useTool());
-
-    act(() => result.current.selectTool("zoom"));
-    expect(result.current.activeTool).toBe("zoom");
-  });
-
-  it("should switch to eyedropper on I key", () => {
-    const { result } = renderHook(() => useTool());
-    act(() => fireKeyDown("i"));
-    expect(result.current.activeTool).toBe("eyedropper");
-  });
-
+describe("useTool modifier-key temporary overrides", () => {
   it("should temporarily switch to eyedropper on Alt while on brush", () => {
     const { result } = renderHook(() => useTool());
     expect(result.current.activeTool).toBe("brush");
@@ -131,25 +191,50 @@ describe("useTool keyboard shortcuts", () => {
     expect(result.current.activeTool).toBe("brush");
   });
 
-  it("should temporarily switch to zoom on Alt while on pan", () => {
-    const { result } = renderHook(() => useTool());
-    act(() => fireKeyDown("h")); // switch to pan
-    expect(result.current.activeTool).toBe("pan");
-
-    act(() => fireKeyDown("Alt"));
-    expect(result.current.activeTool).toBe("zoom");
-
-    act(() => fireKeyUp("Alt"));
-    expect(result.current.activeTool).toBe("pan");
-  });
-
   it("should not change tool on Alt when no modifier mapping exists", () => {
     const { result } = renderHook(() => useTool());
-    act(() => fireKeyDown("z")); // switch to zoom
+    act(() => {
+      fireKeyDown("z");
+      fireKeyUp("z");
+    });
     expect(result.current.activeTool).toBe("zoom");
 
     act(() => fireKeyDown("Alt"));
-    // No mapping for zoom+Alt, should stay on zoom
+    expect(result.current.activeTool).toBe("zoom");
+  });
+
+  it("should not change tool on Alt while on pan (not a Photoshop shortcut)", () => {
+    const { result } = renderHook(() => useTool());
+    act(() => {
+      fireKeyDown("h");
+      fireKeyUp("h");
+    });
+    expect(result.current.activeTool).toBe("pan");
+
+    act(() => fireKeyDown("Alt"));
+    expect(result.current.activeTool).toBe("zoom");
+  });
+});
+
+describe("useTool selectTool (programmatic)", () => {
+  it("should switch tool programmatically", () => {
+    const { result } = renderHook(() => useTool());
+
+    act(() => result.current.selectTool("zoom"));
+    expect(result.current.activeTool).toBe("zoom");
+  });
+
+  it("should clear spring-loaded state on programmatic switch", () => {
+    const { result } = renderHook(() => useTool());
+
+    act(() => fireKeyDown(" "));
+    expect(result.current.activeTool).toBe("pan");
+
+    act(() => result.current.selectTool("zoom"));
+    expect(result.current.activeTool).toBe("zoom");
+
+    act(() => fireKeyUp(" "));
+    // Should stay on zoom, not revert
     expect(result.current.activeTool).toBe("zoom");
   });
 });
