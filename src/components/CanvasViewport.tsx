@@ -28,21 +28,29 @@ export function CanvasViewport({
 }: CanvasViewportProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const dragStart = useRef<{ x: number; y: number } | null>(null);
+  const zoomAnchor = useRef<{ x: number; y: number } | null>(null);
   const toolRef = useRef(activeTool);
   toolRef.current = activeTool;
 
+  /** Convert page (clientX/clientY) coordinates to viewport-local coordinates. */
+  const toViewportLocal = useCallback(
+    (clientX: number, clientY: number) => {
+      const rect = viewportRef.current?.getBoundingClientRect();
+      if (!rect) return { x: clientX, y: clientY };
+      return { x: clientX - rect.left, y: clientY - rect.top };
+    },
+    [],
+  );
+
   const screenToCanvas = useCallback(
     (screenX: number, screenY: number) => {
-      const rect = viewportRef.current?.getBoundingClientRect();
-      if (!rect) return { x: screenX, y: screenY };
-      const relX = screenX - rect.left;
-      const relY = screenY - rect.top;
+      const { x: relX, y: relY } = toViewportLocal(screenX, screenY);
       return {
         x: (relX - transform.tx) / transform.scale,
         y: (relY - transform.ty) / transform.scale,
       };
     },
-    [transform],
+    [transform, toViewportLocal],
   );
 
   useEffect(() => {
@@ -64,6 +72,9 @@ export function CanvasViewport({
       } else if (tool === "pan" || tool === "zoom") {
         viewport.setPointerCapture(e.pointerId);
         dragStart.current = { x: e.clientX, y: e.clientY };
+        if (tool === "zoom") {
+          zoomAnchor.current = toViewportLocal(e.clientX, e.clientY);
+        }
       }
     };
 
@@ -87,10 +98,10 @@ export function CanvasViewport({
         const dy = e.clientY - dragStart.current.y;
         dragStart.current = { x: e.clientX, y: e.clientY };
         pan(dx, dy);
-      } else if (tool === "zoom" && dragStart.current) {
+      } else if (tool === "zoom" && dragStart.current && zoomAnchor.current) {
         const dx = e.clientX - dragStart.current.x;
         dragStart.current = { x: e.clientX, y: e.clientY };
-        zoom(-dx, e.clientX, e.clientY);
+        zoom(-dx, zoomAnchor.current.x, zoomAnchor.current.y);
       }
     };
 
@@ -99,12 +110,14 @@ export function CanvasViewport({
         engine.strokeEnd();
       }
       dragStart.current = null;
+      zoomAnchor.current = null;
     };
 
     const handleWheel = (e: WheelEvent) => {
       e.preventDefault();
       if (e.ctrlKey || e.metaKey) {
-        zoom(e.deltaY, e.clientX, e.clientY);
+        const local = toViewportLocal(e.clientX, e.clientY);
+        zoom(e.deltaY, local.x, local.y);
       } else {
         pan(-e.deltaX, -e.deltaY);
       }
@@ -121,7 +134,7 @@ export function CanvasViewport({
       viewport.removeEventListener("pointerup", handlePointerUp);
       viewport.removeEventListener("wheel", handleWheel);
     };
-  }, [engine, screenToCanvas, pan, zoom]);
+  }, [engine, screenToCanvas, toViewportLocal, pan, zoom]);
 
   // Resize canvas to fill the viewport
   useEffect(() => {
