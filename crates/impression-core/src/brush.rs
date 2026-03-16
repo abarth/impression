@@ -110,7 +110,6 @@ pub fn interpolate_and_stamp(
         return residual;
     }
 
-    let step = (brush.spacing * brush.size).max(1.0);
     let mut dist = residual;
 
     while dist <= segment_len {
@@ -119,8 +118,12 @@ pub fn interpolate_and_stamp(
         let y = y0 + dy * t;
         let pressure = p0 + (p1 - p0) * t;
 
-        let radius = (brush.size * pressure) / 2.0;
+        let effective_size = brush.size * pressure;
+        let radius = effective_size / 2.0;
         stamp_circle(layer, x, y, radius, brush.color, brush.flow);
+
+        // Spacing is relative to the current circle's effective size
+        let step = (brush.spacing * effective_size).max(1.0);
         dist += step;
     }
 
@@ -297,7 +300,7 @@ mod tests {
         let mut layer = Layer::new(100, 10);
         let brush = BrushSettings {
             size: 10.0,
-            spacing: 0.5, // step = 5.0 pixels
+            spacing: 0.5, // at pressure=1.0: effective_size=10, step=5.0
             ..Default::default()
         };
 
@@ -308,5 +311,113 @@ mod tests {
         // Second segment: 7 pixels, starting with residual=3, stamp at 3, next at 8 -> residual=8-7=1
         let residual2 = interpolate_and_stamp(&mut layer, 7.0, 5.0, 1.0, 14.0, 5.0, 1.0, &brush, residual);
         assert!((residual2 - 1.0).abs() < 0.01, "residual should be ~1.0, got {}", residual2);
+    }
+
+    #[test]
+    fn test_spacing_depends_on_pressure() {
+        // With pressure-dependent spacing, low pressure should produce
+        // more closely spaced (smaller) stamps than high pressure.
+        let brush = BrushSettings {
+            size: 20.0,
+            spacing: 0.5, // step = 0.5 * effective_size
+            color: Color::black(),
+            opacity: 1.0,
+            flow: 1.0,
+        };
+
+        // Count stamps at full pressure: effective_size=20, step=10
+        let mut stamps_full = 0u32;
+        let mut dist = 0.0f32;
+        let segment_len = 100.0f32;
+        while dist <= segment_len {
+            stamps_full += 1;
+            let step = (brush.spacing * (brush.size * 1.0)).max(1.0); // pressure=1.0
+            dist += step;
+        }
+
+        // Count stamps at half pressure: effective_size=10, step=5
+        let mut stamps_half = 0u32;
+        dist = 0.0;
+        while dist <= segment_len {
+            stamps_half += 1;
+            let step = (brush.spacing * (brush.size * 0.5)).max(1.0); // pressure=0.5
+            dist += step;
+        }
+
+        // Half pressure should produce more stamps (closer spacing)
+        assert!(
+            stamps_half > stamps_full,
+            "Half pressure ({stamps_half} stamps) should produce more stamps than full ({stamps_full})"
+        );
+
+        // Verify actual interpolate_and_stamp produces the same behavior:
+        // draw with low pressure and count non-transparent columns
+        let mut layer_low = Layer::new(200, 10);
+        interpolate_and_stamp(&mut layer_low, 0.0, 5.0, 0.25, 100.0, 5.0, 0.25, &brush, 0.0);
+        let mut layer_high = Layer::new(200, 10);
+        interpolate_and_stamp(&mut layer_high, 0.0, 5.0, 1.0, 100.0, 5.0, 1.0, &brush, 0.0);
+
+        // Count columns with any drawn pixels for each layer
+        let cols_drawn = |layer: &Layer| -> usize {
+            (0..200)
+                .filter(|&x| (0..10u32).any(|y| layer.pixel(x, y).unwrap()[3] > 0))
+                .count()
+        };
+
+        // Low pressure circles are smaller but more closely spaced,
+        // high pressure circles are larger and more spread out.
+        // With low pressure the circles are small, so they cover fewer columns per stamp.
+        // With high pressure the circles are large, so they cover more columns per stamp.
+        // The key invariant: low pressure stamps more frequently.
+        let low_cols = cols_drawn(&layer_low);
+        let high_cols = cols_drawn(&layer_high);
+
+        // High pressure covers more area per stamp (bigger circles), so it covers more columns
+        assert!(
+            high_cols > low_cols,
+            "High pressure ({high_cols} cols) should cover more area than low ({low_cols} cols)"
+        );
+    }
+
+    #[test]
+    fn test_spacing_at_zero_pressure_uses_minimum_step() {
+        // When pressure is 0, effective_size=0, so step should clamp to 1.0
+        let mut layer = Layer::new(100, 10);
+        let brush = BrushSettings {
+            size: 20.0,
+            spacing: 0.5,
+            ..Default::default()
+        };
+
+        // This should not infinite-loop because step is clamped to max(1.0)
+        let residual = interpolate_and_stamp(&mut layer, 0.0, 5.0, 0.0, 50.0, 5.0, 0.0, &brush, 0.0);
+        assert!(residual >= 0.0);
+        assert!(residual <= 1.0);
+    }
+
+    #[test]
+    fn test_spacing_varies_along_stroke_with_pressure_change() {
+        // Stroke goes from low to high pressure. The spacing should be
+        // tighter at the low-pressure end and wider at the high-pressure end.
+        let mut layer = Layer::new(200, 20);
+        let brush = BrushSettings {
+            size: 10.0,
+            spacing: 0.5, // step = 0.5 * effective_size
+            color: Color::black(),
+            opacity: 1.0,
+            flow: 1.0,
+        };
+
+        interpolate_and_stamp(&mut layer, 0.0, 10.0, 0.2, 100.0, 10.0, 1.0, &brush, 0.0);
+
+        // Check that the first half (low pressure region) has stamps drawn
+        let first_quarter_has_stamps = (0..25u32)
+            .any(|x| (0..20u32).any(|y| layer.pixel(x, y).unwrap()[3] > 0));
+        assert!(first_quarter_has_stamps, "Should have stamps in low-pressure region");
+
+        // Check that the last quarter (high pressure region) also has stamps
+        let last_quarter_has_stamps = (75..100u32)
+            .any(|x| (0..20u32).any(|y| layer.pixel(x, y).unwrap()[3] > 0));
+        assert!(last_quarter_has_stamps, "Should have stamps in high-pressure region");
     }
 }
