@@ -1,6 +1,6 @@
 import type { ImpressionCanvas } from "./wasm/impression_core";
 import type { GPUContext } from "./gpu";
-import { uploadLayerTexture, createLayerTexture, updateLayerOpacity } from "./gpu";
+import { uploadLayerTexture, createLayerTexture, updateLayerOpacity, removeLayerTexture } from "./gpu";
 
 export class Engine {
   private canvas: ImpressionCanvas;
@@ -31,6 +31,18 @@ export class Engine {
     const layerIndex = this.canvas.add_layer();
     createLayerTexture(this.gpu, this.canvas.width(), this.canvas.height());
     return layerIndex;
+  }
+
+  removeLayer(index: number): boolean {
+    const removed = this.canvas.remove_layer(index);
+    if (removed) {
+      removeLayerTexture(this.gpu, index);
+      if (this.activeLayer >= this.canvas.layer_count()) {
+        this.activeLayer = Math.max(0, this.canvas.layer_count() - 1);
+      }
+      this.needsRender = true;
+    }
+    return removed;
   }
 
   strokeBegin(layer: number, x: number, y: number, pressure: number): void {

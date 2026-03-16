@@ -149,6 +149,21 @@ export function createLayerTexture(
   return index;
 }
 
+export function removeLayerTexture(
+  gpu: GPUContext,
+  layerIndex: number,
+): void {
+  const texture = gpu.layerTextures[layerIndex];
+  if (texture) texture.destroy();
+
+  const buffer = gpu.opacityBuffers[layerIndex];
+  if (buffer) buffer.destroy();
+
+  gpu.layerTextures.splice(layerIndex, 1);
+  gpu.layerBindGroups.splice(layerIndex, 1);
+  gpu.opacityBuffers.splice(layerIndex, 1);
+}
+
 export function uploadLayerTexture(
   gpu: GPUContext,
   layerIndex: number,

@@ -40,17 +40,19 @@ function createMockCanvas() {
     set_brush_opacity: vi.fn(),
     set_brush_flow: vi.fn(),
     set_background_color: vi.fn(),
+    remove_layer: vi.fn().mockReturnValue(true),
   };
 }
 
 function createMockGPU() {
   const mockTexture = {
     createView: vi.fn().mockReturnValue({}),
+    destroy: vi.fn(),
   };
   return {
     device: {
       createTexture: vi.fn().mockReturnValue(mockTexture),
-      createBuffer: vi.fn().mockReturnValue({ size: 4 }),
+      createBuffer: vi.fn().mockReturnValue({ size: 4, destroy: vi.fn() }),
       createBindGroup: vi.fn().mockReturnValue({}),
       queue: {
         writeTexture: vi.fn(),
@@ -136,5 +138,27 @@ describe("Engine", () => {
     expect(engine.getActiveLayer()).toBe(0);
     engine.setActiveLayer(2);
     expect(engine.getActiveLayer()).toBe(2);
+  });
+
+  it("should remove a layer", () => {
+    engine.addLayer();
+    engine.addLayer();
+    mockCanvas.remove_layer = vi.fn().mockReturnValue(true);
+    mockCanvas.layer_count.mockReturnValue(1);
+
+    const result = engine.removeLayer(0);
+    expect(result).toBe(true);
+    expect(mockCanvas.remove_layer).toHaveBeenCalledWith(0);
+  });
+
+  it("should adjust active layer index on removal", () => {
+    engine.addLayer();
+    engine.addLayer();
+    engine.setActiveLayer(2);
+    mockCanvas.remove_layer = vi.fn().mockReturnValue(true);
+    mockCanvas.layer_count.mockReturnValue(1);
+
+    engine.removeLayer(2);
+    expect(engine.getActiveLayer()).toBeLessThanOrEqual(1);
   });
 });

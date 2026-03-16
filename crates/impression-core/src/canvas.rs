@@ -38,6 +38,16 @@ impl Canvas {
         self.layers.get_mut(index as usize)
     }
 
+    pub fn remove_layer(&mut self, index: u32) -> bool {
+        let i = index as usize;
+        if i < self.layers.len() {
+            self.layers.remove(i);
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn stroke_begin(&mut self, layer: u32, x: f32, y: f32, pressure: f32) {
         if let Some(l) = self.layers.get_mut(layer as usize) {
             brush::stroke_begin(l, &mut self.stroke_state, &self.brush, x, y, pressure);
@@ -90,6 +100,22 @@ mod tests {
         // Check that some pixels were drawn
         let px = layer.pixel(50, 50).unwrap();
         assert!(px[3] > 0, "Should have drawn at stroke start");
+    }
+
+    #[test]
+    fn test_remove_layer() {
+        let mut canvas = Canvas::new(100, 100);
+        canvas.add_layer();
+        canvas.add_layer();
+        canvas.add_layer();
+        assert_eq!(canvas.layers.len(), 3);
+
+        assert!(canvas.remove_layer(1));
+        assert_eq!(canvas.layers.len(), 2);
+
+        // Out of bounds
+        assert!(!canvas.remove_layer(99));
+        assert_eq!(canvas.layers.len(), 2);
     }
 
     #[test]

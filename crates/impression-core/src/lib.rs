@@ -52,6 +52,11 @@ impl ImpressionCanvas {
         }
     }
 
+    /// Remove a layer by index. Returns true if removed.
+    pub fn remove_layer(&mut self, layer: u32) -> bool {
+        self.inner.remove_layer(layer)
+    }
+
     /// Get the number of layers.
     pub fn layer_count(&self) -> u32 {
         self.inner.layers.len() as u32

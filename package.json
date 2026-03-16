@@ -12,6 +12,8 @@
     "test:all": "npm run test:rust && npm run test"
   },
   "devDependencies": {
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
     "@vitest/browser": "^3.0.0",
     "@webgpu/types": "^0.1.69",
     "happy-dom": "^16.0.0",
@@ -20,5 +22,18 @@
     "vite-plugin-top-level-await": "^1.4.0",
     "vite-plugin-wasm": "^3.3.0",
     "vitest": "^3.0.0"
+  },
+  "dependencies": {
+    "@radix-ui/react-popover": "^1.1.15",
+    "@radix-ui/react-slider": "^1.3.6",
+    "@radix-ui/react-toggle-group": "^1.1.11",
+    "@radix-ui/react-tooltip": "^1.2.8",
+    "@tailwindcss/vite": "^4.2.1",
+    "@vitejs/plugin-react": "^4.7.0",
+    "lucide-react": "^0.577.0",
+    "react": "^19.2.4",
+    "react-colorful": "^5.6.1",
+    "react-dom": "^19.2.4",
+    "tailwindcss": "^4.2.1"
   }
 }
