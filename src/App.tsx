@@ -23,7 +23,7 @@ export function App() {
     useLayerManager(engine);
 
   return (
-    <div className="flex h-screen w-screen">
+    <div className="flex h-screen w-screen bg-graphite-950">
       {/* Left toolbar */}
       <Toolbar activeTool={activeTool} onToolChange={selectTool} />
 
@@ -38,7 +38,10 @@ export function App() {
       />
 
       {/* Right panel */}
-      <div className="flex flex-col w-52 bg-[#252525] border-l border-[#333] overflow-y-auto">
+      <div
+        className="flex flex-col w-56 bg-graphite-900 overflow-y-auto"
+        style={{ boxShadow: "inset 1px 0 0 rgba(255,255,255,0.04)" }}
+      >
         <BrushSettingsPanel settings={settings} onUpdate={updateSetting} />
         <ColorDisplay
           foreground={colors.foreground}

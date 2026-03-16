@@ -12,9 +12,27 @@ A WebGPU painting application with a Rust/WASM drawing engine and React UI.
 
 - **React 19** with Vite (via `@vitejs/plugin-react`)
 - **Radix UI** primitives: Slider, ToggleGroup, Popover, Tooltip
-- **Tailwind CSS 4** for styling (dark theme, compact layout)
+- **Tailwind CSS 4** with custom theme tokens (defined in `src/index.css` `@theme` block)
 - **Lucide React** for icons (Paintbrush, Hand, ZoomIn, etc.)
 - **react-colorful** for color picker
+
+### Visual design: Soft Graphite
+
+The UI follows the **Soft Graphite** design language — a warm, muted dark theme inspired by paper and pencil. Key principles:
+
+- **Warm grays** with brown undertones (not blue-gray). Palette defined as `graphite-50` through `graphite-950` in the Tailwind theme.
+- **Cream text** tones (`cream`, `cream-dim`, `cream-muted`) instead of pure white/gray.
+- **Rounded corners** throughout (10px buttons, 8px controls, rounded-lg panels).
+- **Soft shadows** (`shadow-soft`, `shadow-panel`) instead of hard borders for depth.
+- **Generous padding** — panels use `px-4 py-5`, controls have `gap-3.5` spacing.
+- **Subtle dividers** — `rgba(255,255,255,0.05)` inset borders, no hard colored borders.
+- **Thick slider tracks** (6px) with large 16px thumbs that scale on hover.
+- **Overlapping color swatches** — FG (larger, front) overlaps BG (smaller, behind).
+- **150ms transitions** with `ease-out` for smooth, tactile interactions.
+- **Section headers** — 11px, medium weight, cream-muted, wide tracking, uppercase.
+- The aesthetic keeps the interface quiet so the artwork takes center stage.
+
+When modifying or adding UI components, follow these patterns. Use the `graphite-*` and `cream-*` color tokens. Prefer `shadow-soft` over borders. Use `transition-all duration-150 ease-out` for interactive states.
 
 ### Data flow
 

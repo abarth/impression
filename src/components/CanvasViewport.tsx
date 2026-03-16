@@ -12,6 +12,12 @@ interface CanvasViewportProps {
   zoom: (delta: number, cx: number, cy: number) => void;
 }
 
+const cursorMap: Record<Tool, string> = {
+  brush: "crosshair",
+  pan: "grab",
+  zoom: "zoom-in",
+};
+
 export function CanvasViewport({
   canvasRef,
   engine,
@@ -138,15 +144,10 @@ export function CanvasViewport({
   return (
     <div
       ref={viewportRef}
-      className="flex-1 relative overflow-hidden cursor-crosshair"
+      className="flex-1 relative overflow-hidden bg-graphite-950"
       style={{
         touchAction: "none",
-        cursor:
-          activeTool === "pan"
-            ? "grab"
-            : activeTool === "zoom"
-              ? "zoom-in"
-              : "crosshair",
+        cursor: cursorMap[activeTool],
       }}
     >
       <div

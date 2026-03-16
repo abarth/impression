@@ -1,5 +1,43 @@
 @import "tailwindcss";
 
+@theme {
+  /* Soft Graphite palette — warm grays with brown undertones */
+  --color-graphite-950: #1c1a18;
+  --color-graphite-900: #252220;
+  --color-graphite-850: #2c2926;
+  --color-graphite-800: #35312d;
+  --color-graphite-700: #443f3a;
+  --color-graphite-600: #5a544d;
+  --color-graphite-500: #78716a;
+  --color-graphite-400: #9c9590;
+  --color-graphite-300: #beb8b2;
+  --color-graphite-200: #d6d0ca;
+  --color-graphite-100: #eae6e1;
+  --color-graphite-50: #f5f2ee;
+
+  /* Cream accent for text */
+  --color-cream: #f0ebe4;
+  --color-cream-dim: #c8c1b8;
+  --color-cream-muted: #9e978e;
+
+  /* Warm highlight */
+  --color-warm-accent: #c4a882;
+
+  /* Soft shadow */
+  --shadow-panel: 0 1px 4px rgba(0, 0, 0, 0.25), 0 0 1px rgba(0, 0, 0, 0.15);
+  --shadow-soft: 0 1px 3px rgba(0, 0, 0, 0.2);
+  --shadow-inset: inset 0 1px 2px rgba(0, 0, 0, 0.2);
+
+  /* Border radius */
+  --radius-panel: 0px;
+  --radius-control: 8px;
+  --radius-button: 10px;
+
+  /* Font */
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    system-ui, sans-serif;
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -12,8 +50,33 @@ body,
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: #1a1a1a;
-  color: #e0e0e0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui,
-    sans-serif;
+  background: var(--color-graphite-950);
+  color: var(--color-cream);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* react-colorful overrides for Soft Graphite theme */
+.react-colorful {
+  width: 180px !important;
+  height: 180px !important;
+}
+
+.react-colorful__saturation {
+  border-radius: 6px !important;
+  border-bottom: none !important;
+}
+
+.react-colorful__hue {
+  height: 14px !important;
+  border-radius: 7px !important;
+  margin-top: 10px !important;
+}
+
+.react-colorful__pointer {
+  width: 18px !important;
+  height: 18px !important;
+  border-width: 2px !important;
 }

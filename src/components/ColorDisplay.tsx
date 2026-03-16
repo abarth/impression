@@ -1,6 +1,6 @@
 import * as Popover from "@radix-ui/react-popover";
 import { HexColorPicker } from "react-colorful";
-import { ArrowRightLeft } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 
 interface ColorDisplayProps {
   foreground: string;
@@ -14,10 +14,12 @@ function ColorSwatch({
   color,
   label,
   onChange,
+  className = "",
 }: {
   color: string;
   label: string;
   onChange: (hex: string) => void;
+  className?: string;
 }) {
   return (
     <Popover.Root>
@@ -25,18 +27,21 @@ function ColorSwatch({
         <button
           aria-label={label}
           title={label}
-          className="w-8 h-8 rounded border border-[#555] hover:border-[#888] transition-colors cursor-pointer"
+          className={`rounded-[10px] shadow-soft border-2 border-graphite-700
+            hover:border-cream-muted hover:scale-105
+            transition-all duration-150 ease-out cursor-pointer ${className}`}
           style={{ backgroundColor: color }}
         />
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Content
           side="left"
-          sideOffset={8}
-          className="z-50 rounded-lg bg-[#2a2a2a] border border-[#444] p-3 shadow-xl"
+          sideOffset={12}
+          className="z-50 rounded-xl bg-graphite-850 border border-graphite-700
+            p-3.5 shadow-panel animate-in fade-in-0 zoom-in-95 duration-150"
         >
           <HexColorPicker color={color} onChange={onChange} />
-          <Popover.Arrow className="fill-[#444]" />
+          <Popover.Arrow className="fill-graphite-700" />
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>
@@ -51,34 +56,41 @@ export function ColorDisplay({
   onSwap,
 }: ColorDisplayProps) {
   return (
-    <div className="flex flex-col gap-2 p-3 border-b border-[#333]">
-      <h3 className="text-[11px] font-semibold text-[#888] uppercase tracking-wider">
+    <div
+      className="flex flex-col gap-3 px-4 py-5"
+      style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}
+    >
+      <h3 className="text-[11px] font-medium text-cream-muted tracking-wide uppercase">
         Color
       </h3>
-      <div className="flex items-center gap-2">
-        <div className="flex flex-col gap-1">
-          <span className="text-[10px] text-[#777]">FG</span>
-          <ColorSwatch
-            color={foreground}
-            label="Foreground color"
-            onChange={onForegroundChange}
-          />
-        </div>
-        <button
-          onClick={onSwap}
-          title="Swap colors"
-          className="text-[#777] hover:text-white transition-colors cursor-pointer"
-        >
-          <ArrowRightLeft size={14} />
-        </button>
-        <div className="flex flex-col gap-1">
-          <span className="text-[10px] text-[#777]">BG</span>
+
+      {/* Overlapping swatches — FG in front, BG behind, like classic design */}
+      <div className="flex items-end gap-3">
+        <div className="relative w-16 h-14">
+          {/* Background swatch — positioned behind */}
           <ColorSwatch
             color={background}
             label="Background color"
             onChange={onBackgroundChange}
+            className="absolute bottom-0 right-0 w-9 h-9"
+          />
+          {/* Foreground swatch — larger, in front */}
+          <ColorSwatch
+            color={foreground}
+            label="Foreground color"
+            onChange={onForegroundChange}
+            className="absolute top-0 left-0 w-11 h-11 z-10"
           />
         </div>
+
+        <button
+          onClick={onSwap}
+          title="Swap colors"
+          className="p-1.5 rounded-lg text-cream-muted hover:text-cream
+            hover:bg-graphite-800 transition-all duration-150 cursor-pointer"
+        >
+          <RefreshCw size={13} strokeWidth={2} />
+        </button>
       </div>
     </div>
   );

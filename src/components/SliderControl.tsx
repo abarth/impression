@@ -20,10 +20,10 @@ export function SliderControl({
   onChange,
 }: SliderControlProps) {
   return (
-    <div className="flex flex-col gap-1">
-      <div className="flex justify-between text-[11px]">
-        <span className="text-[#999]">{label}</span>
-        <span className="text-[#ccc] tabular-nums">
+    <div className="flex flex-col gap-1.5">
+      <div className="flex justify-between items-baseline">
+        <span className="text-[12px] text-cream-muted">{label}</span>
+        <span className="text-[11px] text-cream-dim tabular-nums">
           {displayValue ?? value.toFixed(step < 1 ? 2 : 0)}
         </span>
       </div>
@@ -33,12 +33,15 @@ export function SliderControl({
         max={max}
         step={step}
         onValueChange={([v]) => onChange(v)}
-        className="relative flex items-center select-none touch-none h-4"
+        className="relative flex items-center select-none touch-none h-5 cursor-pointer"
       >
-        <Slider.Track className="relative grow h-1 rounded-full bg-[#333]">
-          <Slider.Range className="absolute h-full rounded-full bg-[#666]" />
+        <Slider.Track className="relative grow h-[6px] rounded-full bg-graphite-800 shadow-inset">
+          <Slider.Range className="absolute h-full rounded-full bg-graphite-500" />
         </Slider.Track>
-        <Slider.Thumb className="block w-3 h-3 rounded-full bg-[#ccc] hover:bg-white focus:outline-none focus:ring-1 focus:ring-[#666]" />
+        <Slider.Thumb className="block w-[16px] h-[16px] rounded-full bg-cream-dim
+          shadow-soft hover:bg-cream hover:scale-110
+          focus:outline-none focus-visible:ring-2 focus-visible:ring-warm-accent/40
+          transition-all duration-100 ease-out" />
       </Slider.Root>
     </div>
   );
