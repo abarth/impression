@@ -5,6 +5,7 @@ import topLevelAwait from "vite-plugin-top-level-await";
 import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
+  base: "/impression/",
   plugins: [react(), wasm(), topLevelAwait(), tailwindcss()],
   build: {
     target: "esnext",
