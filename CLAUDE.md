@@ -1,77 +1,20 @@
 # Impression
 
-A WebGPU painting application with a Rust/WASM drawing engine and React UI.
+A WebGPU painting application with a Rust/WASM drawing engine and React UI. Deployed to GitHub Pages at `https://abarth.github.io/impression/`.
 
 ## Architecture
 
-- **React frontend** (`src/`): UI components (Radix UI + Tailwind CSS + Lucide icons), WebGPU canvas, layer compositing
-- **Rust WASM backend** (`crates/impression-core/`): Brush engine, layer pixel buffers, alpha blending
-- **Shaders** (`shaders/`): WGSL compositing shader
-
-### Frontend stack
-
-- **React 19** with Vite (via `@vitejs/plugin-react`)
-- **Radix UI** primitives: Slider, ToggleGroup, Popover, Tooltip
-- **Tailwind CSS 4** with custom theme tokens (defined in `src/index.css` `@theme` block)
-- **Lucide React** for icons (Paintbrush, Hand, ZoomIn, etc.)
-- **react-colorful** for color picker
-
-### Visual design: Soft Graphite
-
-The UI follows the **Soft Graphite** design language — a warm, muted dark theme inspired by paper and pencil. Key principles:
-
-- **Warm grays** with visible brown undertones (not blue-gray). Palette defined as `graphite-50` through `graphite-950` in `src/index.css` `@theme` block. The base panel color (`graphite-900` = `#302b28`) is set at ~18% luminance so the warmth reads clearly on uncalibrated monitors.
-- **Cream text** tones (`cream`, `cream-dim`, `cream-muted`) instead of pure white/gray.
-- **Rounded corners** throughout (10px buttons, 8px controls, rounded-lg panels).
-- **Soft shadows** (`shadow-soft`, `shadow-panel`, `shadow-inset`) with warm-tinted `rgba(30, 20, 10, ...)` instead of pure black `rgba(0, 0, 0, ...)`. Preferred over hard borders for visual depth.
-- **Generous padding** — panels use `px-4 py-4`/`pt-4 pb-5`, controls have `gap-3.5` spacing.
-- **Panel dividers** — `border-t border-graphite-850` between sections. Sidebar edges use `border-l`/`border-r border-graphite-850`.
-- **Thick slider tracks** (6px) with inset shadow, large 16px thumbs that scale on hover.
-- **Overlapping color swatches** — FG (larger, front) overlaps BG (smaller, behind).
-- **150ms transitions** with `ease-out` for smooth, tactile interactions.
-- **Section headers** — 11px, medium weight, `text-cream-muted`, wide tracking, uppercase.
-- The aesthetic keeps the interface quiet so the artwork takes center stage.
-
-When modifying or adding UI components, follow these patterns. Use the `graphite-*` and `cream-*` color tokens. Prefer `shadow-soft` over borders. Use `transition-all duration-150 ease-out` for interactive states. Use `border-graphite-850` for dividers between panel sections.
+- **React frontend** (`src/`): UI components (Radix UI + Tailwind CSS 4 + Lucide icons), WebGPU canvas, layer compositing
+- **Rust WASM backend** (`crates/impression-core/`): Brush engine, selection mask, layer pixel buffers, alpha blending
+- **Shaders** (`shaders/`): WGSL compositing shader + selection marching ants shader
 
 ### Data flow
 
-1. Pointer events captured in `CanvasViewport.tsx`, transformed from screen to canvas coordinates (accounting for pan/zoom)
-2. Events dispatched based on active tool: brush → engine stroke calls, pan → view translate, zoom → view scale
-3. Rust interpolates points along stroke path, stamps anti-aliased circles into layer RGBA buffers
+1. Pointer events captured in `CanvasViewport.tsx`, transformed from screen to canvas coordinates (accounting for pan/zoom via viewport-local conversion)
+2. Events dispatched based on active tool: brush → engine stroke calls, marquee/lasso → selection mask operations, pan → view translate, zoom → view scale, eyedropper → color sampling
+3. Rust interpolates points along stroke path, stamps anti-aliased circles into layer RGBA buffers (clipped by selection mask if active)
 4. Engine reads dirty layer pixels from WASM memory (zero-copy), uploads to WebGPU textures
-5. Compositor renders fullscreen triangles per layer with alpha-over blending
-
-### Key modules
-
-**Rust** (`crates/impression-core/src/`):
-- `brush.rs` — Point interpolation (pressure-dependent spacing), circle rasterization
-- `layer.rs` — Per-layer RGBA pixel buffer with dirty tracking
-- `canvas.rs` — Layer stack (add/remove), brush settings, stroke state
-- `color.rs` — Alpha-over compositing math
-- `lib.rs` — wasm_bindgen API surface
-
-**TypeScript** (`src/`):
-- `engine.ts` — Bridge between WASM and WebGPU (stroke forwarding, layer sync, texture upload)
-- `gpu.ts` — WebGPU device/pipeline/texture management
-- `compositor.ts` — WebGPU render pass for layer compositing
-
-**React components** (`src/components/`):
-- `App.tsx` — Root layout: toolbar, canvas viewport, right panel
-- `CanvasViewport.tsx` — Pannable/zoomable canvas container, tool-aware input handling
-- `Toolbar.tsx` — Tool selection (brush, pan, zoom) using Radix ToggleGroup
-- `BrushSettingsPanel.tsx` — Sliders for size, spacing, flow, opacity
-- `ColorDisplay.tsx` — Foreground/background color swatches with Radix Popover color picker
-- `LayerPanel.tsx` — Layer list with add/remove/select
-- `SliderControl.tsx` — Reusable labeled slider (wraps Radix Slider)
-
-**Hooks** (`src/hooks/`):
-- `useEngine` — WASM + WebGPU initialization, render loop, returns Engine instance
-- `useViewTransform` — Pan/zoom state (tx, ty, scale)
-- `useTool` — Active tool selection
-- `useBrushSettings` — Brush parameters, synced to engine
-- `useColorState` — Foreground/background colors, synced to engine
-- `useLayerManager` — Layer list state (add, remove, select)
+5. Compositor renders fullscreen triangles per layer with alpha-over blending, then selection overlay with marching ants
 
 ### React + WebGPU integration
 
@@ -81,11 +24,15 @@ The `Engine` instance is created imperatively in `useEngine` and stored as React
 
 ```bash
 npm run build:wasm    # Compile Rust to WASM (output: src/wasm/)
-npm run dev           # Build WASM + start Vite dev server
-npm run build         # Production build
+npm run dev           # Start Vite dev server (auto-rebuilds WASM on Rust file changes)
+npm run build         # Production build (WASM + Vite)
 ```
 
 Prerequisites: `wasm-pack`, `rustup target add wasm32-unknown-unknown`, Node.js 22+
+
+The Vite config includes a `wasmPackWatch` plugin that watches `crates/impression-core/src/**/*.rs` and automatically runs `wasm-pack build` when Rust files change during dev.
+
+**After modifying Rust code, the WASM must be rebuilt** for changes to take effect in the browser. The dev server handles this automatically, but CI and production builds use `npm run build:wasm` explicitly.
 
 ## Testing
 
@@ -99,25 +46,90 @@ npm run test:all      # Both
 
 ### Rust tests
 
-Located alongside source code in `#[cfg(test)] mod tests` blocks within each `.rs` file. Key test areas:
-
-- `brush.rs` — Interpolation correctness, pressure-dependent spacing, circle rasterization, flow/opacity, residual distance carry-over
-- `layer.rs` — Pixel buffer initialization, dirty flag, bounds checking
-- `canvas.rs` — Layer management (add/remove), stroke forwarding
-- `color.rs` — Alpha-over compositing math
+Located alongside source code in `#[cfg(test)] mod tests` blocks within each `.rs` file.
 
 ### TypeScript tests
 
-Located in `src/__tests__/`. Uses vitest with happy-dom environment. WebGPU globals (`GPUTextureUsage`, `GPUShaderStage`, `GPUBufferUsage`) must be mocked in tests that touch `gpu.ts`.
+Located in `src/__tests__/`. Uses vitest with happy-dom environment. WebGPU globals (`GPUTextureUsage`, `GPUShaderStage`, `GPUBufferUsage`) must be mocked in tests that touch `gpu.ts`. React hooks tests use `@testing-library/react` with `renderHook`/`act`. Time-dependent tests (spring-loaded shortcuts) use `vi.useFakeTimers()`.
 
-- `engine.test.ts` — WASM wrapper, dirty layer syncing, brush settings forwarding, layer removal
-- `input.test.ts` — Pointer event translation, coalesced events, pressure defaults
-- `compositor.test.ts` — Render pass creation, layer visibility
-- `hooks.test.ts` — Utility functions (hexToRgb)
-- `viewport.test.ts` — Screen-to-canvas coordinate transform math
+## Key modules
+
+**Rust** (`crates/impression-core/src/`):
+- `brush.rs` — Point interpolation (pressure-dependent spacing), circle rasterization with selection mask clipping. `stamp_circle` accepts `Option<&[u8]>` selection mask.
+- `layer.rs` — Per-layer RGBA pixel buffer with dirty tracking
+- `canvas.rs` — Layer stack, brush settings, stroke state, selection mask, color sampling (composites all visible layers)
+- `color.rs` — Alpha-over compositing math
+- `selection.rs` — `SelectionMask` struct with `fill_rect`, `fill_polygon` (scanline rasterization), combine modes (Replace/Add/Subtract/Intersect)
+- `lib.rs` — wasm_bindgen API surface
+
+**TypeScript** (`src/`):
+- `engine.ts` — Bridge between WASM and WebGPU. Includes stroke forwarding, layer sync, selection mask sync, color sampling, texture upload.
+- `gpu.ts` — WebGPU device/pipeline/texture management. Includes selection overlay pipeline and `r8unorm` selection texture.
+- `compositor.ts` — WebGPU render pass for layer compositing + selection marching ants overlay (time-animated)
+
+**Shaders** (`shaders/`):
+- `composite.wgsl` — Fullscreen triangle, samples layer texture, applies layer opacity uniform
+- `selection.wgsl` — Edge detection on selection mask (neighbor sampling), animated diagonal stripe marching ants pattern
+
+**React components** (`src/components/`):
+- `CanvasViewport.tsx` — Pannable/zoomable canvas container, tool-aware input handling. **Important**: coordinates passed to `zoom()` must be viewport-local (subtract viewport rect), not raw `clientX/clientY`, or the zoom anchor will drift.
+- `Toolbar.tsx` — Tool selection (marquee, lasso, brush, eyedropper, pan, zoom) using Radix ToggleGroup
+
+**Hooks** (`src/hooks/`):
+- `useEngine` — WASM + WebGPU initialization, render loop (passes `time` for marching ants animation)
+- `useViewTransform` — Pan/zoom state. Zoom math keeps anchor point fixed: `newTx = centerX - (centerX - prev.tx) * (newScale / prev.scale)`
+- `useTool` — Active tool with keyboard shortcuts (see below)
+- `useSelection` — Cmd/Ctrl+A (select all), Cmd/Ctrl+D (deselect) keyboard shortcuts
+- `useBrushSettings`, `useColorState`, `useLayerManager` — State synced to engine
+
+## Tools & keyboard shortcuts (matching Photoshop)
+
+**Permanent switch (tap key):**
+- `M` — Marquee (rectangular selection)
+- `L` — Lasso (freehand polygon selection)
+- `B` — Brush
+- `I` — Eyedropper
+- `H` — Hand (pan)
+- `Z` — Zoom
+
+**Spring-loaded (hold key >200ms, reverts on release):**
+All tool keys above support spring-loaded mode.
+
+**Always-temporary (hold, always reverts):**
+- `Space` — Pan (from any tool)
+- `Alt/Option` while on Brush → Eyedropper
+- `Alt/Option` while on Pan → Zoom
+
+**Selection modifiers (while using Marquee or Lasso):**
+- No modifier — Replace selection
+- `Shift` — Add to selection
+- `Alt/Option` — Subtract from selection
+- `Shift+Alt` — Intersect with selection
+
+**Global shortcuts:**
+- `Cmd/Ctrl+A` — Select all
+- `Cmd/Ctrl+D` — Deselect
+
+## Visual design: Soft Graphite
+
+Warm, muted dark theme inspired by paper and pencil. Key principles:
+
+- **Warm grays** with brown undertones (not blue-gray). Palette: `graphite-950` (#242020) through `graphite-500` (#8d8278). Base panel color `graphite-900` = `#302b28` (~18% luminance so warmth reads on uncalibrated monitors).
+- **Cream text** tones (`cream`, `cream-dim`, `cream-muted`) instead of pure white/gray.
+- **Soft shadows** with warm-tinted `rgba(30, 20, 10, ...)` instead of pure black. Preferred over hard borders.
+- **150ms transitions** with `ease-out`. 10px button corners, 8px controls.
+- **Section headers** — 11px, medium weight, `text-cream-muted`, wide tracking, uppercase.
+- All color tokens defined in `src/index.css` `@theme` block.
+
+When adding UI components: use `graphite-*` and `cream-*` tokens, `shadow-soft` over borders, `transition-all duration-150 ease-out`, `border-graphite-850` for dividers, `px-4 py-4` panel padding.
 
 ## Brush behavior
 
-- **Spacing** is pressure-dependent: `step = spacing × size × pressure`. Lower pressure produces smaller circles with tighter spacing to maintain stroke density.
+- **Spacing** is pressure-dependent: `step = spacing × size × pressure`. Lower pressure → smaller circles with tighter spacing to maintain stroke density.
 - **Flow** controls per-stamp alpha. **Opacity** controls whole-stroke alpha (applied at compositing via layer opacity).
 - Circle rasterization uses smoothstep anti-aliasing at the edge.
+- When a selection is active, brush strokes are clipped to the selected region (selection mask alpha multiplied into stamp alpha).
+
+## Deployment
+
+GitHub Pages via `.github/workflows/deploy.yml`. Pushes to `main` trigger: install Rust toolchain + wasm-pack → `npm ci` → `npm run build:wasm` → `npx vite build` → deploy to Pages. Base path is `/impression/` (set in `vite.config.ts`).
