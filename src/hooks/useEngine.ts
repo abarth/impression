@@ -24,6 +24,16 @@ export function useEngine(
   const [engine, setEngine] = useState<Engine | null>(null);
   const gpuRef = useRef<GPUContext | null>(null);
   const initStarted = useRef(false);
+  const renderRunning = useRef(false);
+
+  // Reset when options become null (document closed)
+  useEffect(() => {
+    if (!options) {
+      renderRunning.current = false;
+      initStarted.current = false;
+      setEngine(null);
+    }
+  }, [options]);
 
   useEffect(() => {
     if (!canvasRef.current || initStarted.current || !options) return;
@@ -72,9 +82,9 @@ export function useEngine(
       setEngine(eng);
 
       // Render loop
-      let running = true;
+      renderRunning.current = true;
       function render(time: number) {
-        if (!running) return;
+        if (!renderRunning.current) return;
         composite(gpu, {
           backgroundColor: eng.getBackgroundColor(),
           canvasVisible: eng.getCanvasVisible(),
@@ -86,10 +96,6 @@ export function useEngine(
         requestAnimationFrame(render);
       }
       requestAnimationFrame(render);
-
-      return () => {
-        running = false;
-      };
     })();
   }, [canvasRef, options]);
 
