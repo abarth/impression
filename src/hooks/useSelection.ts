@@ -16,7 +16,13 @@ export function useSelection(engine: Engine | null) {
 
       const isMod = e.metaKey || e.ctrlKey;
 
-      if (isMod && e.key.toLowerCase() === "a") {
+      if (isMod && e.key.toLowerCase() === "z" && e.shiftKey) {
+        e.preventDefault();
+        engine.redo();
+      } else if (isMod && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        engine.undo();
+      } else if (isMod && e.key.toLowerCase() === "a") {
         e.preventDefault();
         engine.selectAll();
       } else if (isMod && e.key.toLowerCase() === "d") {

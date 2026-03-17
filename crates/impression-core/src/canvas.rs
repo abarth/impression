@@ -244,6 +244,137 @@ impl Canvas {
         self.oplog.begin_undo_group();
         self.oplog.push(Operation::Deselect);
     }
+
+    // -- Undo/Redo --
+
+    /// Undo the last operation group and replay to reconstruct state.
+    /// Returns true if an undo was performed.
+    pub fn undo(&mut self) -> bool {
+        if self.oplog.undo().is_some() {
+            self.replay_active();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Redo the next operation group and replay to reconstruct state.
+    /// Returns true if a redo was performed.
+    pub fn redo(&mut self) -> bool {
+        if self.oplog.redo().is_some() {
+            self.replay_active();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Clear all state and replay active operations from the oplog.
+    fn replay_active(&mut self) {
+        // Reset all state
+        self.layers.clear();
+        self.brush = BrushSettings::default();
+        self.stroke_state = StrokeState::new();
+        self.background_color = Color::white();
+        self.selection = None;
+        self.lasso_points.clear();
+
+        // Clone the active operations to avoid borrow conflict
+        let ops: Vec<Operation> = self.oplog.active_operations().to_vec();
+
+        // Replay each operation without recording
+        let mut stroke_layer: u32 = 0;
+        for op in ops {
+            self.execute_op(op, &mut stroke_layer);
+        }
+    }
+
+    /// Execute a single operation without recording to the oplog.
+    fn execute_op(&mut self, op: Operation, stroke_layer: &mut u32) {
+        match op {
+            Operation::CreateCanvas { .. } => {
+                // Canvas dimensions are fixed; ignore during replay
+            }
+            Operation::StrokeBegin { layer, x, y, pressure } => {
+                *stroke_layer = layer;
+                let sel = self.selection.as_ref().map(|s| s.data.as_slice());
+                if let Some(l) = self.layers.get_mut(layer as usize) {
+                    brush::stroke_begin(l, &mut self.stroke_state, &self.brush, x, y, pressure, sel);
+                }
+            }
+            Operation::StrokeMove { x, y, pressure } => {
+                let layer = *stroke_layer;
+                let sel = self.selection.as_ref().map(|s| s.data.as_slice());
+                if let Some(l) = self.layers.get_mut(layer as usize) {
+                    brush::stroke_move(l, &mut self.stroke_state, &self.brush, x, y, pressure, sel);
+                }
+            }
+            Operation::StrokeEnd => {
+                brush::stroke_end(&mut self.stroke_state);
+            }
+            Operation::SetBrushSize(size) => self.brush.size = size,
+            Operation::SetBrushSpacing(spacing) => self.brush.spacing = spacing,
+            Operation::SetBrushColor { r, g, b } => self.brush.color = Color::new(r, g, b),
+            Operation::SetBrushOpacity(opacity) => self.brush.opacity = opacity,
+            Operation::SetBrushFlow(flow) => self.brush.flow = flow,
+            Operation::AddLayer => {
+                self.layers.push(Layer::new(self.width, self.height));
+            }
+            Operation::RemoveLayer(index) => {
+                let i = index as usize;
+                if i < self.layers.len() {
+                    self.layers.remove(i);
+                }
+            }
+            Operation::SetLayerOpacity { layer, opacity } => {
+                if let Some(l) = self.layers.get_mut(layer as usize) {
+                    l.opacity = opacity;
+                }
+            }
+            Operation::SetLayerBlendMode { layer, mode } => {
+                if let Some(l) = self.layers.get_mut(layer as usize) {
+                    l.blend_mode = mode;
+                }
+            }
+            Operation::SetLayerVisible { layer, visible } => {
+                if let Some(l) = self.layers.get_mut(layer as usize) {
+                    l.visible = visible;
+                }
+            }
+            Operation::SetBackgroundColor { r, g, b } => {
+                self.background_color = Color::new(r, g, b);
+            }
+            Operation::SetCanvasVisible(_) => {
+                // Canvas visibility is tracked on the TS side; nothing to do in Rust
+            }
+            Operation::SelectionRect { x, y, w, h, mode } => {
+                if mode == CombineMode::Replace || self.selection.is_none() {
+                    let mut mask = SelectionMask::new(self.width, self.height);
+                    mask.fill_rect(x, y, w, h, CombineMode::Replace);
+                    self.selection = Some(mask);
+                } else if let Some(ref mut mask) = self.selection {
+                    mask.fill_rect(x, y, w, h, mode);
+                }
+            }
+            Operation::SelectionLasso { points, mode } => {
+                if mode == CombineMode::Replace || self.selection.is_none() {
+                    let mut mask = SelectionMask::new(self.width, self.height);
+                    mask.fill_polygon(&points, CombineMode::Replace);
+                    self.selection = Some(mask);
+                } else if let Some(ref mut mask) = self.selection {
+                    mask.fill_polygon(&points, mode);
+                }
+            }
+            Operation::SelectAll => {
+                let mut mask = SelectionMask::new_full(self.width, self.height);
+                mask.dirty = true;
+                self.selection = Some(mask);
+            }
+            Operation::Deselect => {
+                self.selection = None;
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -491,5 +622,91 @@ mod tests {
         assert_eq!(ops.len(), 2);
         assert!(matches!(ops[0], Operation::SelectAll));
         assert!(matches!(ops[1], Operation::Deselect));
+    }
+
+    #[test]
+    fn test_undo_stroke_clears_layer() {
+        let mut canvas = Canvas::new(100, 100);
+        canvas.add_layer();
+        canvas.stroke_begin(0, 50.0, 50.0, 1.0);
+        canvas.stroke_move(0, 60.0, 50.0, 1.0);
+        canvas.stroke_end();
+
+        // Pixel should have been drawn
+        let px = canvas.layer(0).unwrap().pixel(50, 50).unwrap();
+        assert!(px[3] > 0);
+
+        // Undo the stroke
+        assert!(canvas.undo());
+
+        // Layer should still exist but be cleared
+        assert_eq!(canvas.layers.len(), 1);
+        let px = canvas.layer(0).unwrap().pixel(50, 50).unwrap();
+        assert_eq!(px[3], 0, "Layer should be clear after undoing stroke");
+    }
+
+    #[test]
+    fn test_undo_redo_restores_stroke() {
+        let mut canvas = Canvas::new(100, 100);
+        canvas.add_layer();
+        canvas.stroke_begin(0, 50.0, 50.0, 1.0);
+        canvas.stroke_move(0, 60.0, 50.0, 1.0);
+        canvas.stroke_end();
+
+        // Save reference pixel value
+        let px_before = canvas.layer(0).unwrap().pixel(50, 50).unwrap();
+        assert!(px_before[3] > 0);
+
+        canvas.undo();
+        assert!(canvas.redo());
+
+        // Pixel should be restored
+        let px_after = canvas.layer(0).unwrap().pixel(50, 50).unwrap();
+        assert_eq!(px_before, px_after, "Redo should restore the stroke");
+    }
+
+    #[test]
+    fn test_undo_nothing_returns_false() {
+        let mut canvas = Canvas::new(100, 100);
+        assert!(!canvas.undo());
+    }
+
+    #[test]
+    fn test_undo_brush_size_reverts() {
+        let mut canvas = Canvas::new(100, 100);
+        canvas.set_brush_size(30.0);
+        assert!((canvas.brush.size - 30.0).abs() < 0.01);
+
+        canvas.undo();
+        // After undo, brush size resets to default
+        assert!(
+            (canvas.brush.size - 10.0).abs() < 0.01,
+            "Brush size should revert to default after undo"
+        );
+    }
+
+    #[test]
+    fn test_undo_two_strokes_keeps_first() {
+        let mut canvas = Canvas::new(100, 100);
+        canvas.add_layer();
+
+        // Stroke 1 at (50, 50)
+        canvas.stroke_begin(0, 50.0, 50.0, 1.0);
+        canvas.stroke_end();
+
+        // Stroke 2 at (80, 80)
+        canvas.stroke_begin(0, 80.0, 80.0, 1.0);
+        canvas.stroke_end();
+
+        // Undo second stroke only
+        canvas.undo();
+
+        // First stroke pixel should still be drawn
+        let px1 = canvas.layer(0).unwrap().pixel(50, 50).unwrap();
+        assert!(px1[3] > 0, "First stroke should remain after undoing second");
+
+        // Second stroke pixel should be clear
+        let px2 = canvas.layer(0).unwrap().pixel(80, 80).unwrap();
+        assert_eq!(px2[3], 0, "Second stroke should be gone after undo");
     }
 }

@@ -254,6 +254,16 @@ impl ImpressionCanvas {
         self.inner.oplog.can_redo()
     }
 
+    /// Undo the last operation group and replay. Returns true if undo occurred.
+    pub fn undo(&mut self) -> bool {
+        self.inner.undo()
+    }
+
+    /// Redo the next operation group and replay. Returns true if redo occurred.
+    pub fn redo(&mut self) -> bool {
+        self.inner.redo()
+    }
+
     /// Get the number of active operations.
     pub fn active_operation_count(&self) -> usize {
         self.inner.oplog.active_len()

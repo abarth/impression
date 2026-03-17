@@ -213,7 +213,8 @@ export class Engine {
     this.needsRender = true;
   }
 
-  // Undo/redo query methods
+  // Undo/redo
+
   canUndo(): boolean {
     return this.canvas.can_undo();
   }
@@ -224,6 +225,46 @@ export class Engine {
 
   activeOperationCount(): number {
     return this.canvas.active_operation_count();
+  }
+
+  undo(): boolean {
+    const result = this.canvas.undo();
+    if (result) this.syncAllLayers();
+    return result;
+  }
+
+  redo(): boolean {
+    const result = this.canvas.redo();
+    if (result) this.syncAllLayers();
+    return result;
+  }
+
+  /** Re-upload all layer textures after replay. */
+  private syncAllLayers(): void {
+    const count = this.canvas.layer_count();
+    const width = this.canvas.width();
+    const height = this.canvas.height();
+
+    // Ensure GPU has enough layer textures
+    while (this.gpu.layerTextures.length > count) {
+      removeLayerTexture(this.gpu, this.gpu.layerTextures.length - 1);
+    }
+    while (this.gpu.layerTextures.length < count) {
+      createLayerTexture(this.gpu, width, height);
+    }
+
+    // Upload each layer
+    for (let i = 0; i < count; i++) {
+      const ptr = this.canvas.layer_pixels_ptr(i);
+      const len = this.canvas.layer_pixels_len(i);
+      const pixels = new Uint8Array(this.wasmMemory.buffer, ptr, len);
+      uploadLayerTexture(this.gpu, i, pixels, width, height);
+      updateLayerOpacity(this.gpu, i, this.canvas.layer_opacity(i));
+      updateLayerBlendMode(this.gpu, i, this.canvas.layer_blend_mode(i));
+      this.canvas.clear_layer_dirty(i);
+    }
+
+    this.needsRender = true;
   }
 
   sampleColor(x: number, y: number): [number, number, number] {
