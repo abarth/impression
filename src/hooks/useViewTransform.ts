@@ -39,5 +39,19 @@ export function useViewTransform() {
     setTransform({ tx: 0, ty: 0, scale: 1 });
   }, []);
 
-  return { transform, setTransform, pan, zoom, resetView };
+  /** Center the canvas in the viewport, scaling down to fit if needed. */
+  const fitToViewport = useCallback(
+    (canvasW: number, canvasH: number, viewportW: number, viewportH: number) => {
+      const padding = 40; // pixels of breathing room
+      const availW = viewportW - padding * 2;
+      const availH = viewportH - padding * 2;
+      const scale = Math.min(availW / canvasW, availH / canvasH, 1.0);
+      const tx = (viewportW - canvasW * scale) / 2;
+      const ty = (viewportH - canvasH * scale) / 2;
+      setTransform({ tx, ty, scale });
+    },
+    [],
+  );
+
+  return { transform, setTransform, pan, zoom, resetView, fitToViewport };
 }

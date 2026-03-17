@@ -28,7 +28,7 @@ export function App() {
   }, [docManager.currentDocument?.width, docManager.currentDocument?.height]);
 
   const engine = useEngine(canvasRef, documentSize);
-  const { transform, pan, zoom } = useViewTransform();
+  const { transform, pan, zoom, fitToViewport } = useViewTransform();
   const { activeTool, selectTool } = useTool();
   const { settings, updateSetting, toolLabel } = useBrushSettings(engine, activeTool);
   const { colors, setForeground, setBackground, swapColors } =
@@ -76,6 +76,7 @@ export function App() {
         pan={pan}
         zoom={zoom}
         onColorPick={setForeground}
+        fitToViewport={fitToViewport}
       />
 
       {/* Right panel */}

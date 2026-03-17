@@ -168,3 +168,35 @@ describe("zoom anchor point stability", () => {
     expect(after.y).toBeCloseTo(before.y, 5);
   });
 });
+
+describe("fitToViewport", () => {
+  it("should center a small canvas in a large viewport at scale 1", () => {
+    const { result } = renderHook(() => useViewTransform());
+    act(() => result.current.fitToViewport(400, 300, 1200, 800));
+
+    const t = result.current.transform;
+    expect(t.scale).toBe(1.0);
+    expect(t.tx).toBe(400);
+    expect(t.ty).toBe(250);
+  });
+
+  it("should scale down a large canvas to fit", () => {
+    const { result } = renderHook(() => useViewTransform());
+    act(() => result.current.fitToViewport(2000, 1000, 1000, 600));
+
+    const t = result.current.transform;
+    // Available after 40px padding: 920 × 520
+    expect(t.scale).toBe(920 / 2000);
+    const expectedTx = (1000 - 2000 * t.scale) / 2;
+    const expectedTy = (600 - 1000 * t.scale) / 2;
+    expect(t.tx).toBeCloseTo(expectedTx, 5);
+    expect(t.ty).toBeCloseTo(expectedTy, 5);
+  });
+
+  it("should not scale up when canvas fits", () => {
+    const { result } = renderHook(() => useViewTransform());
+    act(() => result.current.fitToViewport(100, 100, 1000, 800));
+
+    expect(result.current.transform.scale).toBe(1.0);
+  });
+});

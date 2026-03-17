@@ -20,6 +20,7 @@ interface CanvasViewportProps {
   pan: (dx: number, dy: number) => void;
   zoom: (delta: number, cx: number, cy: number) => void;
   onColorPick?: (hex: string) => void;
+  fitToViewport?: (canvasW: number, canvasH: number, viewportW: number, viewportH: number) => void;
 }
 
 const cursorMap: Record<Tool, string> = {
@@ -62,6 +63,7 @@ export function CanvasViewport({
   pan,
   zoom,
   onColorPick,
+  fitToViewport: fitToViewportFn,
 }: CanvasViewportProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<SVGSVGElement>(null);
@@ -291,9 +293,15 @@ export function CanvasViewport({
   // pan/zoom CSS transforms handle the viewport.
   useEffect(() => {
     const canvas = canvasRef.current;
+    const viewport = viewportRef.current;
     if (!canvas || canvas.width === 0 || canvas.height === 0) return;
     setCanvasSize({ w: canvas.width, h: canvas.height });
-  }, [canvasRef, engine]);
+    // Center canvas in viewport on first load
+    if (fitToViewportFn && viewport) {
+      const rect = viewport.getBoundingClientRect();
+      fitToViewportFn(canvas.width, canvas.height, rect.width, rect.height);
+    }
+  }, [canvasRef, engine, fitToViewportFn]);
 
   return (
     <div
