@@ -1,6 +1,8 @@
 /// Combine mode for selection operations.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+#[repr(u8)]
 pub enum CombineMode {
+    #[default]
     Replace = 0,
     Add = 1,
     Subtract = 2,

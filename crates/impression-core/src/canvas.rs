@@ -78,7 +78,7 @@ impl Canvas {
 
                 // Apply blend mode, then composite with alpha
                 let (br, bg, bb) =
-                    crate::color::apply_blend(sr, sg, sb, dr, dg, db, layer.blend_mode);
+                    crate::color::apply_blend(sr, sg, sb, dr, dg, db, layer.blend_mode.to_u32());
 
                 dr = src_a * br + (1.0 - src_a) * dr;
                 dg = src_a * bg + (1.0 - src_a) * dg;
@@ -207,6 +207,7 @@ mod tests {
 
     #[test]
     fn test_sample_color_with_multiply_blend() {
+        use crate::blend_mode::BlendMode;
         let mut canvas = Canvas::new(10, 10);
         // Background is white (255, 255, 255)
         canvas.add_layer();
@@ -214,7 +215,7 @@ mod tests {
             let layer = canvas.layer_mut(0).unwrap();
             let px = layer.pixel_mut(3, 3).unwrap();
             *px = [128, 128, 128, 255]; // opaque mid-gray
-            layer.blend_mode = 2; // Multiply
+            layer.blend_mode = BlendMode::Multiply;
         }
         let c = canvas.sample_color(3, 3);
         // Multiply: src * dst = 0.502 * 1.0 = 0.502 → ~128
@@ -225,6 +226,7 @@ mod tests {
 
     #[test]
     fn test_sample_color_with_screen_blend() {
+        use crate::blend_mode::BlendMode;
         let mut canvas = Canvas::new(10, 10);
         canvas.background_color = Color::new(128, 128, 128); // mid-gray bg
         canvas.add_layer();
@@ -232,7 +234,7 @@ mod tests {
             let layer = canvas.layer_mut(0).unwrap();
             let px = layer.pixel_mut(3, 3).unwrap();
             *px = [128, 128, 128, 255]; // opaque mid-gray
-            layer.blend_mode = 6; // Screen
+            layer.blend_mode = BlendMode::Screen;
         }
         let c = canvas.sample_color(3, 3);
         // Screen: s + d - s*d ≈ 0.502 + 0.502 - 0.252 ≈ 0.752 → ~192
@@ -248,7 +250,7 @@ mod tests {
             let layer = canvas.layer_mut(0).unwrap();
             let px = layer.pixel_mut(3, 3).unwrap();
             *px = [255, 0, 0, 255]; // opaque red
-            layer.blend_mode = 0; // Normal
+            layer.blend_mode = crate::blend_mode::BlendMode::Normal;
         }
         let c = canvas.sample_color(3, 3);
         assert_eq!(c, [255, 0, 0]);

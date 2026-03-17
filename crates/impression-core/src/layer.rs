@@ -1,3 +1,5 @@
+use crate::blend_mode::BlendMode;
+
 #[derive(Debug)]
 pub struct Layer {
     pub pixels: Vec<u8>,
@@ -6,7 +8,7 @@ pub struct Layer {
     pub dirty: bool,
     pub opacity: f32,
     pub visible: bool,
-    pub blend_mode: u32,
+    pub blend_mode: BlendMode,
 }
 
 impl Layer {
@@ -19,7 +21,7 @@ impl Layer {
             dirty: false,
             opacity: 1.0,
             visible: true,
-            blend_mode: 0, // Normal (Source Over)
+            blend_mode: BlendMode::default(),
         }
     }
 
@@ -92,13 +94,13 @@ mod tests {
     #[test]
     fn test_default_blend_mode() {
         let layer = Layer::new(4, 4);
-        assert_eq!(layer.blend_mode, 0); // Normal
+        assert_eq!(layer.blend_mode, BlendMode::Normal);
     }
 
     #[test]
     fn test_set_blend_mode() {
         let mut layer = Layer::new(4, 4);
-        layer.blend_mode = 3;
-        assert_eq!(layer.blend_mode, 3);
+        layer.blend_mode = BlendMode::ColorBurn;
+        assert_eq!(layer.blend_mode, BlendMode::ColorBurn);
     }
 }
