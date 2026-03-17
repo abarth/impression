@@ -112,7 +112,7 @@ pub fn stamp_circle(
             }
         }
     }
-    layer.dirty = true;
+    layer.expand_dirty((x_min, y_min, x_max, y_max));
 }
 
 /// Compute the bounding box of a stamp for recompositing.
@@ -179,7 +179,7 @@ fn recomposite_region(
             }
         }
     }
-    layer.dirty = true;
+    layer.expand_dirty(bounds);
 }
 
 /// Compute the bounding box that covers a line segment with stamps.

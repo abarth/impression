@@ -52,11 +52,31 @@ impl ImpressionCanvas {
         self.inner.layer(layer).map(|l| l.dirty).unwrap_or(false)
     }
 
-    /// Clear the dirty flag for a layer.
+    /// Clear the dirty flag and bounds for a layer.
     pub fn clear_layer_dirty(&mut self, layer: u32) {
         if let Some(l) = self.inner.layer_mut(layer) {
-            l.dirty = false;
+            l.clear_dirty();
         }
+    }
+
+    /// Get the dirty region X origin (in pixels). Returns 0 if not dirty.
+    pub fn layer_dirty_x(&self, layer: u32) -> u32 {
+        self.inner.layer(layer).and_then(|l| l.dirty_bounds).map(|b| b.0).unwrap_or(0)
+    }
+
+    /// Get the dirty region Y origin (in pixels). Returns 0 if not dirty.
+    pub fn layer_dirty_y(&self, layer: u32) -> u32 {
+        self.inner.layer(layer).and_then(|l| l.dirty_bounds).map(|b| b.1).unwrap_or(0)
+    }
+
+    /// Get the dirty region width (in pixels). Returns 0 if not dirty.
+    pub fn layer_dirty_width(&self, layer: u32) -> u32 {
+        self.inner.layer(layer).and_then(|l| l.dirty_bounds).map(|b| b.2 - b.0 + 1).unwrap_or(0)
+    }
+
+    /// Get the dirty region height (in pixels). Returns 0 if not dirty.
+    pub fn layer_dirty_height(&self, layer: u32) -> u32 {
+        self.inner.layer(layer).and_then(|l| l.dirty_bounds).map(|b| b.3 - b.1 + 1).unwrap_or(0)
     }
 
     /// Remove a layer by index. Returns true if removed.

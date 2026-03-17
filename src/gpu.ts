@@ -372,16 +372,29 @@ export function uploadLayerTexture(
   data: Uint8Array,
   width: number,
   height: number,
+  region?: { x: number; y: number; w: number; h: number },
 ): void {
   const texture = gpu.layerTextures[layerIndex];
   if (!texture) return;
 
-  gpu.device.queue.writeTexture(
-    { texture },
-    data as unknown as BufferSource,
-    { bytesPerRow: width * 4, rowsPerImage: height },
-    { width, height },
-  );
+  if (region) {
+    // Partial upload: data is a sub-view starting at the region origin,
+    // with bytesPerRow = full canvas width (rows are contiguous in the full buffer).
+    const offset = (region.y * width + region.x) * 4;
+    gpu.device.queue.writeTexture(
+      { texture, origin: { x: region.x, y: region.y } },
+      data as unknown as BufferSource,
+      { offset, bytesPerRow: width * 4, rowsPerImage: height },
+      { width: region.w, height: region.h },
+    );
+  } else {
+    gpu.device.queue.writeTexture(
+      { texture },
+      data as unknown as BufferSource,
+      { bytesPerRow: width * 4, rowsPerImage: height },
+      { width, height },
+    );
+  }
 }
 
 export function uploadSelectionTexture(

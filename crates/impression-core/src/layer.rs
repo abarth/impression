@@ -1,11 +1,15 @@
 use crate::blend_mode::BlendMode;
 
+/// Dirty region bounds: (x_min, y_min, x_max, y_max) inclusive.
+pub type DirtyBounds = (u32, u32, u32, u32);
+
 #[derive(Debug)]
 pub struct Layer {
     pub pixels: Vec<u8>,
     pub width: u32,
     pub height: u32,
     pub dirty: bool,
+    pub dirty_bounds: Option<DirtyBounds>,
     pub opacity: f32,
     pub visible: bool,
     pub blend_mode: BlendMode,
@@ -19,6 +23,7 @@ impl Layer {
             width,
             height,
             dirty: false,
+            dirty_bounds: None,
             opacity: 1.0,
             visible: true,
             blend_mode: BlendMode::default(),
@@ -27,7 +32,33 @@ impl Layer {
 
     pub fn clear(&mut self) {
         self.pixels.fill(0);
+        self.mark_fully_dirty();
+    }
+
+    /// Mark the entire layer as dirty (for operations like clear or full replay).
+    pub fn mark_fully_dirty(&mut self) {
         self.dirty = true;
+        self.dirty_bounds = Some((0, 0, self.width.saturating_sub(1), self.height.saturating_sub(1)));
+    }
+
+    /// Expand the dirty region to include the given bounds.
+    pub fn expand_dirty(&mut self, bounds: DirtyBounds) {
+        self.dirty = true;
+        self.dirty_bounds = Some(match self.dirty_bounds {
+            Some((x0, y0, x1, y1)) => (
+                x0.min(bounds.0),
+                y0.min(bounds.1),
+                x1.max(bounds.2),
+                y1.max(bounds.3),
+            ),
+            None => bounds,
+        });
+    }
+
+    /// Clear the dirty flag and bounds.
+    pub fn clear_dirty(&mut self) {
+        self.dirty = false;
+        self.dirty_bounds = None;
     }
 
     /// Get mutable reference to pixel at (x, y) as [R, G, B, A].
@@ -102,5 +133,35 @@ mod tests {
         let mut layer = Layer::new(4, 4);
         layer.blend_mode = BlendMode::ColorBurn;
         assert_eq!(layer.blend_mode, BlendMode::ColorBurn);
+    }
+
+    #[test]
+    fn test_expand_dirty() {
+        let mut layer = Layer::new(100, 100);
+        assert!(layer.dirty_bounds.is_none());
+
+        layer.expand_dirty((10, 20, 30, 40));
+        assert!(layer.dirty);
+        assert_eq!(layer.dirty_bounds, Some((10, 20, 30, 40)));
+
+        layer.expand_dirty((5, 25, 35, 35));
+        assert_eq!(layer.dirty_bounds, Some((5, 20, 35, 40)));
+    }
+
+    #[test]
+    fn test_clear_dirty() {
+        let mut layer = Layer::new(100, 100);
+        layer.expand_dirty((10, 20, 30, 40));
+        layer.clear_dirty();
+        assert!(!layer.dirty);
+        assert!(layer.dirty_bounds.is_none());
+    }
+
+    #[test]
+    fn test_mark_fully_dirty() {
+        let mut layer = Layer::new(100, 50);
+        layer.mark_fully_dirty();
+        assert!(layer.dirty);
+        assert_eq!(layer.dirty_bounds, Some((0, 0, 99, 49)));
     }
 }

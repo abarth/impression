@@ -54,6 +54,10 @@ function createMockCanvas() {
     pending_operation_count: vi.fn().mockReturnValue(0),
     flush_pending_operations: vi.fn().mockReturnValue(0),
     flush_data_ptr: vi.fn().mockReturnValue(0),
+    layer_dirty_x: vi.fn().mockReturnValue(0),
+    layer_dirty_y: vi.fn().mockReturnValue(0),
+    layer_dirty_width: vi.fn().mockReturnValue(100),
+    layer_dirty_height: vi.fn().mockReturnValue(100),
   };
 }
 
@@ -120,6 +124,34 @@ describe("Engine", () => {
     mockCanvas.is_layer_dirty.mockReturnValue(true);
     engine.strokeBegin(0, 10, 20, 1.0);
     expect(mockCanvas.clear_layer_dirty).toHaveBeenCalledWith(0);
+  });
+
+  it("should use partial upload when dirty region is smaller than canvas", () => {
+    engine.addLayer();
+    mockCanvas.is_layer_dirty.mockReturnValue(true);
+    mockCanvas.layer_dirty_x.mockReturnValue(10);
+    mockCanvas.layer_dirty_y.mockReturnValue(20);
+    mockCanvas.layer_dirty_width.mockReturnValue(30);
+    mockCanvas.layer_dirty_height.mockReturnValue(40);
+    engine.strokeBegin(0, 10, 20, 1.0);
+    // writeTexture should be called with origin for partial upload
+    const writeCall = mockGPU.device.queue.writeTexture.mock.calls[0];
+    expect(writeCall[0].origin).toEqual({ x: 10, y: 20 });
+    expect(writeCall[2].offset).toBe((20 * 100 + 10) * 4);
+    expect(writeCall[3]).toEqual({ width: 30, height: 40 });
+  });
+
+  it("should use full upload when dirty region covers entire canvas", () => {
+    engine.addLayer();
+    mockCanvas.is_layer_dirty.mockReturnValue(true);
+    mockCanvas.layer_dirty_x.mockReturnValue(0);
+    mockCanvas.layer_dirty_y.mockReturnValue(0);
+    mockCanvas.layer_dirty_width.mockReturnValue(100);
+    mockCanvas.layer_dirty_height.mockReturnValue(100);
+    engine.strokeBegin(0, 10, 20, 1.0);
+    const writeCall = mockGPU.device.queue.writeTexture.mock.calls[0];
+    // Full upload: no origin
+    expect(writeCall[0].origin).toBeUndefined();
   });
 
   it("should not sync clean layers", () => {

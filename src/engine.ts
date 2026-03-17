@@ -98,7 +98,20 @@ export class Engine {
     const width = this.canvas.width();
     const height = this.canvas.height();
 
-    uploadLayerTexture(this.gpu, layer, pixels, width, height);
+    // Read dirty bounds for partial texture upload
+    const dx = this.canvas.layer_dirty_x(layer);
+    const dy = this.canvas.layer_dirty_y(layer);
+    const dw = this.canvas.layer_dirty_width(layer);
+    const dh = this.canvas.layer_dirty_height(layer);
+
+    if (dw > 0 && dh > 0 && dw < width && dh < height) {
+      uploadLayerTexture(this.gpu, layer, pixels, width, height, {
+        x: dx, y: dy, w: dw, h: dh,
+      });
+    } else {
+      uploadLayerTexture(this.gpu, layer, pixels, width, height);
+    }
+
     updateLayerOpacity(this.gpu, layer, this.canvas.layer_opacity(layer));
     this.canvas.clear_layer_dirty(layer);
     this.needsRender = true;
