@@ -12,6 +12,7 @@ function createMockEngine() {
     setLayerOpacity: vi.fn(),
     setLayerBlendMode: vi.fn(),
     setBackgroundColor: vi.fn(),
+    setCanvasVisible: vi.fn(),
     setBrushColor: vi.fn(),
   };
 }
@@ -40,6 +41,32 @@ describe("Canvas color in useLayerManager", () => {
 
     // White (#ffffff) synced on mount
     expect(engine.setBackgroundColor).toHaveBeenCalledWith(255, 255, 255);
+  });
+});
+
+describe("Canvas visibility in useLayerManager", () => {
+  it("should initialize canvasVisible to true", () => {
+    const { result } = renderHook(() => useLayerManager(null));
+    expect(result.current.canvasVisible).toBe(true);
+  });
+
+  it("should toggle canvasVisible and call engine.setCanvasVisible", () => {
+    const engine = createMockEngine();
+    const { result } = renderHook(() => useLayerManager(engine as never));
+
+    act(() => {
+      result.current.toggleCanvasVisible();
+    });
+
+    expect(result.current.canvasVisible).toBe(false);
+    expect(engine.setCanvasVisible).toHaveBeenCalledWith(false);
+
+    act(() => {
+      result.current.toggleCanvasVisible();
+    });
+
+    expect(result.current.canvasVisible).toBe(true);
+    expect(engine.setCanvasVisible).toHaveBeenCalledWith(true);
   });
 });
 

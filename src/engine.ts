@@ -16,6 +16,7 @@ export class Engine {
   private wasmMemory: WebAssembly.Memory;
   private activeLayer: number = 0;
   private needsRender: boolean = true;
+  private _canvasVisible: boolean = true;
 
   constructor(
     canvas: ImpressionCanvas,
@@ -80,6 +81,15 @@ export class Engine {
     uploadLayerTexture(this.gpu, layer, pixels, width, height);
     updateLayerOpacity(this.gpu, layer, this.canvas.layer_opacity(layer));
     this.canvas.clear_layer_dirty(layer);
+    this.needsRender = true;
+  }
+
+  getCanvasVisible(): boolean {
+    return this._canvasVisible;
+  }
+
+  setCanvasVisible(visible: boolean): void {
+    this._canvasVisible = visible;
     this.needsRender = true;
   }
 

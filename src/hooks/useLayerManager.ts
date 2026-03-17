@@ -19,6 +19,7 @@ export function useLayerManager(engine: Engine | null) {
   });
   const [activeIndex, setActiveIndex] = useState(0);
   const [canvasColor, setCanvasColorState] = useState("#ffffff");
+  const [canvasVisible, setCanvasVisible] = useState(true);
   const engineRef = useRef(engine);
   engineRef.current = engine;
 
@@ -115,5 +116,14 @@ export function useLayerManager(engine: Engine | null) {
     [],
   );
 
-  return { layers, activeIndex, canvasColor, addLayer, removeLayer, selectLayer, setLayerOpacity, setLayerBlendMode, setCanvasColor };
+  const toggleCanvasVisible = useCallback(() => {
+    setCanvasVisible((prev) => {
+      const next = !prev;
+      const eng = engineRef.current;
+      if (eng) eng.setCanvasVisible(next);
+      return next;
+    });
+  }, []);
+
+  return { layers, activeIndex, canvasColor, canvasVisible, addLayer, removeLayer, selectLayer, setLayerOpacity, setLayerBlendMode, setCanvasColor, toggleCanvasVisible };
 }

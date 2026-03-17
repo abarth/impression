@@ -2,6 +2,7 @@ import type { GPUContext } from "./gpu";
 
 export interface CompositeOptions {
   backgroundColor: [number, number, number];
+  canvasVisible?: boolean;
   layerCount: number;
   getLayerVisible?: (index: number) => boolean;
   getLayerBlendMode?: (index: number) => number;
@@ -15,18 +16,16 @@ export function composite(gpu: GPUContext, options: CompositeOptions): void {
   const encoder = gpu.device.createCommandEncoder();
   const bg = backgroundColor;
 
-  // Step 1: Clear accumTextures[0] with background color
+  // Step 1: Clear accumTextures[0] with background color (or transparent if hidden)
+  const showCanvas = options.canvasVisible !== false;
   {
     const pass = encoder.beginRenderPass({
       colorAttachments: [
         {
           view: gpu.accumViews[0],
-          clearValue: {
-            r: bg[0] / 255,
-            g: bg[1] / 255,
-            b: bg[2] / 255,
-            a: 1.0,
-          },
+          clearValue: showCanvas
+            ? { r: bg[0] / 255, g: bg[1] / 255, b: bg[2] / 255, a: 1.0 }
+            : { r: 0, g: 0, b: 0, a: 0 },
           loadOp: "clear",
           storeOp: "store",
         },

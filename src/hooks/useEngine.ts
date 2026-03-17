@@ -46,6 +46,7 @@ export function useEngine(
         if (!running) return;
         composite(gpu, {
           backgroundColor: eng.getBackgroundColor(),
+          canvasVisible: eng.getCanvasVisible(),
           layerCount: eng.getLayerCount(),
           getLayerBlendMode: (i) => eng.getLayerBlendMode(i),
           time,

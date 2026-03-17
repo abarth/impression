@@ -280,7 +280,11 @@ export function CanvasViewport({
           transformOrigin: "0 0",
         }}
       >
-        <canvas ref={canvasRef} />
+        <div
+          className="absolute inset-0 checkerboard"
+          style={{ pointerEvents: "none" }}
+        />
+        <canvas ref={canvasRef} className="relative" />
         <svg
           ref={overlayRef}
           style={{
