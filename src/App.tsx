@@ -34,6 +34,7 @@ export function App() {
         canvasRef={canvasRef}
         engine={engine}
         activeTool={activeTool}
+        brushSize={settings.size}
         transform={transform}
         pan={pan}
         zoom={zoom}

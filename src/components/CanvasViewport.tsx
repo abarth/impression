@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect, useCallback, type RefObject } from "react";
+import { useRef, useState, useEffect, useCallback, useMemo, type RefObject } from "react";
 import type { Engine } from "../engine";
 import type { Tool } from "../hooks/useTool";
 import type { ViewTransform } from "../hooks/useViewTransform";
@@ -15,6 +15,7 @@ interface CanvasViewportProps {
   canvasRef: RefObject<HTMLCanvasElement | null>;
   engine: Engine | null;
   activeTool: Tool;
+  brushSize: number;
   transform: ViewTransform;
   pan: (dx: number, dy: number) => void;
   zoom: (delta: number, cx: number, cy: number) => void;
@@ -31,10 +32,30 @@ const cursorMap: Record<Tool, string> = {
   lasso: "crosshair",
 };
 
+/** Min/max cursor image size in CSS pixels. Browsers cap at ~128px. */
+const MIN_CURSOR_PX = 4;
+const MAX_CURSOR_PX = 128;
+
+/** Build a circle-outline cursor CSS value for brush/eraser tools. */
+function buildCircleCursor(brushSize: number, scale: number): string {
+  const diameter = Math.round(brushSize * scale);
+  if (diameter < MIN_CURSOR_PX || diameter > MAX_CURSOR_PX) {
+    return "crosshair";
+  }
+  const r = diameter / 2;
+  const size = diameter + 2; // 1px padding for stroke
+  const center = size / 2;
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='${size}' height='${size}'><circle cx='${center}' cy='${center}' r='${r}' fill='none' stroke='white' stroke-width='1'/><circle cx='${center}' cy='${center}' r='${r}' fill='none' stroke='black' stroke-width='1' stroke-dasharray='2,2'/></svg>`;
+  const encoded = encodeURIComponent(svg);
+  const hotspot = Math.round(center);
+  return `url("data:image/svg+xml,${encoded}") ${hotspot} ${hotspot}, crosshair`;
+}
+
 export function CanvasViewport({
   canvasRef,
   engine,
   activeTool,
+  brushSize,
   transform,
   pan,
   zoom,
@@ -45,6 +66,13 @@ export function CanvasViewport({
   const [canvasSize, setCanvasSize] = useState<{ w: number; h: number } | null>(
     null,
   );
+
+  const cursor = useMemo(() => {
+    if (activeTool === "brush" || activeTool === "eraser") {
+      return buildCircleCursor(brushSize, transform.scale);
+    }
+    return cursorMap[activeTool];
+  }, [activeTool, brushSize, transform.scale]);
   const dragStart = useRef<{ x: number; y: number } | null>(null);
   const zoomAnchor = useRef<{ x: number; y: number } | null>(null);
   const marqueeStart = useRef<{ x: number; y: number } | null>(null);
@@ -276,7 +304,7 @@ export function CanvasViewport({
       className="flex-1 relative overflow-hidden bg-graphite-950"
       style={{
         touchAction: "none",
-        cursor: cursorMap[activeTool],
+        cursor,
       }}
     >
       <div
