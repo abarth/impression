@@ -40,13 +40,52 @@ export function CanvasViewport({
   onColorPick,
 }: CanvasViewportProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
+  const overlayRef = useRef<SVGSVGElement>(null);
   const dragStart = useRef<{ x: number; y: number } | null>(null);
   const zoomAnchor = useRef<{ x: number; y: number } | null>(null);
   const marqueeStart = useRef<{ x: number; y: number } | null>(null);
   const marqueeMode = useRef<number>(0);
   const lassoMode = useRef<number>(0);
+  const lassoPreviewPoints = useRef<{ x: number; y: number }[]>([]);
   const toolRef = useRef(activeTool);
   toolRef.current = activeTool;
+
+  /** Update the SVG selection preview overlay. */
+  const updateOverlay = useCallback(
+    (
+      type: "marquee" | "lasso" | "clear",
+      rect?: { x: number; y: number; w: number; h: number },
+    ) => {
+      const svg = overlayRef.current;
+      const canvas = canvasRef.current;
+      if (!svg || !canvas) return;
+
+      svg.setAttribute("viewBox", `0 0 ${canvas.width} ${canvas.height}`);
+      svg.style.width = `${canvas.width}px`;
+      svg.style.height = `${canvas.height}px`;
+
+      if (type === "clear") {
+        svg.innerHTML = "";
+        return;
+      }
+
+      if (type === "marquee" && rect) {
+        svg.innerHTML =
+          `<rect x="${rect.x}" y="${rect.y}" width="${rect.w}" height="${rect.h}" ` +
+          `fill="none" stroke="white" stroke-width="1" vector-effect="non-scaling-stroke"/>` +
+          `<rect x="${rect.x}" y="${rect.y}" width="${rect.w}" height="${rect.h}" ` +
+          `fill="none" stroke="black" stroke-width="1" stroke-dasharray="4,4" vector-effect="non-scaling-stroke"/>`;
+      } else if (type === "lasso") {
+        const pts = lassoPreviewPoints.current;
+        if (pts.length < 2) return;
+        const d = pts.map((p, i) => `${i === 0 ? "M" : "L"}${p.x},${p.y}`).join(" ") + " Z";
+        svg.innerHTML =
+          `<path d="${d}" fill="none" stroke="white" stroke-width="1" vector-effect="non-scaling-stroke"/>` +
+          `<path d="${d}" fill="none" stroke="black" stroke-width="1" stroke-dasharray="4,4" vector-effect="non-scaling-stroke"/>`;
+      }
+    },
+    [canvasRef],
+  );
 
   /** Convert page (clientX/clientY) coordinates to viewport-local coordinates. */
   const toViewportLocal = useCallback(
@@ -89,9 +128,11 @@ export function CanvasViewport({
       } else if (tool === "lasso" && engine) {
         viewport.setPointerCapture(e.pointerId);
         lassoMode.current = getCombineMode(e);
+        lassoPreviewPoints.current = [];
         engine.selectionLassoBegin();
         const { x, y } = screenToCanvas(e.clientX, e.clientY);
         engine.selectionLassoPoint(x, y);
+        lassoPreviewPoints.current.push({ x, y });
       } else if (tool === "brush" && engine) {
         viewport.setPointerCapture(e.pointerId);
         const { x, y } = screenToCanvas(e.clientX, e.clientY);
@@ -114,12 +155,23 @@ export function CanvasViewport({
       if (e.buttons === 0) return;
       const tool = toolRef.current;
 
-      if (tool === "lasso" && engine) {
+      if (tool === "marquee" && engine && marqueeStart.current) {
+        const { x, y } = screenToCanvas(e.clientX, e.clientY);
+        const sx = marqueeStart.current.x;
+        const sy = marqueeStart.current.y;
+        const rx = Math.min(sx, x);
+        const ry = Math.min(sy, y);
+        const rw = Math.abs(x - sx);
+        const rh = Math.abs(y - sy);
+        updateOverlay("marquee", { x: rx, y: ry, w: rw, h: rh });
+      } else if (tool === "lasso" && engine) {
         const events = e.getCoalescedEvents?.() ?? [e];
         for (const ce of events) {
           const { x, y } = screenToCanvas(ce.clientX, ce.clientY);
           engine.selectionLassoPoint(x, y);
+          lassoPreviewPoints.current.push({ x, y });
         }
+        updateOverlay("lasso");
       } else if (tool === "brush" && engine) {
         const events = e.getCoalescedEvents?.() ?? [e];
         for (const ce of events) {
@@ -165,8 +217,11 @@ export function CanvasViewport({
           );
         }
         marqueeStart.current = null;
+        updateOverlay("clear");
       } else if (tool === "lasso" && engine) {
         engine.selectionLassoEnd(lassoMode.current);
+        lassoPreviewPoints.current = [];
+        updateOverlay("clear");
       } else if (tool === "brush" && engine) {
         engine.strokeEnd();
       }
@@ -195,7 +250,7 @@ export function CanvasViewport({
       viewport.removeEventListener("pointerup", handlePointerUp);
       viewport.removeEventListener("wheel", handleWheel);
     };
-  }, [engine, screenToCanvas, toViewportLocal, pan, zoom, onColorPick]);
+  }, [engine, screenToCanvas, toViewportLocal, pan, zoom, onColorPick, updateOverlay]);
 
   // Set the canvas document size once from the initial viewport dimensions.
   // The canvas represents a fixed-size document; viewport resizes should not
@@ -226,6 +281,15 @@ export function CanvasViewport({
         }}
       >
         <canvas ref={canvasRef} />
+        <svg
+          ref={overlayRef}
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            pointerEvents: "none",
+          }}
+        />
       </div>
     </div>
   );
