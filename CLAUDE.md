@@ -74,12 +74,15 @@ Located in `src/__tests__/`. Uses vitest with happy-dom environment. WebGPU glob
 **React components** (`src/components/`):
 - `CanvasViewport.tsx` — Pannable/zoomable canvas container, tool-aware input handling. **Important**: coordinates passed to `zoom()` must be viewport-local (subtract viewport rect), not raw `clientX/clientY`, or the zoom anchor will drift.
 - `Toolbar.tsx` — Tool selection (marquee, lasso, brush, eyedropper, pan, zoom) using Radix ToggleGroup
+- `DocumentPicker.tsx` — Painting list with rename, delete, open; integrates `NewDocumentDialog`
+- `NewDocumentDialog.tsx` — Radix Dialog for creating new paintings with size presets
 
 **Hooks** (`src/hooks/`):
 - `useEngine` — WASM + WebGPU initialization, render loop (passes `time` for marching ants animation)
 - `useViewTransform` — Pan/zoom state. Zoom math keeps anchor point fixed: `newTx = centerX - (centerX - prev.tx) * (newScale / prev.scale)`
 - `useTool` — Active tool with keyboard shortcuts (see below)
 - `useSelection` — Cmd/Ctrl+A (select all), Cmd/Ctrl+D (deselect) keyboard shortcuts
+- `useDocumentManager` — Document CRUD, IndexedDB persistence, hash-based URL routing
 - `useBrushSettings`, `useColorState`, `useLayerManager` — State synced to engine
 
 ## Tools & keyboard shortcuts (matching Photoshop)
@@ -129,6 +132,23 @@ When adding UI components: use `graphite-*` and `cream-*` tokens, `shadow-soft` 
 - **Flow** controls per-stamp alpha. **Opacity** controls whole-stroke alpha (applied at compositing via layer opacity).
 - Circle rasterization uses smoothstep anti-aliasing at the edge.
 - When a selection is active, brush strokes are clipped to the selected region (selection mask alpha multiplied into stamp alpha).
+
+## URL routing
+
+Hash-based routing is used for GitHub Pages SPA compatibility (no server-side routing available). Implemented in `useDocumentManager.ts` via `parseRoute()` and `setRoute()`.
+
+| Route | View | Description |
+|-------|------|-------------|
+| `#/` | Painting picker | Lists recent paintings, create new |
+| `#/painting/{uuid}` | Canvas editor | Open painting by ID |
+
+**Planned future routes:**
+- `#/login` — Authentication page
+- `#/settings` — User preferences
+
+Navigation uses `history.replaceState` to avoid polluting the browser history stack. On initial load, the app checks the URL hash and auto-opens a painting if a valid UUID is found.
+
+**Terminology:** User-facing text uses "painting" (not "document"). Code identifiers may still use "document" internally (e.g., `DocumentMeta`, `useDocumentManager`).
 
 ## Deployment
 

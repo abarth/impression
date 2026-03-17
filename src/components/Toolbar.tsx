@@ -30,7 +30,7 @@ export function Toolbar({ activeTool, onToolChange, documentName, onBack }: Tool
       {onBack && (
         <button
           onClick={onBack}
-          title={documentName ?? "Back to documents"}
+          title={documentName ?? "Back to paintings"}
           className="flex items-center justify-center w-10 h-10 mx-auto mb-2 rounded-[10px]
             text-cream-muted hover:text-cream hover:bg-graphite-800
             transition-all duration-150 cursor-pointer"

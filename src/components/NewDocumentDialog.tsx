@@ -46,7 +46,7 @@ export function NewDocumentDialog({ onCreateDocument }: NewDocumentDialogProps) 
             shadow-soft transition-all duration-150 cursor-pointer"
         >
           <Plus size={16} strokeWidth={2} />
-          <span className="text-[13px]">New Document</span>
+          <span className="text-[13px]">New Painting</span>
         </button>
       </Dialog.Trigger>
 
@@ -59,7 +59,7 @@ export function NewDocumentDialog({ onCreateDocument }: NewDocumentDialogProps) 
         >
           <div className="flex items-center justify-between mb-5">
             <Dialog.Title className="text-[15px] font-medium text-cream">
-              New Document
+              New Painting
             </Dialog.Title>
             <Dialog.Close asChild>
               <button className="p-1 rounded-lg text-cream-muted hover:text-cream

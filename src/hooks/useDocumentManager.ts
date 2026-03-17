@@ -16,10 +16,22 @@ export interface DocumentManagerState {
 
 export interface DocumentManagerActions {
   createDocument: (name: string, width: number, height: number, ppi: number) => Promise<DocumentMeta>;
-  openDocument: (id: string) => void;
+  openDocument: (id: string) => Promise<void>;
   deleteDocument: (id: string) => Promise<void>;
   renameDocument: (id: string, name: string) => Promise<void>;
   closeDocument: () => void;
+}
+
+/** Parse the hash route. Returns the document ID if on a doc route, null for picker. */
+function parseRoute(): string | null {
+  const hash = window.location.hash;
+  const match = hash.match(/^#\/painting\/([a-f0-9-]+)$/i);
+  return match ? match[1] : null;
+}
+
+/** Update the URL hash without triggering a full navigation. */
+function setRoute(path: string): void {
+  window.history.replaceState(null, "", path);
 }
 
 export function useDocumentManager(): DocumentManagerState & DocumentManagerActions {
@@ -41,6 +53,19 @@ export function useDocumentManager(): DocumentManagerState & DocumentManagerActi
       if (cancelled) return;
       docs.sort((a, b) => b.modified_at - a.modified_at);
       setDocuments(docs);
+
+      // Check if URL points to a specific document
+      const routeDocId = parseRoute();
+      if (routeDocId) {
+        const doc = docs.find(d => d.id === routeDocId);
+        if (doc) {
+          const chunks = await s.getChunks(routeDocId);
+          if (cancelled) return;
+          setCurrentChunks(chunks);
+          setCurrentDocument(doc);
+        }
+      }
+
       setReady(true);
     })();
     return () => { cancelled = true; };
@@ -64,6 +89,7 @@ export function useDocumentManager(): DocumentManagerState & DocumentManagerActi
     setDocuments(prev => [meta, ...prev]);
     setCurrentChunks([]);
     setCurrentDocument(meta);
+    setRoute(`#/painting/${meta.id}`);
     return meta;
   }, [storage]);
 
@@ -74,6 +100,7 @@ export function useDocumentManager(): DocumentManagerState & DocumentManagerActi
     const chunks = await storage.getChunks(id);
     setCurrentChunks(chunks);
     setCurrentDocument(doc);
+    setRoute(`#/painting/${id}`);
   }, [storage, documents]);
 
   const deleteDocument = useCallback(async (id: string) => {
@@ -82,6 +109,8 @@ export function useDocumentManager(): DocumentManagerState & DocumentManagerActi
     setDocuments(prev => prev.filter(d => d.id !== id));
     if (currentDocument?.id === id) {
       setCurrentDocument(null);
+      setCurrentChunks([]);
+      setRoute("#/");
     }
   }, [storage, currentDocument]);
 
@@ -100,6 +129,7 @@ export function useDocumentManager(): DocumentManagerState & DocumentManagerActi
   const closeDocument = useCallback(() => {
     setCurrentDocument(null);
     setCurrentChunks([]);
+    setRoute("#/");
   }, []);
 
   return {

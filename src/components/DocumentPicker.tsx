@@ -53,8 +53,8 @@ export function DocumentPicker({
         <h1 className="text-[18px] font-medium text-cream">Impression</h1>
         <p className="text-[13px] text-cream-muted -mt-3">
           {documents.length === 0
-            ? "Create a new document to get started."
-            : "Open a document or create a new one."}
+            ? "Create a new painting to get started."
+            : "Open a painting or create a new one."}
         </p>
 
         <NewDocumentDialog onCreateDocument={onCreate} />
@@ -62,7 +62,7 @@ export function DocumentPicker({
         {documents.length > 0 && (
           <div className="w-full flex flex-col gap-1.5 mt-2">
             <h2 className="text-[11px] font-medium text-cream-muted tracking-wide uppercase mb-1">
-              Recent Documents
+              Recent Paintings
             </h2>
             {documents.map(doc => (
               <div
