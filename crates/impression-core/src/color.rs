@@ -112,6 +112,9 @@ fn blend_channel(s: f32, d: f32, mode: crate::blend_mode::BlendMode) -> f32 {
         Divide => { // Divide
             if s == 0.0 { 1.0 } else { (d / s).min(1.0) }
         }
+        // Porter-Duff modes don't have per-channel blend functions;
+        // they are handled at the compositing level. Fall back to Normal.
+        _ => s,
     }
 }
 

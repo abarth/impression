@@ -33,6 +33,7 @@ pub enum Operation {
     },
     SetBrushOpacity(f32),
     SetBrushFlow(f32),
+    SetBrushBlendMode(BlendMode),
     AddLayer,
     RemoveLayer(u32),
     SetLayerOpacity {

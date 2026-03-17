@@ -43,6 +43,13 @@ describe("useTool permanent shortcuts (tap)", () => {
     expect(result.current.activeTool).toBe("zoom");
   });
 
+  it("should switch to eraser on E key tap", () => {
+    const { result } = renderHook(() => useTool());
+    act(() => fireKeyDown("e"));
+    act(() => fireKeyUp("e"));
+    expect(result.current.activeTool).toBe("eraser");
+  });
+
   it("should switch to eyedropper on I key tap", () => {
     const { result } = renderHook(() => useTool());
     act(() => fireKeyDown("i"));

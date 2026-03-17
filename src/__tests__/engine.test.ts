@@ -39,6 +39,7 @@ function createMockCanvas() {
     set_brush_color: vi.fn(),
     set_brush_opacity: vi.fn(),
     set_brush_flow: vi.fn(),
+    set_brush_blend_mode: vi.fn(),
     set_background_color: vi.fn(),
     remove_layer: vi.fn().mockReturnValue(true),
     layer_blend_mode: vi.fn().mockReturnValue(0),
@@ -206,6 +207,11 @@ describe("Engine", () => {
   it("should forward setLayerVisible to WASM", () => {
     engine.setLayerVisible(0, false);
     expect(mockCanvas.set_layer_visible).toHaveBeenCalledWith(0, false);
+  });
+
+  it("should forward setBrushBlendMode to WASM", () => {
+    engine.setBrushBlendMode(108); // DstOut
+    expect(mockCanvas.set_brush_blend_mode).toHaveBeenCalledWith(108);
   });
 
   it("should forward pendingOperationCount to WASM", () => {

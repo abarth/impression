@@ -1,3 +1,4 @@
+use crate::blend_mode::{porter_duff_composite, BlendMode};
 use crate::color::{blend_pixel, Color};
 use crate::layer::Layer;
 
@@ -13,6 +14,9 @@ pub struct BrushSettings {
     pub opacity: f32,
     /// Per-stamp alpha (0.0 - 1.0).
     pub flow: f32,
+    /// Blend mode applied when compositing the stroke onto the layer.
+    /// Defaults to Normal (SrcOver). Set to DstOut for erasing.
+    pub blend_mode: BlendMode,
 }
 
 impl Default for BrushSettings {
@@ -23,6 +27,7 @@ impl Default for BrushSettings {
             color: Color::black(),
             opacity: 1.0,
             flow: 1.0,
+            blend_mode: BlendMode::Normal,
         }
     }
 }
@@ -120,12 +125,15 @@ fn stamp_bounds(cx: f32, cy: f32, radius: f32, width: u32, height: u32) -> (u32,
 }
 
 /// Composite the stroke buffer over the snapshot into the layer for a given region.
-/// Each pixel: layer = alpha_over(snapshot, stroke_buffer with alpha scaled by opacity).
+/// Uses the specified blend mode to determine how the stroke combines with the snapshot.
+/// For Normal (and other Photoshop modes), this is SrcOver. For Porter-Duff modes,
+/// the corresponding operator is applied.
 fn recomposite_region(
     layer: &mut Layer,
     snapshot: &[u8],
     stroke_layer: &Layer,
     opacity: f32,
+    blend_mode: BlendMode,
     bounds: (u32, u32, u32, u32),
 ) {
     let (x_min, y_min, x_max, y_max) = bounds;
@@ -144,26 +152,31 @@ fn recomposite_region(
                 continue;
             }
 
-            let sr = stroke_layer.pixels[i] as f32 / 255.0;
-            let sg = stroke_layer.pixels[i + 1] as f32 / 255.0;
-            let sb = stroke_layer.pixels[i + 2] as f32 / 255.0;
+            // Read stroke and snapshot as premultiplied RGBA
+            let sr = stroke_layer.pixels[i] as f32 / 255.0 * sa;
+            let sg = stroke_layer.pixels[i + 1] as f32 / 255.0 * sa;
+            let sb = stroke_layer.pixels[i + 2] as f32 / 255.0 * sa;
 
             let da = snapshot[i + 3] as f32 / 255.0;
-            let out_a = sa + da * (1.0 - sa);
+            let dr = snapshot[i] as f32 / 255.0 * da;
+            let dg = snapshot[i + 1] as f32 / 255.0 * da;
+            let db = snapshot[i + 2] as f32 / 255.0 * da;
 
-            if out_a <= 0.0 {
+            let (or, og, ob, oa) = porter_duff_composite(
+                sr, sg, sb, sa,
+                dr, dg, db, da,
+                blend_mode,
+            );
+
+            if oa <= 0.0 {
                 layer.pixels[i..i + 4].copy_from_slice(&[0, 0, 0, 0]);
-                continue;
+            } else {
+                // Convert from premultiplied back to straight alpha
+                layer.pixels[i] = (or / oa * 255.0 + 0.5).clamp(0.0, 255.0) as u8;
+                layer.pixels[i + 1] = (og / oa * 255.0 + 0.5).clamp(0.0, 255.0) as u8;
+                layer.pixels[i + 2] = (ob / oa * 255.0 + 0.5).clamp(0.0, 255.0) as u8;
+                layer.pixels[i + 3] = (oa * 255.0 + 0.5) as u8;
             }
-
-            let dr = snapshot[i] as f32 / 255.0;
-            let dg = snapshot[i + 1] as f32 / 255.0;
-            let db = snapshot[i + 2] as f32 / 255.0;
-
-            layer.pixels[i] = ((sr * sa + dr * da * (1.0 - sa)) / out_a * 255.0 + 0.5) as u8;
-            layer.pixels[i + 1] = ((sg * sa + dg * da * (1.0 - sa)) / out_a * 255.0 + 0.5) as u8;
-            layer.pixels[i + 2] = ((sb * sa + db * da * (1.0 - sa)) / out_a * 255.0 + 0.5) as u8;
-            layer.pixels[i + 3] = (out_a * 255.0 + 0.5) as u8;
         }
     }
     layer.dirty = true;
@@ -250,7 +263,7 @@ pub fn stroke_begin(
 
     // Composite stroke buffer over snapshot into layer
     let bounds = stamp_bounds(x, y, radius, layer.width, layer.height);
-    recomposite_region(layer, &state.snapshot, &stroke, brush.opacity, bounds);
+    recomposite_region(layer, &state.snapshot, &stroke, brush.opacity, brush.blend_mode, bounds);
 
     state.stroke_layer = Some(stroke);
 }
@@ -291,7 +304,7 @@ pub fn stroke_move(
 
         // Recomposite the segment's bounding box
         let bounds = segment_bounds(lx, ly, lp, x, y, pressure, brush, layer.width, layer.height);
-        recomposite_region(layer, &state.snapshot, stroke, brush.opacity, bounds);
+        recomposite_region(layer, &state.snapshot, stroke, brush.opacity, brush.blend_mode, bounds);
     }
 
     state.last_point = Some((x, y, pressure));
@@ -339,6 +352,7 @@ mod tests {
             color: Color::black(),
             opacity: 1.0,
             flow: 1.0,
+            ..Default::default()
         };
 
         // Draw a horizontal line of 10 pixels
@@ -441,6 +455,7 @@ mod tests {
             color: Color::black(),
             opacity: 1.0,
             flow: 1.0,
+            ..Default::default()
         };
 
         // Count stamps at full pressure: effective_size=20, step=10
@@ -524,6 +539,7 @@ mod tests {
             color: Color::black(),
             opacity: 1.0,
             flow: 1.0,
+            ..Default::default()
         };
 
         interpolate_and_stamp(&mut layer, 0.0, 10.0, 0.2, 100.0, 10.0, 1.0, &brush, 0.0, None);
@@ -573,6 +589,7 @@ mod tests {
             color: Color::black(),
             opacity: 0.5,
             flow: 1.0,
+            ..Default::default()
         };
 
         // Draw a short stroke to get many overlapping stamps
@@ -600,6 +617,7 @@ mod tests {
             color: Color::black(),
             opacity: 0.3,
             flow: 1.0,
+            ..Default::default()
         };
 
         let opacity_before = layer.opacity;
@@ -608,5 +626,75 @@ mod tests {
 
         // Layer opacity should remain unchanged
         assert_eq!(layer.opacity, opacity_before);
+    }
+
+    #[test]
+    fn test_erase_blend_mode_removes_pixels() {
+        // Paint some content first with normal blend mode
+        let mut layer = Layer::new(50, 50);
+        let mut state = StrokeState::new();
+        let paint_brush = BrushSettings {
+            size: 20.0,
+            spacing: 0.1,
+            color: Color::new(255, 0, 0),
+            opacity: 1.0,
+            flow: 1.0,
+            blend_mode: BlendMode::Normal,
+        };
+
+        stroke_begin(&mut layer, &mut state, &paint_brush, 25.0, 25.0, 1.0, None);
+        stroke_end(&mut state);
+
+        // Verify center pixel is painted
+        let px = layer.pixel(25, 25).unwrap();
+        assert!(px[3] > 200, "Should be nearly opaque after painting: a={}", px[3]);
+
+        // Now erase with DstOut blend mode
+        let erase_brush = BrushSettings {
+            size: 20.0,
+            spacing: 0.1,
+            color: Color::black(),
+            opacity: 1.0,
+            flow: 1.0,
+            blend_mode: BlendMode::DstOut,
+        };
+
+        stroke_begin(&mut layer, &mut state, &erase_brush, 25.0, 25.0, 1.0, None);
+        stroke_end(&mut state);
+
+        // Center pixel should be erased (alpha near 0)
+        let px = layer.pixel(25, 25).unwrap();
+        assert!(px[3] < 10, "Should be erased: a={}", px[3]);
+    }
+
+    #[test]
+    fn test_erase_partial_opacity() {
+        // Paint fully opaque content
+        let mut layer = Layer::new(50, 50);
+        let mut state = StrokeState::new();
+        let paint_brush = BrushSettings::default();
+
+        stroke_begin(&mut layer, &mut state, &paint_brush, 25.0, 25.0, 1.0, None);
+        stroke_end(&mut state);
+
+        let alpha_before = layer.pixel(25, 25).unwrap()[3];
+        assert!(alpha_before > 200);
+
+        // Erase at half opacity — should partially remove
+        let erase_brush = BrushSettings {
+            size: 20.0,
+            spacing: 0.1,
+            opacity: 0.5,
+            flow: 1.0,
+            blend_mode: BlendMode::DstOut,
+            ..Default::default()
+        };
+
+        stroke_begin(&mut layer, &mut state, &erase_brush, 25.0, 25.0, 1.0, None);
+        stroke_end(&mut state);
+
+        let alpha_after = layer.pixel(25, 25).unwrap()[3];
+        assert!(alpha_after < alpha_before, "Should have reduced alpha: before={alpha_before} after={alpha_after}");
+        assert!(alpha_after > 10, "Should not be fully erased at half opacity: a={alpha_after}");
     }
 }

@@ -65,6 +65,7 @@ impl OpLog {
             | (Operation::SetBrushSpacing(_), Operation::SetBrushSpacing(_))
             | (Operation::SetBrushOpacity(_), Operation::SetBrushOpacity(_))
             | (Operation::SetBrushFlow(_), Operation::SetBrushFlow(_))
+            | (Operation::SetBrushBlendMode(_), Operation::SetBrushBlendMode(_))
             | (Operation::SetBrushColor { .. }, Operation::SetBrushColor { .. })
             | (Operation::SetBackgroundColor { .. }, Operation::SetBackgroundColor { .. })
         ) || matches!(

@@ -17,7 +17,7 @@ export function App() {
   const engine = useEngine(canvasRef);
   const { transform, pan, zoom } = useViewTransform();
   const { activeTool, selectTool } = useTool();
-  const { settings, updateSetting } = useBrushSettings(engine);
+  const { settings, updateSetting, toolLabel } = useBrushSettings(engine, activeTool);
   const { colors, setForeground, setBackground, swapColors } =
     useColorState(engine);
   const { layers, activeIndex, canvasColor, canvasVisible, addLayer, removeLayer, selectLayer, setLayerOpacity, setLayerBlendMode, toggleLayerVisible, setCanvasColor, toggleCanvasVisible } =
@@ -42,7 +42,7 @@ export function App() {
 
       {/* Right panel */}
       <div className="flex flex-col w-56 bg-graphite-900 border-l border-graphite-850 overflow-y-auto">
-        <BrushSettingsPanel settings={settings} onUpdate={updateSetting} />
+        <BrushSettingsPanel settings={settings} toolLabel={toolLabel} onUpdate={updateSetting} />
         <ColorDisplay
           foreground={colors.foreground}
           background={colors.background}

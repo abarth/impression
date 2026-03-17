@@ -125,6 +125,11 @@ impl ImpressionCanvas {
         self.inner.set_brush_flow(flow);
     }
 
+    pub fn set_brush_blend_mode(&mut self, mode: u32) {
+        self.inner
+            .set_brush_blend_mode(blend_mode::BlendMode::from_u32(mode));
+    }
+
     pub fn set_background_color(&mut self, r: u8, g: u8, b: u8) {
         self.inner.set_background_color(color::Color::new(r, g, b));
     }

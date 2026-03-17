@@ -1,5 +1,5 @@
 import * as ToggleGroup from "@radix-ui/react-toggle-group";
-import { Paintbrush, Hand, ZoomIn, Pipette, Square, Lasso } from "lucide-react";
+import { Paintbrush, Eraser, Hand, ZoomIn, Pipette, Square, Lasso } from "lucide-react";
 import type { Tool } from "../hooks/useTool";
 
 interface ToolbarProps {
@@ -16,6 +16,7 @@ const tools: {
   { value: "marquee", icon: Square, label: "Marquee", shortcut: "M" },
   { value: "lasso", icon: Lasso, label: "Lasso", shortcut: "L" },
   { value: "brush", icon: Paintbrush, label: "Brush", shortcut: "B" },
+  { value: "eraser", icon: Eraser, label: "Eraser", shortcut: "E" },
   { value: "eyedropper", icon: Pipette, label: "Eyedropper", shortcut: "I" },
   { value: "pan", icon: Hand, label: "Pan", shortcut: "H" },
   { value: "zoom", icon: ZoomIn, label: "Zoom", shortcut: "Z" },

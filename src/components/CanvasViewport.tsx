@@ -23,6 +23,7 @@ interface CanvasViewportProps {
 
 const cursorMap: Record<Tool, string> = {
   brush: "crosshair",
+  eraser: "crosshair",
   pan: "grab",
   zoom: "zoom-in",
   eyedropper: "crosshair",
@@ -136,7 +137,7 @@ export function CanvasViewport({
         const { x, y } = screenToCanvas(e.clientX, e.clientY);
         engine.selectionLassoPoint(x, y);
         lassoPreviewPoints.current.push({ x, y });
-      } else if (tool === "brush" && engine) {
+      } else if ((tool === "brush" || tool === "eraser") && engine) {
         viewport.setPointerCapture(e.pointerId);
         const { x, y } = screenToCanvas(e.clientX, e.clientY);
         engine.strokeBegin(
@@ -175,7 +176,7 @@ export function CanvasViewport({
           lassoPreviewPoints.current.push({ x, y });
         }
         updateOverlay("lasso");
-      } else if (tool === "brush" && engine) {
+      } else if ((tool === "brush" || tool === "eraser") && engine) {
         const events = e.getCoalescedEvents?.() ?? [e];
         for (const ce of events) {
           const { x, y } = screenToCanvas(ce.clientX, ce.clientY);
@@ -225,7 +226,7 @@ export function CanvasViewport({
         engine.selectionLassoEnd(lassoMode.current);
         lassoPreviewPoints.current = [];
         updateOverlay("clear");
-      } else if (tool === "brush" && engine) {
+      } else if ((tool === "brush" || tool === "eraser") && engine) {
         engine.strokeEnd();
       }
       dragStart.current = null;

@@ -153,6 +153,10 @@ export class Engine {
     this.canvas.set_brush_flow(flow);
   }
 
+  setBrushBlendMode(mode: number): void {
+    this.canvas.set_brush_blend_mode(mode);
+  }
+
   setBackgroundColor(r: number, g: number, b: number): void {
     this.canvas.set_background_color(r, g, b);
   }

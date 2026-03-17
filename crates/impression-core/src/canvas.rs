@@ -133,6 +133,12 @@ impl Canvas {
         self.oplog.push(Operation::SetBrushFlow(flow));
     }
 
+    pub fn set_brush_blend_mode(&mut self, mode: BlendMode) {
+        self.brush.blend_mode = mode;
+        self.oplog.begin_undo_group();
+        self.oplog.push(Operation::SetBrushBlendMode(mode));
+    }
+
     /// Sample the composited color at (x, y) across all visible layers,
     /// over the background color. Applies each layer's blend mode.
     /// Returns [R, G, B].
@@ -330,6 +336,7 @@ impl Canvas {
             Operation::SetBrushColor { r, g, b } => self.brush.color = Color::new(r, g, b),
             Operation::SetBrushOpacity(opacity) => self.brush.opacity = opacity,
             Operation::SetBrushFlow(flow) => self.brush.flow = flow,
+            Operation::SetBrushBlendMode(mode) => self.brush.blend_mode = mode,
             Operation::AddLayer => {
                 self.layers.push(Layer::new(self.width, self.height));
             }

@@ -3,6 +3,7 @@ import type { BrushSettings } from "../hooks/useBrushSettings";
 
 interface BrushSettingsPanelProps {
   settings: BrushSettings;
+  toolLabel?: string;
   onUpdate: <K extends keyof BrushSettings>(
     key: K,
     value: BrushSettings[K],
@@ -11,12 +12,13 @@ interface BrushSettingsPanelProps {
 
 export function BrushSettingsPanel({
   settings,
+  toolLabel = "Brush",
   onUpdate,
 }: BrushSettingsPanelProps) {
   return (
     <div className="flex flex-col gap-4 px-4 pt-4 pb-5">
       <h3 className="text-[11px] font-medium text-cream-muted tracking-wide uppercase">
-        Brush
+        {toolLabel}
       </h3>
       <div className="flex flex-col gap-3.5">
         <SliderControl

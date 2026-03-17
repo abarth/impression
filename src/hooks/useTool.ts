@@ -1,11 +1,12 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 
-export type Tool = "brush" | "pan" | "zoom" | "eyedropper" | "marquee" | "lasso";
+export type Tool = "brush" | "eraser" | "pan" | "zoom" | "eyedropper" | "marquee" | "lasso";
 
 /** Permanent/spring-loaded tool keys. Tap to switch permanently,
  *  hold (>200ms) to switch temporarily. */
 const KEY_TO_TOOL: Record<string, Tool> = {
   b: "brush",
+  e: "eraser",
   h: "pan",
   z: "zoom",
   i: "eyedropper",
@@ -18,6 +19,7 @@ const KEY_TO_TOOL: Record<string, Tool> = {
 const MODIFIER_TEMP_TOOLS: Record<string, Partial<Record<Tool, Tool>>> = {
   Alt: {
     brush: "eyedropper",
+    eraser: "eyedropper",
     pan: "zoom",
   },
 };
