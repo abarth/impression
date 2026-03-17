@@ -45,8 +45,10 @@ describe("useDocumentManager", () => {
     act(() => result.current.closeDocument());
     expect(result.current.currentDocument).toBeNull();
 
-    // Open it again
-    act(() => result.current.openDocument(doc!.id));
+    // Open it again (async — loads chunks from storage)
+    await act(async () => {
+      await result.current.openDocument(doc!.id);
+    });
     expect(result.current.currentDocument?.id).toBe(doc!.id);
   });
 

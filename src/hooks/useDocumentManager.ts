@@ -8,6 +8,8 @@ export interface DocumentManagerState {
   ready: boolean;
   /** The currently open document, or null if none is open. */
   currentDocument: DocumentMeta | null;
+  /** Saved chunks for the current document (loaded on open, empty for new docs). */
+  currentChunks: Uint8Array[];
   /** Storage instance (null until initialized). */
   storage: Storage | null;
 }
@@ -24,6 +26,7 @@ export function useDocumentManager(): DocumentManagerState & DocumentManagerActi
   const [documents, setDocuments] = useState<DocumentMeta[]>([]);
   const [ready, setReady] = useState(false);
   const [currentDocument, setCurrentDocument] = useState<DocumentMeta | null>(null);
+  const [currentChunks, setCurrentChunks] = useState<Uint8Array[]>([]);
   const [storage, setStorage] = useState<Storage | null>(null);
 
   // Initialize storage and load documents
@@ -59,14 +62,19 @@ export function useDocumentManager(): DocumentManagerState & DocumentManagerActi
     };
     await storage.createDocument(meta);
     setDocuments(prev => [meta, ...prev]);
+    setCurrentChunks([]);
     setCurrentDocument(meta);
     return meta;
   }, [storage]);
 
-  const openDocument = useCallback((id: string) => {
+  const openDocument = useCallback(async (id: string) => {
+    if (!storage) return;
     const doc = documents.find(d => d.id === id);
-    if (doc) setCurrentDocument(doc);
-  }, [documents]);
+    if (!doc) return;
+    const chunks = await storage.getChunks(id);
+    setCurrentChunks(chunks);
+    setCurrentDocument(doc);
+  }, [storage, documents]);
 
   const deleteDocument = useCallback(async (id: string) => {
     if (!storage) return;
@@ -91,12 +99,14 @@ export function useDocumentManager(): DocumentManagerState & DocumentManagerActi
 
   const closeDocument = useCallback(() => {
     setCurrentDocument(null);
+    setCurrentChunks([]);
   }, []);
 
   return {
     documents,
     ready,
     currentDocument,
+    currentChunks,
     storage,
     createDocument,
     openDocument,

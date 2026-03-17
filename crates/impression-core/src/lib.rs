@@ -324,6 +324,12 @@ impl ImpressionCanvas {
         self.flush_buffer.as_ptr()
     }
 
+    /// Load a serialized chunk of operations (for loading saved documents).
+    /// Returns true on success, false on deserialization error.
+    pub fn load_chunk(&mut self, data: &[u8]) -> bool {
+        self.inner.load_chunk(data).is_ok()
+    }
+
     /// Get canvas width.
     pub fn width(&self) -> u32 {
         self.inner.width

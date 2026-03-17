@@ -58,6 +58,7 @@ function createMockCanvas() {
     layer_dirty_y: vi.fn().mockReturnValue(0),
     layer_dirty_width: vi.fn().mockReturnValue(100),
     layer_dirty_height: vi.fn().mockReturnValue(100),
+    load_chunk: vi.fn().mockReturnValue(true),
   };
 }
 

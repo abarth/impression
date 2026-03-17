@@ -288,6 +288,46 @@ impl Canvas {
         self.oplog.flush_pending()
     }
 
+    /// Deserialize a chunk of operations and replay them. Each operation
+    /// is recorded in the oplog (with appropriate undo groups) and executed.
+    /// Used to load saved documents from storage.
+    pub fn load_chunk(&mut self, data: &[u8]) -> Result<(), postcard::Error> {
+        let ops = crate::operation::deserialize_operations(data)?;
+        let mut stroke_layer: u32 = 0;
+        for op in ops {
+            // Use the same undo group logic as normal recording:
+            // StrokeBegin starts a new group; StrokeMove/StrokeEnd continue it.
+            // All other operations start their own group.
+            match &op {
+                Operation::StrokeBegin { .. }
+                | Operation::AddLayer
+                | Operation::RemoveLayer(_)
+                | Operation::SetBrushSize(_)
+                | Operation::SetBrushSpacing(_)
+                | Operation::SetBrushColor { .. }
+                | Operation::SetBrushOpacity(_)
+                | Operation::SetBrushFlow(_)
+                | Operation::SetBrushBlendMode(_)
+                | Operation::SetLayerOpacity { .. }
+                | Operation::SetLayerBlendMode { .. }
+                | Operation::SetLayerVisible { .. }
+                | Operation::SetBackgroundColor { .. }
+                | Operation::SetCanvasVisible(_)
+                | Operation::SelectionRect { .. }
+                | Operation::SelectionLasso { .. }
+                | Operation::SelectAll
+                | Operation::Deselect
+                | Operation::CreateCanvas { .. } => {
+                    self.oplog.begin_undo_group();
+                }
+                Operation::StrokeMove { .. } | Operation::StrokeEnd => {}
+            }
+            self.oplog.push(op.clone());
+            self.execute_op(op, &mut stroke_layer);
+        }
+        Ok(())
+    }
+
     /// Clear all state and replay active operations from the oplog.
     fn replay_active(&mut self) {
         // Reset all state
@@ -728,5 +768,41 @@ mod tests {
         // Second stroke pixel should be clear
         let px2 = canvas.layer(0).unwrap().pixel(80, 80).unwrap();
         assert_eq!(px2[3], 0, "Second stroke should be gone after undo");
+    }
+
+    #[test]
+    fn test_load_chunk_replays_operations() {
+        // Create a canvas, draw something, serialize it
+        let mut canvas1 = Canvas::new(50, 50);
+        canvas1.add_layer();
+        canvas1.stroke_begin(0, 25.0, 25.0, 1.0);
+        canvas1.stroke_end();
+
+        // Flush to get serialized data
+        let data = canvas1.flush_pending_operations().unwrap();
+
+        // Load into a fresh canvas
+        let mut canvas2 = Canvas::new(50, 50);
+        assert!(canvas2.load_chunk(&data).is_ok());
+
+        // Should have one layer with drawn pixels
+        assert_eq!(canvas2.layers.len(), 1);
+        let px = canvas2.layer(0).unwrap().pixel(25, 25).unwrap();
+        assert!(px[3] > 0, "Loaded canvas should have drawn pixels");
+    }
+
+    #[test]
+    fn test_load_chunk_restores_brush_settings() {
+        let mut canvas1 = Canvas::new(50, 50);
+        canvas1.set_brush_size(42.0);
+        canvas1.set_brush_flow(0.3);
+
+        let data = canvas1.flush_pending_operations().unwrap();
+
+        let mut canvas2 = Canvas::new(50, 50);
+        canvas2.load_chunk(&data).unwrap();
+
+        assert!((canvas2.brush.size - 42.0).abs() < 0.01);
+        assert!((canvas2.brush.flow - 0.3).abs() < 0.01);
     }
 }

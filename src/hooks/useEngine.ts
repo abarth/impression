@@ -12,6 +12,7 @@ export interface DocumentSize {
 export function useEngine(
   canvasRef: RefObject<HTMLCanvasElement | null>,
   documentSize?: DocumentSize | null,
+  chunks?: Uint8Array[],
 ): Engine | null {
   const [engine, setEngine] = useState<Engine | null>(null);
   const gpuRef = useRef<GPUContext | null>(null);
@@ -36,15 +37,20 @@ export function useEngine(
       );
       const eng = new Engine(impressionCanvas, gpu, wasmModule.memory);
 
-      // Add initial layer
-      eng.addLayer();
-
-      // Set defaults
-      eng.setBrushSize(20);
-      eng.setBrushSpacing(0.15);
-      eng.setBrushColor(0, 0, 0);
-      eng.setBrushOpacity(1.0);
-      eng.setBrushFlow(0.8);
+      if (chunks && chunks.length > 0) {
+        // Load saved operations from storage
+        for (const chunk of chunks) {
+          eng.loadChunk(chunk);
+        }
+      } else {
+        // New document: add initial layer and set defaults
+        eng.addLayer();
+        eng.setBrushSize(20);
+        eng.setBrushSpacing(0.15);
+        eng.setBrushColor(0, 0, 0);
+        eng.setBrushOpacity(1.0);
+        eng.setBrushFlow(0.8);
+      }
 
       setEngine(eng);
 
@@ -68,7 +74,7 @@ export function useEngine(
         running = false;
       };
     })();
-  }, [canvasRef, documentSize]);
+  }, [canvasRef, documentSize, chunks]);
 
   return engine;
 }

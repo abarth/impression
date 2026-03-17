@@ -338,6 +338,15 @@ export class Engine {
     await this.storage.updateDocument(this.documentMeta);
   }
 
+  /** Load a serialized chunk of operations into the canvas. */
+  loadChunk(data: Uint8Array): boolean {
+    const result = this.canvas.load_chunk(data);
+    if (result) {
+      this.syncAllLayers();
+    }
+    return result;
+  }
+
   sampleColor(x: number, y: number): [number, number, number] {
     const ix = Math.floor(x);
     const iy = Math.floor(y);
