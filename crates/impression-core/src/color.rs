@@ -56,25 +56,26 @@ pub fn blend_pixel(dst: &mut [u8; 4], src_color: Color, src_alpha: f32) {
 
 /// Apply a Photoshop blend mode to a single channel (values in 0.0..1.0).
 /// `s` = source, `d` = destination.
-fn blend_channel(s: f32, d: f32, mode: u32) -> f32 {
+fn blend_channel(s: f32, d: f32, mode: crate::blend_mode::BlendMode) -> f32 {
+    use crate::blend_mode::BlendMode::*;
     match mode {
-        0 => s, // Normal
-        1 => s.min(d), // Darken
-        2 => s * d, // Multiply
-        3 => { // Color Burn
+        Normal => s, // Normal
+        Darken => s.min(d), // Darken
+        Multiply => s * d, // Multiply
+        ColorBurn => { // Color Burn
             if s == 0.0 { 0.0 } else { 1.0 - ((1.0 - d) / s).min(1.0) }
         }
-        4 => (s + d - 1.0).max(0.0), // Linear Burn
-        5 => s.max(d), // Lighten
-        6 => s + d - s * d, // Screen
-        7 => { // Color Dodge
+        LinearBurn => (s + d - 1.0).max(0.0), // Linear Burn
+        Lighten => s.max(d), // Lighten
+        Screen => s + d - s * d, // Screen
+        ColorDodge => { // Color Dodge
             if s == 1.0 { 1.0 } else { (d / (1.0 - s)).min(1.0) }
         }
-        8 => (s + d).min(1.0), // Linear Dodge (Add)
-        9 => { // Overlay (Hard Light with src/dst swapped — test on d)
+        LinearDodge => (s + d).min(1.0), // Linear Dodge (Add)
+        Overlay => { // Overlay (Hard Light with src/dst swapped — test on d)
             if d < 0.5 { 2.0 * s * d } else { 1.0 - 2.0 * (1.0 - s) * (1.0 - d) }
         }
-        10 => { // Soft Light (W3C formula)
+        SoftLight => { // Soft Light (W3C formula)
             if s <= 0.5 {
                 d - (1.0 - 2.0 * s) * d * (1.0 - d)
             } else {
@@ -86,35 +87,36 @@ fn blend_channel(s: f32, d: f32, mode: u32) -> f32 {
                 d + (2.0 * s - 1.0) * (dd - d)
             }
         }
-        11 => { // Hard Light
+        HardLight => { // Hard Light
             if s < 0.5 { 2.0 * s * d } else { 1.0 - 2.0 * (1.0 - s) * (1.0 - d) }
         }
-        12 => { // Vivid Light
+        VividLight => { // Vivid Light
             if s <= 0.5 {
                 if s == 0.0 { 0.0 } else { 1.0 - ((1.0 - d) / (2.0 * s)).min(1.0) }
-            } else {
-                if s >= 1.0 { 1.0 } else { (d / (2.0 * (1.0 - s))).min(1.0) }
+            } else if s >= 1.0 { 
+                1.0 
+            } else { 
+                (d / (2.0 * (1.0 - s))).min(1.0) 
             }
         }
-        13 => (d + 2.0 * s - 1.0).clamp(0.0, 1.0), // Linear Light
-        14 => { // Pin Light
+        LinearLight => (d + 2.0 * s - 1.0).clamp(0.0, 1.0), // Linear Light
+        PinLight => { // Pin Light
             if s <= 0.5 { d.min(2.0 * s) } else { d.max(2.0 * s - 1.0) }
         }
-        15 => { // Hard Mix
+        HardMix => { // Hard Mix
             if s + d >= 1.0 { 1.0 } else { 0.0 }
         }
-        16 => (s - d).abs(), // Difference
-        17 => s + d - 2.0 * s * d, // Exclusion
-        18 => (d - s).max(0.0), // Subtract
-        19 => { // Divide
+        Difference => (s - d).abs(), // Difference
+        Exclusion => s + d - 2.0 * s * d, // Exclusion
+        Subtract => (d - s).max(0.0), // Subtract
+        Divide => { // Divide
             if s == 0.0 { 1.0 } else { (d / s).min(1.0) }
         }
-        _ => s, // fallback to Normal
     }
 }
 
 /// Apply a Photoshop blend mode to RGB channels (all values 0.0..1.0).
-pub fn apply_blend(sr: f32, sg: f32, sb: f32, dr: f32, dg: f32, db: f32, mode: u32) -> (f32, f32, f32) {
+pub fn apply_blend(sr: f32, sg: f32, sb: f32, dr: f32, dg: f32, db: f32, mode: crate::blend_mode::BlendMode) -> (f32, f32, f32) {
     (
         blend_channel(sr, dr, mode),
         blend_channel(sg, dg, mode),
@@ -156,26 +158,26 @@ mod tests {
 
     #[test]
     fn test_apply_blend_normal() {
-        let (r, g, b) = apply_blend(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0);
+        let (r, g, b) = apply_blend(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, crate::blend_mode::BlendMode::Normal);
         assert_eq!((r, g, b), (1.0, 0.0, 0.0));
     }
 
     #[test]
     fn test_apply_blend_multiply() {
-        let (r, _, _) = apply_blend(0.5, 0.5, 0.5, 1.0, 1.0, 1.0, 2);
+        let (r, _, _) = apply_blend(0.5, 0.5, 0.5, 1.0, 1.0, 1.0, crate::blend_mode::BlendMode::Multiply);
         assert!((r - 0.5).abs() < 0.001);
     }
 
     #[test]
     fn test_apply_blend_screen() {
-        let (r, _, _) = apply_blend(0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 6);
+        let (r, _, _) = apply_blend(0.5, 0.5, 0.5, 0.5, 0.5, 0.5, crate::blend_mode::BlendMode::Screen);
         // s + d - s*d = 0.5 + 0.5 - 0.25 = 0.75
         assert!((r - 0.75).abs() < 0.001);
     }
 
     #[test]
     fn test_apply_blend_difference() {
-        let (r, _, _) = apply_blend(0.8, 0.0, 0.0, 0.3, 0.0, 0.0, 16);
+        let (r, _, _) = apply_blend(0.8, 0.0, 0.0, 0.3, 0.0, 0.0, crate::blend_mode::BlendMode::Difference);
         assert!((r - 0.5).abs() < 0.001);
     }
 

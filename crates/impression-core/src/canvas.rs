@@ -158,7 +158,7 @@ impl Canvas {
 
                 // Apply blend mode, then composite with alpha
                 let (br, bg, bb) =
-                    crate::color::apply_blend(sr, sg, sb, dr, dg, db, layer.blend_mode.to_u32());
+                    crate::color::apply_blend(sr, sg, sb, dr, dg, db, layer.blend_mode);
 
                 dr = src_a * br + (1.0 - src_a) * dr;
                 dg = src_a * bg + (1.0 - src_a) * dg;
