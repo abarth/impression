@@ -78,7 +78,7 @@ export function CanvasViewport({
       } else if (type === "lasso") {
         const pts = lassoPreviewPoints.current;
         if (pts.length < 2) return;
-        const d = pts.map((p, i) => `${i === 0 ? "M" : "L"}${p.x},${p.y}`).join(" ") + " Z";
+        const d = pts.map((p, i) => `${i === 0 ? "M" : "L"}${p.x},${p.y}`).join(" ");
         svg.innerHTML =
           `<path d="${d}" fill="none" stroke="white" stroke-width="1" vector-effect="non-scaling-stroke"/>` +
           `<path d="${d}" fill="none" stroke="black" stroke-width="1" stroke-dasharray="4,4" vector-effect="non-scaling-stroke"/>`;
