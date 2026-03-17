@@ -197,22 +197,17 @@ export function CanvasViewport({
     };
   }, [engine, screenToCanvas, toViewportLocal, pan, zoom, onColorPick]);
 
-  // Resize canvas to fill the viewport
+  // Set the canvas document size once from the initial viewport dimensions.
+  // The canvas represents a fixed-size document; viewport resizes should not
+  // change it (pan/zoom CSS transforms handle the viewport).
   useEffect(() => {
     const viewport = viewportRef.current;
     const canvas = canvasRef.current;
     if (!viewport || !canvas) return;
 
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        const { width, height } = entry.contentRect;
-        canvas.width = Math.floor(width);
-        canvas.height = Math.floor(height);
-      }
-    });
-
-    observer.observe(viewport);
-    return () => observer.disconnect();
+    const rect = viewport.getBoundingClientRect();
+    canvas.width = Math.floor(rect.width);
+    canvas.height = Math.floor(rect.height);
   }, [canvasRef]);
 
   return (
