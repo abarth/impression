@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Storage, type DocumentMeta } from "../storage";
 
 export interface DocumentManagerState {
@@ -29,8 +29,13 @@ function parseRoute(): string | null {
   return match ? match[1] : null;
 }
 
-/** Update the URL hash without triggering a full navigation. */
-function setRoute(path: string): void {
+/** Push a new hash route onto the history stack. */
+function pushRoute(path: string): void {
+  window.history.pushState(null, "", path);
+}
+
+/** Replace the current hash route without adding a history entry. */
+function replaceRoute(path: string): void {
   window.history.replaceState(null, "", path);
 }
 
@@ -40,6 +45,10 @@ export function useDocumentManager(): DocumentManagerState & DocumentManagerActi
   const [currentDocument, setCurrentDocument] = useState<DocumentMeta | null>(null);
   const [currentChunks, setCurrentChunks] = useState<Uint8Array[]>([]);
   const [storage, setStorage] = useState<Storage | null>(null);
+
+  // Refs for popstate handler to avoid stale closures
+  const storageRef = useRef<Storage | null>(null);
+  const documentsRef = useRef<DocumentMeta[]>([]);
 
   // Initialize storage and load documents
   useEffect(() => {
@@ -89,7 +98,7 @@ export function useDocumentManager(): DocumentManagerState & DocumentManagerActi
     setDocuments(prev => [meta, ...prev]);
     setCurrentChunks([]);
     setCurrentDocument(meta);
-    setRoute(`#/painting/${meta.id}`);
+    pushRoute(`#/painting/${meta.id}`);
     return meta;
   }, [storage]);
 
@@ -100,7 +109,7 @@ export function useDocumentManager(): DocumentManagerState & DocumentManagerActi
     const chunks = await storage.getChunks(id);
     setCurrentChunks(chunks);
     setCurrentDocument(doc);
-    setRoute(`#/painting/${id}`);
+    pushRoute(`#/painting/${id}`);
   }, [storage, documents]);
 
   const deleteDocument = useCallback(async (id: string) => {
@@ -110,7 +119,7 @@ export function useDocumentManager(): DocumentManagerState & DocumentManagerActi
     if (currentDocument?.id === id) {
       setCurrentDocument(null);
       setCurrentChunks([]);
-      setRoute("#/");
+      replaceRoute("#/");
     }
   }, [storage, currentDocument]);
 
@@ -126,10 +135,35 @@ export function useDocumentManager(): DocumentManagerState & DocumentManagerActi
     }
   }, [storage, documents, currentDocument]);
 
+  // Keep refs in sync for popstate handler
+  storageRef.current = storage;
+  documentsRef.current = documents;
+
+  // Handle browser back/forward navigation
+  useEffect(() => {
+    const handlePopState = async () => {
+      const docId = parseRoute();
+      if (docId) {
+        const s = storageRef.current;
+        const doc = documentsRef.current.find(d => d.id === docId);
+        if (s && doc) {
+          const chunks = await s.getChunks(docId);
+          setCurrentChunks(chunks);
+          setCurrentDocument(doc);
+        }
+      } else {
+        setCurrentDocument(null);
+        setCurrentChunks([]);
+      }
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
   const closeDocument = useCallback(() => {
     setCurrentDocument(null);
     setCurrentChunks([]);
-    setRoute("#/");
+    pushRoute("#/");
   }, []);
 
   return {

@@ -70,6 +70,45 @@ describe("useDocumentManager", () => {
     expect(result.current.currentDocument).toBeNull();
   });
 
+  it("should navigate back to picker on popstate", async () => {
+    const { result } = renderHook(() => useDocumentManager());
+    await vi.waitFor(() => expect(result.current.ready).toBe(true));
+
+    // Create and open a document (pushes #/painting/{id})
+    await act(async () => {
+      await result.current.createDocument("Nav Test", 100, 100, 72);
+    });
+    expect(result.current.currentDocument).not.toBeNull();
+
+    // Simulate browser back: set hash to picker and fire popstate
+    window.location.hash = "#/";
+    await act(async () => {
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    expect(result.current.currentDocument).toBeNull();
+  });
+
+  it("should navigate forward to painting on popstate", async () => {
+    const { result } = renderHook(() => useDocumentManager());
+    await vi.waitFor(() => expect(result.current.ready).toBe(true));
+
+    let doc: Awaited<ReturnType<typeof result.current.createDocument>>;
+    await act(async () => {
+      doc = await result.current.createDocument("Forward Test", 100, 100, 72);
+    });
+
+    // Close to go to picker
+    act(() => result.current.closeDocument());
+    expect(result.current.currentDocument).toBeNull();
+
+    // Simulate browser forward: set hash to painting and fire popstate
+    window.location.hash = `#/painting/${doc!.id}`;
+    await act(async () => {
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    expect(result.current.currentDocument?.id).toBe(doc!.id);
+  });
+
   it("should rename a document", async () => {
     const { result } = renderHook(() => useDocumentManager());
     await vi.waitFor(() => expect(result.current.ready).toBe(true));
