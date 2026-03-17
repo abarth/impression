@@ -1,20 +1,33 @@
-import { useRef } from "react";
-import { useEngine } from "./hooks/useEngine";
+import { useRef, useMemo } from "react";
+import { useEngine, type DocumentSize } from "./hooks/useEngine";
 import { useViewTransform } from "./hooks/useViewTransform";
 import { useTool } from "./hooks/useTool";
 import { useBrushSettings } from "./hooks/useBrushSettings";
 import { useColorState } from "./hooks/useColorState";
 import { useLayerManager } from "./hooks/useLayerManager";
 import { useSelection } from "./hooks/useSelection";
+import { useDocumentManager } from "./hooks/useDocumentManager";
 import { CanvasViewport } from "./components/CanvasViewport";
 import { Toolbar } from "./components/Toolbar";
 import { BrushSettingsPanel } from "./components/BrushSettingsPanel";
 import { ColorDisplay } from "./components/ColorDisplay";
 import { LayerPanel } from "./components/LayerPanel";
+import { DocumentPicker } from "./components/DocumentPicker";
 
 export function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const engine = useEngine(canvasRef);
+  const docManager = useDocumentManager();
+
+  // Stabilize document size to avoid re-triggering engine init on every render
+  const documentSize: DocumentSize | null = useMemo(() => {
+    if (!docManager.currentDocument) return null;
+    return {
+      width: docManager.currentDocument.width,
+      height: docManager.currentDocument.height,
+    };
+  }, [docManager.currentDocument?.width, docManager.currentDocument?.height]);
+
+  const engine = useEngine(canvasRef, documentSize);
   const { transform, pan, zoom } = useViewTransform();
   const { activeTool, selectTool } = useTool();
   const { settings, updateSetting, toolLabel } = useBrushSettings(engine, activeTool);
@@ -23,6 +36,30 @@ export function App() {
   const { layers, activeIndex, canvasColor, canvasVisible, addLayer, removeLayer, selectLayer, setLayerOpacity, setLayerBlendMode, toggleLayerVisible, setCanvasColor, toggleCanvasVisible } =
     useLayerManager(engine);
   useSelection(engine);
+
+  // Show loading while storage initializes
+  if (!docManager.ready) {
+    return (
+      <div className="flex items-center justify-center h-screen w-screen bg-graphite-950">
+        <span className="text-cream-muted text-[13px]">Loading...</span>
+      </div>
+    );
+  }
+
+  // Show document picker if no document is open
+  if (!docManager.currentDocument) {
+    return (
+      <DocumentPicker
+        documents={docManager.documents}
+        onOpen={docManager.openDocument}
+        onDelete={docManager.deleteDocument}
+        onRename={docManager.renameDocument}
+        onCreate={(name, width, height, ppi) => {
+          docManager.createDocument(name, width, height, ppi);
+        }}
+      />
+    );
+  }
 
   return (
     <div className="flex h-screen w-screen bg-graphite-950">

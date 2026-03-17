@@ -4,18 +4,26 @@ import { Engine } from "../engine";
 import { composite } from "../compositor";
 import init, { ImpressionCanvas } from "../wasm/impression_core";
 
+export interface DocumentSize {
+  width: number;
+  height: number;
+}
+
 export function useEngine(
   canvasRef: RefObject<HTMLCanvasElement | null>,
+  documentSize?: DocumentSize | null,
 ): Engine | null {
   const [engine, setEngine] = useState<Engine | null>(null);
   const gpuRef = useRef<GPUContext | null>(null);
   const initStarted = useRef(false);
 
   useEffect(() => {
-    if (!canvasRef.current || initStarted.current) return;
+    if (!canvasRef.current || initStarted.current || !documentSize) return;
     initStarted.current = true;
 
     const canvas = canvasRef.current;
+    canvas.width = documentSize.width;
+    canvas.height = documentSize.height;
 
     (async () => {
       const wasmModule = await init();
@@ -23,8 +31,8 @@ export function useEngine(
       gpuRef.current = gpu;
 
       const impressionCanvas = new ImpressionCanvas(
-        canvas.width,
-        canvas.height,
+        documentSize.width,
+        documentSize.height,
       );
       const eng = new Engine(impressionCanvas, gpu, wasmModule.memory);
 
@@ -60,7 +68,7 @@ export function useEngine(
         running = false;
       };
     })();
-  }, [canvasRef]);
+  }, [canvasRef, documentSize]);
 
   return engine;
 }

@@ -286,19 +286,14 @@ export function CanvasViewport({
     };
   }, [engine, screenToCanvas, toViewportLocal, pan, zoom, onColorPick, updateOverlay]);
 
-  // Set the canvas document size once from the initial viewport dimensions.
-  // The canvas represents a fixed-size document; viewport resizes should not
-  // change it (pan/zoom CSS transforms handle the viewport).
+  // Read canvas document size from the canvas element (set by useEngine
+  // from the document dimensions). Viewport resizes do not change it —
+  // pan/zoom CSS transforms handle the viewport.
   useEffect(() => {
-    const viewport = viewportRef.current;
     const canvas = canvasRef.current;
-    if (!viewport || !canvas) return;
-
-    const rect = viewport.getBoundingClientRect();
-    canvas.width = Math.floor(rect.width);
-    canvas.height = Math.floor(rect.height);
+    if (!canvas || canvas.width === 0 || canvas.height === 0) return;
     setCanvasSize({ w: canvas.width, h: canvas.height });
-  }, [canvasRef]);
+  }, [canvasRef, engine]);
 
   return (
     <div
