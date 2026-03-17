@@ -11,6 +11,7 @@ wasm-bindgen = "0.2"
 js-sys = "0.3"
 serde = { version = "1", features = ["derive"] }
 postcard = { version = "1", features = ["alloc"] }
+uuid = { version = "1", features = ["v4", "js"] }
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3"

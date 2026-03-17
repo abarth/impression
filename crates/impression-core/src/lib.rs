@@ -2,6 +2,7 @@ mod blend_mode;
 mod brush;
 mod canvas;
 mod color;
+pub mod document;
 mod layer;
 pub mod operation;
 mod selection;
