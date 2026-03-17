@@ -20,7 +20,7 @@ export function App() {
   const { settings, updateSetting } = useBrushSettings(engine);
   const { colors, setForeground, setBackground, swapColors } =
     useColorState(engine);
-  const { layers, activeIndex, addLayer, removeLayer, selectLayer, setLayerOpacity } =
+  const { layers, activeIndex, canvasColor, addLayer, removeLayer, selectLayer, setLayerOpacity, setCanvasColor } =
     useLayerManager(engine);
   useSelection(engine);
 
@@ -53,10 +53,12 @@ export function App() {
         <LayerPanel
           layers={layers}
           activeIndex={activeIndex}
+          canvasColor={canvasColor}
           onAdd={addLayer}
           onRemove={removeLayer}
           onSelect={selectLayer}
           onOpacityChange={setLayerOpacity}
+          onCanvasColorChange={setCanvasColor}
         />
       </div>
     </div>

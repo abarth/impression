@@ -1,5 +1,6 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import type { Engine } from "../engine";
+import { hexToRgb } from "./useColorState";
 
 export interface LayerInfo {
   id: number; // unique ID for React keys
@@ -16,8 +17,17 @@ export function useLayerManager(engine: Engine | null) {
     return [{ id, name: "Layer 1", visible: true, opacity: 1.0 }];
   });
   const [activeIndex, setActiveIndex] = useState(0);
+  const [canvasColor, setCanvasColorState] = useState("#ffffff");
   const engineRef = useRef(engine);
   engineRef.current = engine;
+
+  // Sync canvas color to engine on init
+  useEffect(() => {
+    if (engine) {
+      const [r, g, b] = hexToRgb(canvasColor);
+      engine.setBackgroundColor(r, g, b);
+    }
+  }, [engine]);
 
   const addLayer = useCallback(() => {
     const eng = engineRef.current;
@@ -80,5 +90,17 @@ export function useLayerManager(engine: Engine | null) {
     [],
   );
 
-  return { layers, activeIndex, addLayer, removeLayer, selectLayer, setLayerOpacity };
+  const setCanvasColor = useCallback(
+    (hex: string) => {
+      setCanvasColorState(hex);
+      const eng = engineRef.current;
+      if (eng) {
+        const [r, g, b] = hexToRgb(hex);
+        eng.setBackgroundColor(r, g, b);
+      }
+    },
+    [],
+  );
+
+  return { layers, activeIndex, canvasColor, addLayer, removeLayer, selectLayer, setLayerOpacity, setCanvasColor };
 }

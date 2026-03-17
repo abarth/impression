@@ -28,8 +28,6 @@ export function useColorState(engine: Engine | null) {
     if (!eng) return;
     const [r, g, b] = hexToRgb(c.foreground);
     eng.setBrushColor(r, g, b);
-    const [br, bg, bb] = hexToRgb(c.background);
-    eng.setBackgroundColor(br, bg, bb);
   }, []);
 
   useEffect(() => {

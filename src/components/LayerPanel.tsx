@@ -1,22 +1,28 @@
 import { Plus, Trash2, Eye, EyeOff } from "lucide-react";
+import * as Popover from "@radix-ui/react-popover";
+import { HexColorPicker } from "react-colorful";
 import type { LayerInfo } from "../hooks/useLayerManager";
 
 interface LayerPanelProps {
   layers: LayerInfo[];
   activeIndex: number;
+  canvasColor: string;
   onAdd: () => void;
   onRemove: (index: number) => void;
   onSelect: (index: number) => void;
   onOpacityChange: (index: number, opacity: number) => void;
+  onCanvasColorChange: (hex: string) => void;
 }
 
 export function LayerPanel({
   layers,
   activeIndex,
+  canvasColor,
   onAdd,
   onRemove,
   onSelect,
   onOpacityChange,
+  onCanvasColorChange,
 }: LayerPanelProps) {
   const activeLayer = layers[activeIndex];
   return (
@@ -99,6 +105,34 @@ export function LayerPanel({
             </button>
           );
         })}
+
+        {/* Canvas entry — always at bottom */}
+        <Popover.Root>
+          <Popover.Trigger asChild>
+            <button
+              className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg
+                text-left text-[12px] transition-all duration-150 cursor-pointer
+                text-cream-dim hover:bg-graphite-850"
+            >
+              <span
+                className="w-3.5 h-3.5 rounded-[4px] border border-graphite-600 shrink-0"
+                style={{ backgroundColor: canvasColor }}
+              />
+              <span className="flex-1 truncate">Canvas</span>
+            </button>
+          </Popover.Trigger>
+          <Popover.Portal>
+            <Popover.Content
+              side="left"
+              sideOffset={12}
+              className="z-50 rounded-xl bg-graphite-900 border border-graphite-750
+                p-3.5 shadow-panel"
+            >
+              <HexColorPicker color={canvasColor} onChange={onCanvasColorChange} />
+              <Popover.Arrow className="fill-graphite-750" />
+            </Popover.Content>
+          </Popover.Portal>
+        </Popover.Root>
       </div>
     </div>
   );
