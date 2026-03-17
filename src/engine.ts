@@ -4,6 +4,7 @@ import {
   uploadLayerTexture,
   createLayerTexture,
   updateLayerOpacity,
+  updateLayerBlendMode,
   removeLayerTexture,
   uploadSelectionTexture,
   clearSelectionTexture,
@@ -137,6 +138,7 @@ export class Engine {
 
   setLayerBlendMode(layer: number, mode: number): void {
     this.canvas.set_layer_blend_mode(layer, mode);
+    updateLayerBlendMode(this.gpu, layer, mode);
     this.needsRender = true;
   }
 

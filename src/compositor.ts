@@ -11,52 +11,93 @@ export interface CompositeOptions {
 export function composite(gpu: GPUContext, options: CompositeOptions): void {
   const { backgroundColor, layerCount } = options;
   const getVisible = options.getLayerVisible ?? (() => true);
-  const getBlendMode = options.getLayerBlendMode ?? (() => 0);
 
   const encoder = gpu.device.createCommandEncoder();
-  const textureView = gpu.context.getCurrentTexture().createView();
-
   const bg = backgroundColor;
-  const renderPass = encoder.beginRenderPass({
-    colorAttachments: [
-      {
-        view: textureView,
-        clearValue: {
-          r: bg[0] / 255,
-          g: bg[1] / 255,
-          b: bg[2] / 255,
-          a: 1.0,
-        },
-        loadOp: "clear",
-        storeOp: "store",
-      },
-    ],
-  });
 
+  // Step 1: Clear accumTextures[0] with background color
+  {
+    const pass = encoder.beginRenderPass({
+      colorAttachments: [
+        {
+          view: gpu.accumViews[0],
+          clearValue: {
+            r: bg[0] / 255,
+            g: bg[1] / 255,
+            b: bg[2] / 255,
+            a: 1.0,
+          },
+          loadOp: "clear",
+          storeOp: "store",
+        },
+      ],
+    });
+    pass.end();
+  }
+
+  // Step 2: Composite each visible layer (ping-pong between accum textures)
+  let currentDst = 0; // accumTextures[0] currently holds the result
   for (let i = 0; i < layerCount; i++) {
     if (!getVisible(i)) continue;
     if (i >= gpu.layerBindGroups.length) continue;
 
-    const mode = getBlendMode(i);
-    const pipeline = gpu.blendPipelines[mode] ?? gpu.blendPipelines[0];
-    renderPass.setPipeline(pipeline);
-    renderPass.setBindGroup(0, gpu.layerBindGroups[i]);
-    renderPass.draw(3, 1, 0, 0); // fullscreen triangle
+    const srcIdx = currentDst; // read from current result
+    const dstIdx = 1 - srcIdx; // write to the other
+
+    const pass = encoder.beginRenderPass({
+      colorAttachments: [
+        {
+          view: gpu.accumViews[dstIdx],
+          loadOp: "clear",
+          clearValue: { r: 0, g: 0, b: 0, a: 0 },
+          storeOp: "store",
+        },
+      ],
+    });
+
+    pass.setPipeline(gpu.compositePipeline);
+    pass.setBindGroup(0, gpu.layerBindGroups[i]); // layer texture + uniforms
+    pass.setBindGroup(1, gpu.dstBindGroups[srcIdx]); // dst accumulation texture
+    pass.draw(3, 1, 0, 0);
+    pass.end();
+
+    currentDst = dstIdx;
   }
 
-  // Selection marching ants overlay
-  if (gpu.selectionBindGroup) {
-    const t = (options.time ?? 0) / 1000; // convert ms to seconds
-    gpu.device.queue.writeBuffer(
-      gpu.selectionTimeBuffer,
-      0,
-      new Float32Array([t]),
-    );
-    renderPass.setPipeline(gpu.selectionPipeline);
-    renderPass.setBindGroup(0, gpu.selectionBindGroup);
-    renderPass.draw(3, 1, 0, 0);
+  // Step 3: Blit final result to canvas + selection overlay
+  const canvasView = gpu.context.getCurrentTexture().createView();
+  {
+    const pass = encoder.beginRenderPass({
+      colorAttachments: [
+        {
+          view: canvasView,
+          loadOp: "clear",
+          clearValue: { r: 0, g: 0, b: 0, a: 0 },
+          storeOp: "store",
+        },
+      ],
+    });
+
+    // Blit accumulated result
+    pass.setPipeline(gpu.blitPipeline);
+    pass.setBindGroup(0, gpu.blitBindGroups[currentDst]);
+    pass.draw(3, 1, 0, 0);
+
+    // Selection marching ants overlay
+    if (gpu.selectionBindGroup) {
+      const t = (options.time ?? 0) / 1000;
+      gpu.device.queue.writeBuffer(
+        gpu.selectionTimeBuffer,
+        0,
+        new Float32Array([t]),
+      );
+      pass.setPipeline(gpu.selectionPipeline);
+      pass.setBindGroup(0, gpu.selectionBindGroup);
+      pass.draw(3, 1, 0, 0);
+    }
+
+    pass.end();
   }
 
-  renderPass.end();
   gpu.device.queue.submit([encoder.finish()]);
 }

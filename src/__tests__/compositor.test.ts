@@ -4,28 +4,35 @@ import type { GPUContext } from "../gpu";
 
 function createMockGPUContext(layerCount: number): GPUContext {
   const bindGroups = Array.from({ length: layerCount }, () => ({}));
+  const mockRenderPass = {
+    setPipeline: vi.fn(),
+    setBindGroup: vi.fn(),
+    draw: vi.fn(),
+    end: vi.fn(),
+  };
   const mockEncoder = {
-    beginRenderPass: vi.fn().mockReturnValue({
-      setPipeline: vi.fn(),
-      setBindGroup: vi.fn(),
-      draw: vi.fn(),
-      end: vi.fn(),
-    }),
+    beginRenderPass: vi.fn().mockReturnValue(mockRenderPass),
     finish: vi.fn().mockReturnValue({}),
   };
 
   return {
     device: {
       createCommandEncoder: vi.fn().mockReturnValue(mockEncoder),
-      queue: { submit: vi.fn() },
+      queue: { submit: vi.fn(), writeBuffer: vi.fn() },
     },
     context: {
       getCurrentTexture: vi.fn().mockReturnValue({
         createView: vi.fn().mockReturnValue({}),
       }),
     },
-    blendPipelines: Array.from({ length: 11 }, () => ({})),
+    compositePipeline: {},
+    blitPipeline: {},
     layerBindGroups: bindGroups,
+    accumViews: [{}, {}],
+    dstBindGroups: [{}, {}],
+    blitBindGroups: [{}, {}],
+    selectionBindGroup: null,
+    selectionTimeBuffer: {},
   } as unknown as GPUContext;
 }
 
@@ -37,7 +44,6 @@ describe("composite", () => {
       layerCount: 1,
     });
 
-    const encoder = (gpu.device as any).createCommandEncoder();
     expect(
       (gpu.device as any).createCommandEncoder,
     ).toHaveBeenCalled();
@@ -50,7 +56,6 @@ describe("composite", () => {
       layerCount: 3,
     });
 
-    // Verify command encoder was used and submitted
     expect(
       (gpu.device as any).createCommandEncoder,
     ).toHaveBeenCalled();
@@ -59,17 +64,12 @@ describe("composite", () => {
 
   it("should skip invisible layers", () => {
     const gpu = createMockGPUContext(3);
-    const mockEncoder = (gpu.device as any).createCommandEncoder();
-    const renderPass = mockEncoder.beginRenderPass();
-
     composite(gpu, {
       backgroundColor: [255, 255, 255],
       layerCount: 3,
       getLayerVisible: (i: number) => i !== 1,
     });
 
-    // The real verification is that draw is called 2 times (layers 0 and 2)
-    // but since we're mocking at a high level, we just verify no errors
     expect(
       (gpu.device as any).createCommandEncoder,
     ).toHaveBeenCalled();

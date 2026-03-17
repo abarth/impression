@@ -1,18 +1,31 @@
 import compositeShaderSource from "../shaders/composite.wgsl?raw";
 import selectionShaderSource from "../shaders/selection.wgsl?raw";
-import { BLEND_MODE_COUNT, getBlendState } from "./blendModes";
 
 export interface GPUContext {
   device: GPUDevice;
   context: GPUCanvasContext;
   format: GPUTextureFormat;
-  /** One pipeline per blend mode (indexed by blend mode enum value). */
-  blendPipelines: GPURenderPipeline[];
   sampler: GPUSampler;
+
+  // Per-layer resources
   layerTextures: GPUTexture[];
   layerBindGroups: GPUBindGroup[];
-  opacityBuffers: GPUBuffer[];
-  bindGroupLayout: GPUBindGroupLayout;
+  layerUniformBuffers: GPUBuffer[];
+  layerBindGroupLayout: GPUBindGroupLayout;
+
+  // Ping-pong accumulation textures
+  accumTextures: [GPUTexture, GPUTexture];
+  accumViews: [GPUTextureView, GPUTextureView];
+  dstBindGroupLayout: GPUBindGroupLayout;
+  dstBindGroups: [GPUBindGroup, GPUBindGroup];
+
+  // Pipelines
+  compositePipeline: GPURenderPipeline;
+  blitPipeline: GPURenderPipeline;
+  blitBindGroupLayout: GPUBindGroupLayout;
+  blitBindGroups: [GPUBindGroup, GPUBindGroup];
+  blitUniformBuffer: GPUBuffer;
+
   // Selection overlay
   selectionPipeline: GPURenderPipeline;
   selectionBindGroupLayout: GPUBindGroupLayout;
@@ -40,7 +53,15 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
   const format = navigator.gpu.getPreferredCanvasFormat();
   context.configure({ device, format, alphaMode: "premultiplied" });
 
-  const bindGroupLayout = device.createBindGroupLayout({
+  const sampler = device.createSampler({
+    magFilter: "nearest",
+    minFilter: "nearest",
+  });
+
+  // --- Composite pipeline (layer + dst → accum) ---
+
+  // Group 0: layer texture + sampler + uniforms (opacity as f32 bits + blend mode)
+  const layerBindGroupLayout = device.createBindGroupLayout({
     entries: [
       {
         binding: 0,
@@ -60,47 +81,130 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
     ],
   });
 
-  const pipelineLayout = device.createPipelineLayout({
-    bindGroupLayouts: [bindGroupLayout],
+  // Group 1: destination accumulation texture
+  const dstBindGroupLayout = device.createBindGroupLayout({
+    entries: [
+      {
+        binding: 0,
+        visibility: GPUShaderStage.FRAGMENT,
+        texture: { sampleType: "float" },
+      },
+    ],
   });
 
   const shaderModule = device.createShaderModule({
     code: compositeShaderSource,
   });
 
-  // Create one pipeline per Porter-Duff blend mode
-  const blendPipelines: GPURenderPipeline[] = [];
-  for (let i = 0; i < BLEND_MODE_COUNT; i++) {
-    blendPipelines.push(
-      device.createRenderPipeline({
-        layout: pipelineLayout,
-        vertex: {
-          module: shaderModule,
-          entryPoint: "vs",
-        },
-        fragment: {
-          module: shaderModule,
-          entryPoint: "fs",
-          targets: [
-            {
-              format,
-              blend: getBlendState(i),
-            },
-          ],
-        },
-        primitive: {
-          topology: "triangle-list",
-        },
-      }),
-    );
-  }
-
-  const sampler = device.createSampler({
-    magFilter: "nearest",
-    minFilter: "nearest",
+  const compositePipeline = device.createRenderPipeline({
+    layout: device.createPipelineLayout({
+      bindGroupLayouts: [layerBindGroupLayout, dstBindGroupLayout],
+    }),
+    vertex: {
+      module: shaderModule,
+      entryPoint: "vs",
+    },
+    fragment: {
+      module: shaderModule,
+      entryPoint: "fs",
+      targets: [{ format: "rgba8unorm" }], // writes to accum texture
+    },
+    primitive: { topology: "triangle-list" },
   });
 
-  // Selection overlay pipeline
+  // --- Blit pipeline (accum → canvas, simple pass-through) ---
+
+  const blitBindGroupLayout = device.createBindGroupLayout({
+    entries: [
+      {
+        binding: 0,
+        visibility: GPUShaderStage.FRAGMENT,
+        texture: { sampleType: "float" },
+      },
+      {
+        binding: 1,
+        visibility: GPUShaderStage.FRAGMENT,
+        sampler: { type: "filtering" },
+      },
+      {
+        binding: 2,
+        visibility: GPUShaderStage.FRAGMENT,
+        buffer: { type: "uniform" },
+      },
+    ],
+  });
+
+  const blitPipeline = device.createRenderPipeline({
+    layout: device.createPipelineLayout({
+      bindGroupLayouts: [blitBindGroupLayout],
+    }),
+    vertex: {
+      module: shaderModule,
+      entryPoint: "vs",
+    },
+    fragment: {
+      module: shaderModule,
+      entryPoint: "blit_fs",
+      targets: [{ format }], // writes to canvas
+    },
+    primitive: { topology: "triangle-list" },
+  });
+
+  // --- Accumulation textures (ping-pong pair) ---
+
+  const { width, height } = canvas;
+  const accumTextures = [
+    createAccumTexture(device, width, height),
+    createAccumTexture(device, width, height),
+  ] as [GPUTexture, GPUTexture];
+
+  const accumViews = [
+    accumTextures[0].createView(),
+    accumTextures[1].createView(),
+  ] as [GPUTextureView, GPUTextureView];
+
+  const dstBindGroups = [
+    device.createBindGroup({
+      layout: dstBindGroupLayout,
+      entries: [{ binding: 0, resource: accumViews[0] }],
+    }),
+    device.createBindGroup({
+      layout: dstBindGroupLayout,
+      entries: [{ binding: 0, resource: accumViews[1] }],
+    }),
+  ] as [GPUBindGroup, GPUBindGroup];
+
+  // Blit bind groups (one per accum texture, reuses blitBindGroupLayout)
+  const blitUniformBuffer = device.createBuffer({
+    size: 8,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+  // opacity=1.0, blendMode=0 (unused by blit shader but must be bound)
+  device.queue.writeBuffer(blitUniformBuffer, 0, new Uint32Array([
+    floatToUint32(1.0), 0,
+  ]));
+
+  const blitBindGroups = [
+    device.createBindGroup({
+      layout: blitBindGroupLayout,
+      entries: [
+        { binding: 0, resource: accumViews[0] },
+        { binding: 1, resource: sampler },
+        { binding: 2, resource: { buffer: blitUniformBuffer } },
+      ],
+    }),
+    device.createBindGroup({
+      layout: blitBindGroupLayout,
+      entries: [
+        { binding: 0, resource: accumViews[1] },
+        { binding: 1, resource: sampler },
+        { binding: 2, resource: { buffer: blitUniformBuffer } },
+      ],
+    }),
+  ] as [GPUBindGroup, GPUBindGroup];
+
+  // --- Selection overlay pipeline ---
+
   const selectionBindGroupLayout = device.createBindGroupLayout({
     entries: [
       {
@@ -166,12 +270,20 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
     device,
     context,
     format,
-    blendPipelines,
     sampler,
     layerTextures: [],
     layerBindGroups: [],
-    opacityBuffers: [],
-    bindGroupLayout,
+    layerUniformBuffers: [],
+    layerBindGroupLayout,
+    accumTextures,
+    accumViews,
+    dstBindGroupLayout,
+    dstBindGroups,
+    compositePipeline,
+    blitPipeline,
+    blitBindGroupLayout,
+    blitBindGroups,
+    blitUniformBuffer,
     selectionPipeline,
     selectionBindGroupLayout,
     selectionTexture: null,
@@ -179,6 +291,24 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
     selectionTimeBuffer,
   };
 }
+
+function createAccumTexture(device: GPUDevice, width: number, height: number): GPUTexture {
+  return device.createTexture({
+    size: { width, height },
+    format: "rgba8unorm",
+    usage:
+      GPUTextureUsage.TEXTURE_BINDING |
+      GPUTextureUsage.RENDER_ATTACHMENT,
+  });
+}
+
+/** Reinterpret a float as uint32 bits (for packing into uniform buffer). */
+function floatToUint32(f: number): number {
+  const buf = new Float32Array([f]);
+  return new Uint32Array(buf.buffer)[0];
+}
+
+export { floatToUint32 };
 
 export function createLayerTexture(
   gpu: GPUContext,
@@ -194,29 +324,30 @@ export function createLayerTexture(
       GPUTextureUsage.RENDER_ATTACHMENT,
   });
 
-  const opacityBuffer = gpu.device.createBuffer({
-    size: 4,
+  // Uniform buffer: [opacity as f32 bits (u32), blendMode (u32)]
+  const uniformBuffer = gpu.device.createBuffer({
+    size: 8,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
   gpu.device.queue.writeBuffer(
-    opacityBuffer,
+    uniformBuffer,
     0,
-    new Float32Array([1.0]),
+    new Uint32Array([floatToUint32(1.0), 0]), // opacity=1.0, blendMode=Normal
   );
 
   const bindGroup = gpu.device.createBindGroup({
-    layout: gpu.bindGroupLayout,
+    layout: gpu.layerBindGroupLayout,
     entries: [
       { binding: 0, resource: texture.createView() },
       { binding: 1, resource: gpu.sampler },
-      { binding: 2, resource: { buffer: opacityBuffer } },
+      { binding: 2, resource: { buffer: uniformBuffer } },
     ],
   });
 
   const index = gpu.layerTextures.length;
   gpu.layerTextures.push(texture);
   gpu.layerBindGroups.push(bindGroup);
-  gpu.opacityBuffers.push(opacityBuffer);
+  gpu.layerUniformBuffers.push(uniformBuffer);
   return index;
 }
 
@@ -227,12 +358,12 @@ export function removeLayerTexture(
   const texture = gpu.layerTextures[layerIndex];
   if (texture) texture.destroy();
 
-  const buffer = gpu.opacityBuffers[layerIndex];
+  const buffer = gpu.layerUniformBuffers[layerIndex];
   if (buffer) buffer.destroy();
 
   gpu.layerTextures.splice(layerIndex, 1);
   gpu.layerBindGroups.splice(layerIndex, 1);
-  gpu.opacityBuffers.splice(layerIndex, 1);
+  gpu.layerUniformBuffers.splice(layerIndex, 1);
 }
 
 export function uploadLayerTexture(
@@ -306,7 +437,19 @@ export function updateLayerOpacity(
   layerIndex: number,
   opacity: number,
 ): void {
-  const buffer = gpu.opacityBuffers[layerIndex];
+  const buffer = gpu.layerUniformBuffers[layerIndex];
   if (!buffer) return;
-  gpu.device.queue.writeBuffer(buffer, 0, new Float32Array([opacity]));
+  // Write opacity at offset 0 (as f32 reinterpreted to u32 bits)
+  gpu.device.queue.writeBuffer(buffer, 0, new Uint32Array([floatToUint32(opacity)]));
+}
+
+export function updateLayerBlendMode(
+  gpu: GPUContext,
+  layerIndex: number,
+  mode: number,
+): void {
+  const buffer = gpu.layerUniformBuffers[layerIndex];
+  if (!buffer) return;
+  // Write blend mode at offset 4
+  gpu.device.queue.writeBuffer(buffer, 4, new Uint32Array([mode]));
 }

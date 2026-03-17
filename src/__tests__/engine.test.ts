@@ -63,10 +63,10 @@ function createMockGPU() {
       },
     },
     sampler: {},
-    bindGroupLayout: {},
+    layerBindGroupLayout: {},
     layerTextures: [] as unknown[],
     layerBindGroups: [] as unknown[],
-    opacityBuffers: [] as unknown[],
+    layerUniformBuffers: [] as unknown[],
   };
 }
 
