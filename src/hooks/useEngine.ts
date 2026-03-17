@@ -3,26 +3,34 @@ import { initGPU, type GPUContext } from "../gpu";
 import { Engine } from "../engine";
 import { composite } from "../compositor";
 import init, { ImpressionCanvas } from "../wasm/impression_core";
+import type { Storage, DocumentMeta } from "../storage";
 
 export interface DocumentSize {
   width: number;
   height: number;
 }
 
+export interface EngineInitOptions {
+  documentSize: DocumentSize;
+  chunks?: Uint8Array[];
+  storage?: Storage | null;
+  documentMeta?: DocumentMeta | null;
+}
+
 export function useEngine(
   canvasRef: RefObject<HTMLCanvasElement | null>,
-  documentSize?: DocumentSize | null,
-  chunks?: Uint8Array[],
+  options?: EngineInitOptions | null,
 ): Engine | null {
   const [engine, setEngine] = useState<Engine | null>(null);
   const gpuRef = useRef<GPUContext | null>(null);
   const initStarted = useRef(false);
 
   useEffect(() => {
-    if (!canvasRef.current || initStarted.current || !documentSize) return;
+    if (!canvasRef.current || initStarted.current || !options) return;
     initStarted.current = true;
 
     const canvas = canvasRef.current;
+    const { documentSize, chunks, storage, documentMeta } = options;
     canvas.width = documentSize.width;
     canvas.height = documentSize.height;
 
@@ -52,6 +60,15 @@ export function useEngine(
         eng.setBrushFlow(0.8);
       }
 
+      // Enable persistence so future strokes are saved
+      if (storage && documentMeta) {
+        eng.enablePersistence({
+          storage,
+          documentMeta,
+          startChunkIndex: chunks?.length ?? 0,
+        });
+      }
+
       setEngine(eng);
 
       // Render loop
@@ -74,7 +91,7 @@ export function useEngine(
         running = false;
       };
     })();
-  }, [canvasRef, documentSize, chunks]);
+  }, [canvasRef, options]);
 
   return engine;
 }

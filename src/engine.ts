@@ -40,11 +40,11 @@ export class Engine {
     this.wasmMemory = wasmMemory;
   }
 
-  enablePersistence(opts: PersistenceOptions): void {
+  enablePersistence(opts: PersistenceOptions & { startChunkIndex?: number }): void {
     this.storage = opts.storage;
     this.documentMeta = opts.documentMeta;
     this.batchSize = opts.batchSize ?? 1000;
-    this.nextChunkIndex = 0;
+    this.nextChunkIndex = opts.startChunkIndex ?? 0;
   }
 
   getActiveLayer(): number {
@@ -85,7 +85,7 @@ export class Engine {
 
   strokeEnd(): void {
     this.canvas.stroke_end();
-    this.maybeFlush();
+    this.flushAll();
   }
 
   private syncLayer(layer: number): void {

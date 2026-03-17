@@ -1,5 +1,5 @@
 import { useRef, useMemo } from "react";
-import { useEngine, type DocumentSize } from "./hooks/useEngine";
+import { useEngine, type EngineInitOptions } from "./hooks/useEngine";
 import { useViewTransform } from "./hooks/useViewTransform";
 import { useTool } from "./hooks/useTool";
 import { useBrushSettings } from "./hooks/useBrushSettings";
@@ -18,16 +18,21 @@ export function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const docManager = useDocumentManager();
 
-  // Stabilize document size to avoid re-triggering engine init on every render
-  const documentSize: DocumentSize | null = useMemo(() => {
+  // Stabilize engine init options to avoid re-triggering on every render
+  const engineOptions: EngineInitOptions | null = useMemo(() => {
     if (!docManager.currentDocument) return null;
     return {
-      width: docManager.currentDocument.width,
-      height: docManager.currentDocument.height,
+      documentSize: {
+        width: docManager.currentDocument.width,
+        height: docManager.currentDocument.height,
+      },
+      chunks: docManager.currentChunks,
+      storage: docManager.storage,
+      documentMeta: docManager.currentDocument,
     };
-  }, [docManager.currentDocument?.width, docManager.currentDocument?.height]);
+  }, [docManager.currentDocument, docManager.currentChunks, docManager.storage]);
 
-  const engine = useEngine(canvasRef, documentSize, docManager.currentChunks);
+  const engine = useEngine(canvasRef, engineOptions);
   const { transform, pan, zoom, fitToViewport } = useViewTransform();
   const { activeTool, selectTool } = useTool();
   const { settings, updateSetting, toolLabel } = useBrushSettings(engine, activeTool);
