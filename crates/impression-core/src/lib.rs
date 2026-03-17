@@ -74,9 +74,7 @@ impl ImpressionCanvas {
 
     /// Set the layer opacity.
     pub fn set_layer_opacity(&mut self, layer: u32, opacity: f32) {
-        if let Some(l) = self.inner.layer_mut(layer) {
-            l.opacity = opacity;
-        }
+        self.inner.set_layer_opacity(layer, opacity);
     }
 
     /// Get the layer blend mode.
@@ -89,9 +87,8 @@ impl ImpressionCanvas {
 
     /// Set the layer blend mode.
     pub fn set_layer_blend_mode(&mut self, layer: u32, mode: u32) {
-        if let Some(l) = self.inner.layer_mut(layer) {
-            l.blend_mode = blend_mode::BlendMode::from_u32(mode);
-        }
+        self.inner
+            .set_layer_blend_mode(layer, blend_mode::BlendMode::from_u32(mode));
     }
 
     /// Get the layer visibility.
@@ -101,35 +98,33 @@ impl ImpressionCanvas {
 
     /// Set the layer visibility.
     pub fn set_layer_visible(&mut self, layer: u32, visible: bool) {
-        if let Some(l) = self.inner.layer_mut(layer) {
-            l.visible = visible;
-        }
+        self.inner.set_layer_visible(layer, visible);
     }
 
     // -- Brush settings --
 
     pub fn set_brush_size(&mut self, size: f32) {
-        self.inner.brush.size = size;
+        self.inner.set_brush_size(size);
     }
 
     pub fn set_brush_spacing(&mut self, spacing: f32) {
-        self.inner.brush.spacing = spacing;
+        self.inner.set_brush_spacing(spacing);
     }
 
     pub fn set_brush_color(&mut self, r: u8, g: u8, b: u8) {
-        self.inner.brush.color = color::Color::new(r, g, b);
+        self.inner.set_brush_color(r, g, b);
     }
 
     pub fn set_brush_opacity(&mut self, opacity: f32) {
-        self.inner.brush.opacity = opacity;
+        self.inner.set_brush_opacity(opacity);
     }
 
     pub fn set_brush_flow(&mut self, flow: f32) {
-        self.inner.brush.flow = flow;
+        self.inner.set_brush_flow(flow);
     }
 
     pub fn set_background_color(&mut self, r: u8, g: u8, b: u8) {
-        self.inner.background_color = color::Color::new(r, g, b);
+        self.inner.set_background_color(color::Color::new(r, g, b));
     }
 
     pub fn background_r(&self) -> u8 {
@@ -162,49 +157,34 @@ impl ImpressionCanvas {
 
     /// Set selection from a rectangle. mode: 0=replace, 1=add, 2=subtract, 3=intersect.
     pub fn selection_rect(&mut self, x: u32, y: u32, w: u32, h: u32, mode: u8) {
-        let m = selection::CombineMode::from_u8(mode);
-        if m == selection::CombineMode::Replace || self.inner.selection.is_none() {
-            let mut mask = selection::SelectionMask::new(self.inner.width, self.inner.height);
-            mask.fill_rect(x, y, w, h, selection::CombineMode::Replace);
-            self.inner.selection = Some(mask);
-        } else if let Some(ref mut mask) = self.inner.selection {
-            mask.fill_rect(x, y, w, h, m);
-        }
+        self.inner
+            .selection_rect(x, y, w, h, selection::CombineMode::from_u8(mode));
     }
 
     /// Start collecting lasso polygon points.
     pub fn selection_lasso_begin(&mut self) {
-        self.inner.lasso_points.clear();
+        self.inner.selection_lasso_begin();
     }
 
     /// Add a point to the lasso polygon.
     pub fn selection_lasso_point(&mut self, x: f32, y: f32) {
-        self.inner.lasso_points.push((x, y));
+        self.inner.selection_lasso_point(x, y);
     }
 
     /// Close the polygon and rasterize into the selection mask.
     pub fn selection_lasso_end(&mut self, mode: u8) {
-        let points: Vec<(f32, f32)> = self.inner.lasso_points.drain(..).collect();
-        let m = selection::CombineMode::from_u8(mode);
-        if m == selection::CombineMode::Replace || self.inner.selection.is_none() {
-            let mut mask = selection::SelectionMask::new(self.inner.width, self.inner.height);
-            mask.fill_polygon(&points, selection::CombineMode::Replace);
-            self.inner.selection = Some(mask);
-        } else if let Some(ref mut mask) = self.inner.selection {
-            mask.fill_polygon(&points, m);
-        }
+        self.inner
+            .selection_lasso_end(selection::CombineMode::from_u8(mode));
     }
 
     /// Select all (fill mask with 255).
     pub fn select_all(&mut self) {
-        let mut mask = selection::SelectionMask::new_full(self.inner.width, self.inner.height);
-        mask.dirty = true;
-        self.inner.selection = Some(mask);
+        self.inner.select_all();
     }
 
     /// Clear the selection.
     pub fn deselect(&mut self) {
-        self.inner.selection = None;
+        self.inner.deselect();
     }
 
     /// Returns true if a selection mask is active.
@@ -257,6 +237,26 @@ impl ImpressionCanvas {
 
     pub fn sample_color_b(&self, x: u32, y: u32) -> u8 {
         self.inner.sample_color(x, y)[2]
+    }
+
+    /// Record canvas visibility change in oplog.
+    pub fn set_canvas_visible(&mut self, visible: bool) {
+        self.inner.set_canvas_visible(visible);
+    }
+
+    // -- Undo/Redo --
+
+    pub fn can_undo(&self) -> bool {
+        self.inner.oplog.can_undo()
+    }
+
+    pub fn can_redo(&self) -> bool {
+        self.inner.oplog.can_redo()
+    }
+
+    /// Get the number of active operations.
+    pub fn active_operation_count(&self) -> usize {
+        self.inner.oplog.active_len()
     }
 
     /// Get canvas width.

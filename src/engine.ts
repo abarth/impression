@@ -90,6 +90,7 @@ export class Engine {
 
   setCanvasVisible(visible: boolean): void {
     this._canvasVisible = visible;
+    this.canvas.set_canvas_visible(visible);
     this.needsRender = true;
   }
 
@@ -210,6 +211,19 @@ export class Engine {
     uploadSelectionTexture(this.gpu, pixels, width, height);
     this.canvas.clear_selection_dirty();
     this.needsRender = true;
+  }
+
+  // Undo/redo query methods
+  canUndo(): boolean {
+    return this.canvas.can_undo();
+  }
+
+  canRedo(): boolean {
+    return this.canvas.can_redo();
+  }
+
+  activeOperationCount(): number {
+    return this.canvas.active_operation_count();
   }
 
   sampleColor(x: number, y: number): [number, number, number] {

@@ -1,7 +1,10 @@
+use crate::blend_mode::BlendMode;
 use crate::brush::{self, BrushSettings, StrokeState};
 use crate::color::Color;
 use crate::layer::Layer;
-use crate::selection::SelectionMask;
+use crate::operation::Operation;
+use crate::oplog::OpLog;
+use crate::selection::{CombineMode, SelectionMask};
 
 pub struct Canvas {
     pub width: u32,
@@ -12,6 +15,7 @@ pub struct Canvas {
     pub background_color: Color,
     pub selection: Option<SelectionMask>,
     pub lasso_points: Vec<(f32, f32)>,
+    pub oplog: OpLog,
 }
 
 impl Canvas {
@@ -25,6 +29,7 @@ impl Canvas {
             background_color: Color::white(),
             selection: None,
             lasso_points: Vec::new(),
+            oplog: OpLog::new(),
         }
     }
 
@@ -32,6 +37,8 @@ impl Canvas {
         let layer = Layer::new(self.width, self.height);
         let index = self.layers.len() as u32;
         self.layers.push(layer);
+        self.oplog.begin_undo_group();
+        self.oplog.push(Operation::AddLayer);
         index
     }
 
@@ -47,10 +54,83 @@ impl Canvas {
         let i = index as usize;
         if i < self.layers.len() {
             self.layers.remove(i);
+            self.oplog.begin_undo_group();
+            self.oplog.push(Operation::RemoveLayer(index));
             true
         } else {
             false
         }
+    }
+
+    pub fn set_layer_opacity(&mut self, layer: u32, opacity: f32) {
+        if let Some(l) = self.layers.get_mut(layer as usize) {
+            l.opacity = opacity;
+            self.oplog.begin_undo_group();
+            self.oplog.push(Operation::SetLayerOpacity { layer, opacity });
+        }
+    }
+
+    pub fn set_layer_blend_mode(&mut self, layer: u32, mode: BlendMode) {
+        if let Some(l) = self.layers.get_mut(layer as usize) {
+            l.blend_mode = mode;
+            self.oplog.begin_undo_group();
+            self.oplog.push(Operation::SetLayerBlendMode { layer, mode });
+        }
+    }
+
+    pub fn set_layer_visible(&mut self, layer: u32, visible: bool) {
+        if let Some(l) = self.layers.get_mut(layer as usize) {
+            l.visible = visible;
+            self.oplog.begin_undo_group();
+            self.oplog.push(Operation::SetLayerVisible { layer, visible });
+        }
+    }
+
+    pub fn set_background_color(&mut self, color: Color) {
+        self.background_color = color;
+        self.oplog.begin_undo_group();
+        self.oplog.push(Operation::SetBackgroundColor {
+            r: color.r,
+            g: color.g,
+            b: color.b,
+        });
+    }
+
+    pub fn set_canvas_visible(&mut self, visible: bool) {
+        // Canvas visibility is tracked outside this struct (in Engine),
+        // but we record it in the oplog for persistence.
+        self.oplog.begin_undo_group();
+        self.oplog.push(Operation::SetCanvasVisible(visible));
+    }
+
+    pub fn set_brush_size(&mut self, size: f32) {
+        self.brush.size = size;
+        self.oplog.begin_undo_group();
+        self.oplog.push(Operation::SetBrushSize(size));
+    }
+
+    pub fn set_brush_spacing(&mut self, spacing: f32) {
+        self.brush.spacing = spacing;
+        self.oplog.begin_undo_group();
+        self.oplog.push(Operation::SetBrushSpacing(spacing));
+    }
+
+    pub fn set_brush_color(&mut self, r: u8, g: u8, b: u8) {
+        self.brush.color = Color::new(r, g, b);
+        self.oplog.begin_undo_group();
+        self.oplog.push(Operation::SetBrushColor { r, g, b });
+    }
+
+    pub fn set_brush_opacity(&mut self, opacity: f32) {
+        self.brush.opacity = opacity;
+        self.oplog.begin_undo_group();
+        self.oplog.push(Operation::SetBrushOpacity(opacity));
+    }
+
+    pub fn set_brush_flow(&mut self, flow: f32) {
+        self.brush.flow = flow;
+        self.oplog.begin_undo_group();
+        self.oplog.push(Operation::SetBrushFlow(flow));
     }
 
     /// Sample the composited color at (x, y) across all visible layers,
@@ -95,6 +175,8 @@ impl Canvas {
     }
 
     pub fn stroke_begin(&mut self, layer: u32, x: f32, y: f32, pressure: f32) {
+        self.oplog.begin_undo_group();
+        self.oplog.push(Operation::StrokeBegin { layer, x, y, pressure });
         let sel = self.selection.as_ref().map(|s| s.data.as_slice());
         if let Some(l) = self.layers.get_mut(layer as usize) {
             brush::stroke_begin(l, &mut self.stroke_state, &self.brush, x, y, pressure, sel);
@@ -102,6 +184,7 @@ impl Canvas {
     }
 
     pub fn stroke_move(&mut self, layer: u32, x: f32, y: f32, pressure: f32) {
+        self.oplog.push(Operation::StrokeMove { x, y, pressure });
         let sel = self.selection.as_ref().map(|s| s.data.as_slice());
         if let Some(l) = self.layers.get_mut(layer as usize) {
             brush::stroke_move(l, &mut self.stroke_state, &self.brush, x, y, pressure, sel);
@@ -109,7 +192,57 @@ impl Canvas {
     }
 
     pub fn stroke_end(&mut self) {
+        self.oplog.push(Operation::StrokeEnd);
         brush::stroke_end(&mut self.stroke_state);
+    }
+
+    // Selection operations with recording
+
+    pub fn selection_rect(&mut self, x: u32, y: u32, w: u32, h: u32, mode: CombineMode) {
+        if mode == CombineMode::Replace || self.selection.is_none() {
+            let mut mask = SelectionMask::new(self.width, self.height);
+            mask.fill_rect(x, y, w, h, CombineMode::Replace);
+            self.selection = Some(mask);
+        } else if let Some(ref mut mask) = self.selection {
+            mask.fill_rect(x, y, w, h, mode);
+        }
+        self.oplog.begin_undo_group();
+        self.oplog.push(Operation::SelectionRect { x, y, w, h, mode });
+    }
+
+    pub fn selection_lasso_begin(&mut self) {
+        self.lasso_points.clear();
+    }
+
+    pub fn selection_lasso_point(&mut self, x: f32, y: f32) {
+        self.lasso_points.push((x, y));
+    }
+
+    pub fn selection_lasso_end(&mut self, mode: CombineMode) {
+        let points: Vec<(f32, f32)> = self.lasso_points.drain(..).collect();
+        if mode == CombineMode::Replace || self.selection.is_none() {
+            let mut mask = SelectionMask::new(self.width, self.height);
+            mask.fill_polygon(&points, CombineMode::Replace);
+            self.selection = Some(mask);
+        } else if let Some(ref mut mask) = self.selection {
+            mask.fill_polygon(&points, mode);
+        }
+        self.oplog.begin_undo_group();
+        self.oplog.push(Operation::SelectionLasso { points, mode });
+    }
+
+    pub fn select_all(&mut self) {
+        let mut mask = SelectionMask::new_full(self.width, self.height);
+        mask.dirty = true;
+        self.selection = Some(mask);
+        self.oplog.begin_undo_group();
+        self.oplog.push(Operation::SelectAll);
+    }
+
+    pub fn deselect(&mut self) {
+        self.selection = None;
+        self.oplog.begin_undo_group();
+        self.oplog.push(Operation::Deselect);
     }
 }
 
@@ -263,5 +396,100 @@ mod tests {
         canvas.stroke_begin(99, 50.0, 50.0, 1.0);
         canvas.stroke_move(99, 60.0, 50.0, 1.0);
         canvas.stroke_end();
+    }
+
+    #[test]
+    fn test_oplog_records_stroke() {
+        let mut canvas = Canvas::new(100, 100);
+        canvas.add_layer();
+
+        let pre = canvas.oplog.active_len();
+        canvas.stroke_begin(0, 50.0, 50.0, 1.0);
+        canvas.stroke_move(0, 60.0, 50.0, 0.9);
+        canvas.stroke_end();
+
+        let ops = canvas.oplog.active_operations();
+        // AddLayer (1) + StrokeBegin + StrokeMove + StrokeEnd (3) = 4
+        assert_eq!(ops.len(), pre + 3);
+        assert!(matches!(ops[pre], Operation::StrokeBegin { layer: 0, .. }));
+        assert!(matches!(ops[pre + 1], Operation::StrokeMove { .. }));
+        assert!(matches!(ops[pre + 2], Operation::StrokeEnd));
+    }
+
+    #[test]
+    fn test_oplog_records_property_changes() {
+        let mut canvas = Canvas::new(100, 100);
+        canvas.set_brush_size(30.0);
+        canvas.set_brush_color(255, 0, 0);
+
+        let ops = canvas.oplog.active_operations();
+        assert_eq!(ops.len(), 2);
+        assert_eq!(ops[0], Operation::SetBrushSize(30.0));
+        assert_eq!(
+            ops[1],
+            Operation::SetBrushColor {
+                r: 255,
+                g: 0,
+                b: 0
+            }
+        );
+    }
+
+    #[test]
+    fn test_oplog_stroke_is_one_undo_group() {
+        let mut canvas = Canvas::new(100, 100);
+        canvas.add_layer();
+
+        canvas.stroke_begin(0, 10.0, 10.0, 1.0);
+        canvas.stroke_move(0, 20.0, 10.0, 1.0);
+        canvas.stroke_move(0, 30.0, 10.0, 1.0);
+        canvas.stroke_end();
+
+        // Undo should remove the entire stroke (not just StrokeEnd)
+        let before = canvas.oplog.active_len();
+        let range = canvas.oplog.undo().unwrap();
+        let after = canvas.oplog.active_len();
+        assert_eq!(before - after, 4); // StrokeBegin + 2*StrokeMove + StrokeEnd
+        assert_eq!(range.len(), 4);
+    }
+
+    #[test]
+    fn test_oplog_records_layer_operations() {
+        let mut canvas = Canvas::new(100, 100);
+        canvas.add_layer();
+        canvas.set_layer_opacity(0, 0.5);
+        canvas.set_layer_blend_mode(0, crate::blend_mode::BlendMode::Multiply);
+        canvas.set_layer_visible(0, false);
+
+        let ops = canvas.oplog.active_operations();
+        assert_eq!(ops.len(), 4);
+        assert!(matches!(ops[0], Operation::AddLayer));
+        assert!(matches!(ops[1], Operation::SetLayerOpacity { layer: 0, opacity } if (opacity - 0.5).abs() < 0.001));
+        assert!(matches!(
+            ops[2],
+            Operation::SetLayerBlendMode {
+                layer: 0,
+                mode: crate::blend_mode::BlendMode::Multiply
+            }
+        ));
+        assert!(matches!(
+            ops[3],
+            Operation::SetLayerVisible {
+                layer: 0,
+                visible: false
+            }
+        ));
+    }
+
+    #[test]
+    fn test_oplog_records_selection() {
+        let mut canvas = Canvas::new(100, 100);
+        canvas.select_all();
+        canvas.deselect();
+
+        let ops = canvas.oplog.active_operations();
+        assert_eq!(ops.len(), 2);
+        assert!(matches!(ops[0], Operation::SelectAll));
+        assert!(matches!(ops[1], Operation::Deselect));
     }
 }

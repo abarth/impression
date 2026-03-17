@@ -44,6 +44,12 @@ function createMockCanvas() {
     layer_blend_mode: vi.fn().mockReturnValue(0),
     set_layer_blend_mode: vi.fn(),
     set_layer_opacity: vi.fn(),
+    layer_visible: vi.fn().mockReturnValue(true),
+    set_layer_visible: vi.fn(),
+    set_canvas_visible: vi.fn(),
+    can_undo: vi.fn().mockReturnValue(false),
+    can_redo: vi.fn().mockReturnValue(false),
+    active_operation_count: vi.fn().mockReturnValue(0),
   };
 }
 
@@ -180,5 +186,22 @@ describe("Engine", () => {
     expect(mockCanvas.set_layer_opacity).toHaveBeenCalledWith(0, 0.5);
     // Should write opacity to the GPU buffer
     expect(mockGPU.device.queue.writeBuffer).toHaveBeenCalled();
+  });
+
+  it("should forward canUndo/canRedo to WASM", () => {
+    expect(engine.canUndo()).toBe(false);
+    expect(engine.canRedo()).toBe(false);
+    expect(mockCanvas.can_undo).toHaveBeenCalled();
+    expect(mockCanvas.can_redo).toHaveBeenCalled();
+  });
+
+  it("should forward setCanvasVisible to WASM", () => {
+    engine.setCanvasVisible(false);
+    expect(mockCanvas.set_canvas_visible).toHaveBeenCalledWith(false);
+  });
+
+  it("should forward setLayerVisible to WASM", () => {
+    engine.setLayerVisible(0, false);
+    expect(mockCanvas.set_layer_visible).toHaveBeenCalledWith(0, false);
   });
 });
