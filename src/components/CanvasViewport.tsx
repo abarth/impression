@@ -47,7 +47,7 @@ function buildCircleCursor(brushSize: number, scale: number): string {
   const r = diameter / 2;
   const size = diameter + 2; // 1px padding for stroke
   const center = size / 2;
-  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='${size}' height='${size}'><circle cx='${center}' cy='${center}' r='${r}' fill='none' stroke='rgba(255,255,255,0.8)' stroke-width='1'/></svg>`;
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='${size}' height='${size}'><circle cx='${center}' cy='${center}' r='${r}' fill='none' stroke='black' stroke-width='1.5'/><circle cx='${center}' cy='${center}' r='${r}' fill='none' stroke='white' stroke-width='0.5'/></svg>`;
   const encoded = encodeURIComponent(svg);
   const hotspot = Math.round(center);
   return `url("data:image/svg+xml,${encoded}") ${hotspot} ${hotspot}, crosshair`;
