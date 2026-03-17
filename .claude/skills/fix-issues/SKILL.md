@@ -1,7 +1,6 @@
 ---
 name: fix-issues
 description: Fetch all open GitHub issues and fix them one at a time, committing and pushing each fix.
-disable-model-invocation: true
 allowed-tools: Bash(gh *), Bash(npm run *), Bash(git *)
 ---
 
