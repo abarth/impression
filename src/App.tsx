@@ -20,7 +20,7 @@ export function App() {
   const { settings, updateSetting } = useBrushSettings(engine);
   const { colors, setForeground, setBackground, swapColors } =
     useColorState(engine);
-  const { layers, activeIndex, addLayer, removeLayer, selectLayer } =
+  const { layers, activeIndex, addLayer, removeLayer, selectLayer, setLayerOpacity } =
     useLayerManager(engine);
   useSelection(engine);
 
@@ -56,6 +56,7 @@ export function App() {
           onAdd={addLayer}
           onRemove={removeLayer}
           onSelect={selectLayer}
+          onOpacityChange={setLayerOpacity}
         />
       </div>
     </div>

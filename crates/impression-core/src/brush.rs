@@ -32,6 +32,10 @@ pub struct StrokeState {
     pub active: bool,
     pub last_point: Option<(f32, f32, f32)>, // x, y, pressure
     pub residual_distance: f32,
+    /// Layer pixels saved at stroke start, used to composite the stroke buffer.
+    snapshot: Vec<u8>,
+    /// Temporary buffer where stamps accumulate during the stroke.
+    stroke_layer: Option<Layer>,
 }
 
 impl StrokeState {
@@ -40,6 +44,8 @@ impl StrokeState {
             active: false,
             last_point: None,
             residual_distance: 0.0,
+            snapshot: Vec::new(),
+            stroke_layer: None,
         }
     }
 
@@ -47,6 +53,8 @@ impl StrokeState {
         self.active = false;
         self.last_point = None;
         self.residual_distance = 0.0;
+        self.snapshot.clear();
+        self.stroke_layer = None;
     }
 }
 
@@ -102,10 +110,84 @@ pub fn stamp_circle(
     layer.dirty = true;
 }
 
-/// Interpolate points along a segment and stamp circles.
+/// Compute the bounding box of a stamp for recompositing.
+fn stamp_bounds(cx: f32, cy: f32, radius: f32, width: u32, height: u32) -> (u32, u32, u32, u32) {
+    let x_min = (cx - radius - 1.0).floor().max(0.0) as u32;
+    let y_min = (cy - radius - 1.0).floor().max(0.0) as u32;
+    let x_max = ((cx + radius + 1.0).ceil()).min(width as f32 - 1.0).max(0.0) as u32;
+    let y_max = ((cy + radius + 1.0).ceil()).min(height as f32 - 1.0).max(0.0) as u32;
+    (x_min, y_min, x_max, y_max)
+}
+
+/// Composite the stroke buffer over the snapshot into the layer for a given region.
+/// Each pixel: layer = alpha_over(snapshot, stroke_buffer with alpha scaled by opacity).
+fn recomposite_region(
+    layer: &mut Layer,
+    snapshot: &[u8],
+    stroke_layer: &Layer,
+    opacity: f32,
+    bounds: (u32, u32, u32, u32),
+) {
+    let (x_min, y_min, x_max, y_max) = bounds;
+    let w = layer.width;
+
+    for py in y_min..=y_max {
+        for px in x_min..=x_max {
+            let i = ((py * w + px) * 4) as usize;
+
+            let sa_raw = stroke_layer.pixels[i + 3] as f32 / 255.0;
+            let sa = sa_raw * opacity;
+
+            if sa <= 0.0 {
+                // No stroke contribution, restore snapshot
+                layer.pixels[i..i + 4].copy_from_slice(&snapshot[i..i + 4]);
+                continue;
+            }
+
+            let sr = stroke_layer.pixels[i] as f32 / 255.0;
+            let sg = stroke_layer.pixels[i + 1] as f32 / 255.0;
+            let sb = stroke_layer.pixels[i + 2] as f32 / 255.0;
+
+            let da = snapshot[i + 3] as f32 / 255.0;
+            let out_a = sa + da * (1.0 - sa);
+
+            if out_a <= 0.0 {
+                layer.pixels[i..i + 4].copy_from_slice(&[0, 0, 0, 0]);
+                continue;
+            }
+
+            let dr = snapshot[i] as f32 / 255.0;
+            let dg = snapshot[i + 1] as f32 / 255.0;
+            let db = snapshot[i + 2] as f32 / 255.0;
+
+            layer.pixels[i] = ((sr * sa + dr * da * (1.0 - sa)) / out_a * 255.0 + 0.5) as u8;
+            layer.pixels[i + 1] = ((sg * sa + dg * da * (1.0 - sa)) / out_a * 255.0 + 0.5) as u8;
+            layer.pixels[i + 2] = ((sb * sa + db * da * (1.0 - sa)) / out_a * 255.0 + 0.5) as u8;
+            layer.pixels[i + 3] = (out_a * 255.0 + 0.5) as u8;
+        }
+    }
+    layer.dirty = true;
+}
+
+/// Compute the bounding box that covers a line segment with stamps.
+fn segment_bounds(
+    x0: f32, y0: f32, p0: f32,
+    x1: f32, y1: f32, p1: f32,
+    brush: &BrushSettings,
+    width: u32, height: u32,
+) -> (u32, u32, u32, u32) {
+    let max_radius = brush.size * p0.max(p1) / 2.0;
+    let x_min = (x0.min(x1) - max_radius - 1.0).floor().max(0.0) as u32;
+    let y_min = (y0.min(y1) - max_radius - 1.0).floor().max(0.0) as u32;
+    let x_max = ((x0.max(x1) + max_radius + 1.0).ceil()).min(width as f32 - 1.0).max(0.0) as u32;
+    let y_max = ((y0.max(y1) + max_radius + 1.0).ceil()).min(height as f32 - 1.0).max(0.0) as u32;
+    (x_min, y_min, x_max, y_max)
+}
+
+/// Interpolate points along a segment and stamp circles into the stroke buffer.
 /// Returns the residual distance for the next segment.
 pub fn interpolate_and_stamp(
-    layer: &mut Layer,
+    target: &mut Layer,
     x0: f32,
     y0: f32,
     p0: f32,
@@ -134,7 +216,7 @@ pub fn interpolate_and_stamp(
 
         let effective_size = brush.size * pressure;
         let radius = effective_size / 2.0;
-        stamp_circle(layer, x, y, radius, brush.color, brush.flow, selection);
+        stamp_circle(target, x, y, radius, brush.color, brush.flow, selection);
 
         // Spacing is relative to the current circle's effective size
         let step = (brush.spacing * effective_size).max(1.0);
@@ -158,9 +240,19 @@ pub fn stroke_begin(
     state.last_point = Some((x, y, pressure));
     state.residual_distance = 0.0;
 
-    // Stamp at the initial point
+    // Save snapshot and create stroke buffer
+    state.snapshot = layer.pixels.clone();
+    let mut stroke = Layer::new(layer.width, layer.height);
+
+    // Stamp initial point into the stroke buffer
     let radius = (brush.size * pressure) / 2.0;
-    stamp_circle(layer, x, y, radius, brush.color, brush.flow, selection);
+    stamp_circle(&mut stroke, x, y, radius, brush.color, brush.flow, selection);
+
+    // Composite stroke buffer over snapshot into layer
+    let bounds = stamp_bounds(x, y, radius, layer.width, layer.height);
+    recomposite_region(layer, &state.snapshot, &stroke, brush.opacity, bounds);
+
+    state.stroke_layer = Some(stroke);
 }
 
 /// Continue a stroke to the given position.
@@ -177,9 +269,14 @@ pub fn stroke_move(
         return;
     }
 
+    let stroke = match state.stroke_layer.as_mut() {
+        Some(s) => s,
+        None => return,
+    };
+
     if let Some((lx, ly, lp)) = state.last_point {
         let residual = interpolate_and_stamp(
-            layer,
+            stroke,
             lx,
             ly,
             lp,
@@ -191,6 +288,10 @@ pub fn stroke_move(
             selection,
         );
         state.residual_distance = residual;
+
+        // Recomposite the segment's bounding box
+        let bounds = segment_bounds(lx, ly, lp, x, y, pressure, brush, layer.width, layer.height);
+        recomposite_region(layer, &state.snapshot, stroke, brush.opacity, bounds);
     }
 
     state.last_point = Some((x, y, pressure));
@@ -458,5 +559,54 @@ mod tests {
         // Pixel at (7, 10) is outside the selection — should NOT be painted
         let px_out = layer.pixel(7, 10).unwrap();
         assert_eq!(px_out[3], 0, "Unselected pixel should remain transparent");
+    }
+
+    #[test]
+    fn test_stroke_opacity_caps_alpha() {
+        // With opacity=0.5 and flow=1.0, even overlapping stamps in a single
+        // stroke should not produce alpha above ~128.
+        let mut layer = Layer::new(50, 50);
+        let mut state = StrokeState::new();
+        let brush = BrushSettings {
+            size: 20.0,
+            spacing: 0.1,
+            color: Color::black(),
+            opacity: 0.5,
+            flow: 1.0,
+        };
+
+        // Draw a short stroke to get many overlapping stamps
+        stroke_begin(&mut layer, &mut state, &brush, 25.0, 25.0, 1.0, None);
+        stroke_move(&mut layer, &mut state, &brush, 30.0, 25.0, 1.0, None);
+        stroke_end(&mut state);
+
+        // Center pixel alpha should be capped at ~128 (0.5 * 255)
+        let px = layer.pixel(25, 25).unwrap();
+        assert!(px[3] > 0, "Should have drawn something");
+        assert!(
+            px[3] <= 130,
+            "Alpha {} should be capped at ~128 by stroke opacity 0.5",
+            px[3]
+        );
+    }
+
+    #[test]
+    fn test_stroke_opacity_does_not_change_layer_opacity() {
+        let mut layer = Layer::new(50, 50);
+        let mut state = StrokeState::new();
+        let brush = BrushSettings {
+            size: 10.0,
+            spacing: 0.25,
+            color: Color::black(),
+            opacity: 0.3,
+            flow: 1.0,
+        };
+
+        let opacity_before = layer.opacity;
+        stroke_begin(&mut layer, &mut state, &brush, 25.0, 25.0, 1.0, None);
+        stroke_end(&mut state);
+
+        // Layer opacity should remain unchanged
+        assert_eq!(layer.opacity, opacity_before);
     }
 }

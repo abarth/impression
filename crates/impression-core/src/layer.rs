@@ -1,3 +1,4 @@
+#[derive(Debug)]
 pub struct Layer {
     pub pixels: Vec<u8>,
     pub width: u32,

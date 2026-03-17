@@ -116,11 +116,6 @@ impl ImpressionCanvas {
     // -- Stroke input --
 
     pub fn stroke_begin(&mut self, layer: u32, x: f32, y: f32, pressure: f32) {
-        // Set layer opacity to brush opacity for compositing
-        let opacity = self.inner.brush.opacity;
-        if let Some(l) = self.inner.layer_mut(layer) {
-            l.opacity = opacity;
-        }
         self.inner.stroke_begin(layer, x, y, pressure);
     }
 

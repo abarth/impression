@@ -7,6 +7,7 @@ interface LayerPanelProps {
   onAdd: () => void;
   onRemove: (index: number) => void;
   onSelect: (index: number) => void;
+  onOpacityChange: (index: number, opacity: number) => void;
 }
 
 export function LayerPanel({
@@ -15,7 +16,9 @@ export function LayerPanel({
   onAdd,
   onRemove,
   onSelect,
+  onOpacityChange,
 }: LayerPanelProps) {
+  const activeLayer = layers[activeIndex];
   return (
     <div className="flex flex-col gap-2 px-4 py-4 flex-1 border-t border-graphite-850">
       <div className="flex items-center justify-between">
@@ -43,6 +46,27 @@ export function LayerPanel({
           </button>
         </div>
       </div>
+
+      {activeLayer && (
+        <div className="flex items-center gap-2">
+          <label className="text-[11px] text-cream-muted whitespace-nowrap">
+            Opacity
+          </label>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={Math.round(activeLayer.opacity * 100)}
+            onChange={(e) =>
+              onOpacityChange(activeIndex, Number(e.target.value) / 100)
+            }
+            className="flex-1 accent-cream-muted h-1.5"
+          />
+          <span className="text-[11px] text-cream-dim w-8 text-right">
+            {Math.round(activeLayer.opacity * 100)}%
+          </span>
+        </div>
+      )}
 
       <div className="flex flex-col gap-0.5">
         {[...layers].reverse().map((layer, reversedIdx) => {

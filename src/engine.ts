@@ -125,6 +125,12 @@ export class Engine {
     this.canvas.set_background_color(r, g, b);
   }
 
+  setLayerOpacity(layer: number, opacity: number): void {
+    this.canvas.set_layer_opacity(layer, opacity);
+    updateLayerOpacity(this.gpu, layer, opacity);
+    this.needsRender = true;
+  }
+
   // Selection methods
 
   selectionRect(x: number, y: number, w: number, h: number, mode: number): void {

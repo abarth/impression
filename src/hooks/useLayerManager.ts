@@ -5,6 +5,7 @@ export interface LayerInfo {
   id: number; // unique ID for React keys
   name: string;
   visible: boolean;
+  opacity: number;
 }
 
 let nextLayerId = 0;
@@ -12,7 +13,7 @@ let nextLayerId = 0;
 export function useLayerManager(engine: Engine | null) {
   const [layers, setLayers] = useState<LayerInfo[]>(() => {
     const id = nextLayerId++;
-    return [{ id, name: "Layer 1", visible: true }];
+    return [{ id, name: "Layer 1", visible: true, opacity: 1.0 }];
   });
   const [activeIndex, setActiveIndex] = useState(0);
   const engineRef = useRef(engine);
@@ -28,6 +29,7 @@ export function useLayerManager(engine: Engine | null) {
         id,
         name: `Layer ${prev.length + 1}`,
         visible: true,
+        opacity: 1.0,
       };
       return [...prev, newLayer];
     });
@@ -67,5 +69,16 @@ export function useLayerManager(engine: Engine | null) {
     [],
   );
 
-  return { layers, activeIndex, addLayer, removeLayer, selectLayer };
+  const setLayerOpacity = useCallback(
+    (index: number, opacity: number) => {
+      const eng = engineRef.current;
+      if (eng) eng.setLayerOpacity(index, opacity);
+      setLayers((prev) =>
+        prev.map((l, i) => (i === index ? { ...l, opacity } : l)),
+      );
+    },
+    [],
+  );
+
+  return { layers, activeIndex, addLayer, removeLayer, selectLayer, setLayerOpacity };
 }

@@ -161,4 +161,15 @@ describe("Engine", () => {
     engine.removeLayer(2);
     expect(engine.getActiveLayer()).toBeLessThanOrEqual(1);
   });
+
+  it("should set layer opacity on WASM and GPU", () => {
+    engine.addLayer();
+    mockCanvas.set_layer_opacity = vi.fn();
+
+    engine.setLayerOpacity(0, 0.5);
+
+    expect(mockCanvas.set_layer_opacity).toHaveBeenCalledWith(0, 0.5);
+    // Should write opacity to the GPU buffer
+    expect(mockGPU.device.queue.writeBuffer).toHaveBeenCalled();
+  });
 });
