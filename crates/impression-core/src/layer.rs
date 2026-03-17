@@ -6,6 +6,7 @@ pub struct Layer {
     pub dirty: bool,
     pub opacity: f32,
     pub visible: bool,
+    pub blend_mode: u32,
 }
 
 impl Layer {
@@ -18,6 +19,7 @@ impl Layer {
             dirty: false,
             opacity: 1.0,
             visible: true,
+            blend_mode: 0, // Normal (Source Over)
         }
     }
 
@@ -85,5 +87,18 @@ mod tests {
         let layer = Layer::new(4, 4);
         assert!(layer.pixel(4, 0).is_none());
         assert!(layer.pixel(0, 4).is_none());
+    }
+
+    #[test]
+    fn test_default_blend_mode() {
+        let layer = Layer::new(4, 4);
+        assert_eq!(layer.blend_mode, 0); // Normal
+    }
+
+    #[test]
+    fn test_set_blend_mode() {
+        let mut layer = Layer::new(4, 4);
+        layer.blend_mode = 3;
+        assert_eq!(layer.blend_mode, 3);
     }
 }

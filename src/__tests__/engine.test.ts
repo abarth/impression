@@ -41,6 +41,9 @@ function createMockCanvas() {
     set_brush_flow: vi.fn(),
     set_background_color: vi.fn(),
     remove_layer: vi.fn().mockReturnValue(true),
+    layer_blend_mode: vi.fn().mockReturnValue(0),
+    set_layer_blend_mode: vi.fn(),
+    set_layer_opacity: vi.fn(),
   };
 }
 
@@ -160,6 +163,12 @@ describe("Engine", () => {
 
     engine.removeLayer(2);
     expect(engine.getActiveLayer()).toBeLessThanOrEqual(1);
+  });
+
+  it("should get and set layer blend mode", () => {
+    expect(engine.getLayerBlendMode(0)).toBe(0);
+    engine.setLayerBlendMode(0, 9); // Lighter
+    expect(mockCanvas.set_layer_blend_mode).toHaveBeenCalledWith(0, 9);
   });
 
   it("should set layer opacity on WASM and GPU", () => {

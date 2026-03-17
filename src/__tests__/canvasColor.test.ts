@@ -10,6 +10,7 @@ function createMockEngine() {
     setActiveLayer: vi.fn(),
     getLayerCount: vi.fn().mockReturnValue(1),
     setLayerOpacity: vi.fn(),
+    setLayerBlendMode: vi.fn(),
     setBackgroundColor: vi.fn(),
     setBrushColor: vi.fn(),
   };

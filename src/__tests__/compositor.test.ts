@@ -24,7 +24,7 @@ function createMockGPUContext(layerCount: number): GPUContext {
         createView: vi.fn().mockReturnValue({}),
       }),
     },
-    pipeline: {},
+    blendPipelines: Array.from({ length: 11 }, () => ({})),
     layerBindGroups: bindGroups,
   } as unknown as GPUContext;
 }

@@ -1,11 +1,13 @@
 import compositeShaderSource from "../shaders/composite.wgsl?raw";
 import selectionShaderSource from "../shaders/selection.wgsl?raw";
+import { BLEND_MODE_COUNT, getBlendState } from "./blendModes";
 
 export interface GPUContext {
   device: GPUDevice;
   context: GPUCanvasContext;
   format: GPUTextureFormat;
-  pipeline: GPURenderPipeline;
+  /** One pipeline per blend mode (indexed by blend mode enum value). */
+  blendPipelines: GPURenderPipeline[];
   sampler: GPUSampler;
   layerTextures: GPUTexture[];
   layerBindGroups: GPUBindGroup[];
@@ -66,37 +68,32 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
     code: compositeShaderSource,
   });
 
-  const pipeline = device.createRenderPipeline({
-    layout: pipelineLayout,
-    vertex: {
-      module: shaderModule,
-      entryPoint: "vs",
-    },
-    fragment: {
-      module: shaderModule,
-      entryPoint: "fs",
-      targets: [
-        {
-          format,
-          blend: {
-            color: {
-              srcFactor: "src-alpha",
-              dstFactor: "one-minus-src-alpha",
-              operation: "add",
-            },
-            alpha: {
-              srcFactor: "one",
-              dstFactor: "one-minus-src-alpha",
-              operation: "add",
-            },
-          },
+  // Create one pipeline per Porter-Duff blend mode
+  const blendPipelines: GPURenderPipeline[] = [];
+  for (let i = 0; i < BLEND_MODE_COUNT; i++) {
+    blendPipelines.push(
+      device.createRenderPipeline({
+        layout: pipelineLayout,
+        vertex: {
+          module: shaderModule,
+          entryPoint: "vs",
         },
-      ],
-    },
-    primitive: {
-      topology: "triangle-list",
-    },
-  });
+        fragment: {
+          module: shaderModule,
+          entryPoint: "fs",
+          targets: [
+            {
+              format,
+              blend: getBlendState(i),
+            },
+          ],
+        },
+        primitive: {
+          topology: "triangle-list",
+        },
+      }),
+    );
+  }
 
   const sampler = device.createSampler({
     magFilter: "nearest",
@@ -169,7 +166,7 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
     device,
     context,
     format,
-    pipeline,
+    blendPipelines,
     sampler,
     layerTextures: [],
     layerBindGroups: [],

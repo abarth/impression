@@ -7,6 +7,7 @@ export interface LayerInfo {
   name: string;
   visible: boolean;
   opacity: number;
+  blendMode: number;
 }
 
 let nextLayerId = 0;
@@ -14,7 +15,7 @@ let nextLayerId = 0;
 export function useLayerManager(engine: Engine | null) {
   const [layers, setLayers] = useState<LayerInfo[]>(() => {
     const id = nextLayerId++;
-    return [{ id, name: "Layer 1", visible: true, opacity: 1.0 }];
+    return [{ id, name: "Layer 1", visible: true, opacity: 1.0, blendMode: 0 }];
   });
   const [activeIndex, setActiveIndex] = useState(0);
   const [canvasColor, setCanvasColorState] = useState("#ffffff");
@@ -40,6 +41,7 @@ export function useLayerManager(engine: Engine | null) {
         name: `Layer ${prev.length + 1}`,
         visible: true,
         opacity: 1.0,
+        blendMode: 0,
       };
       return [...prev, newLayer];
     });
@@ -90,6 +92,17 @@ export function useLayerManager(engine: Engine | null) {
     [],
   );
 
+  const setLayerBlendMode = useCallback(
+    (index: number, mode: number) => {
+      const eng = engineRef.current;
+      if (eng) eng.setLayerBlendMode(index, mode);
+      setLayers((prev) =>
+        prev.map((l, i) => (i === index ? { ...l, blendMode: mode } : l)),
+      );
+    },
+    [],
+  );
+
   const setCanvasColor = useCallback(
     (hex: string) => {
       setCanvasColorState(hex);
@@ -102,5 +115,5 @@ export function useLayerManager(engine: Engine | null) {
     [],
   );
 
-  return { layers, activeIndex, canvasColor, addLayer, removeLayer, selectLayer, setLayerOpacity, setCanvasColor };
+  return { layers, activeIndex, canvasColor, addLayer, removeLayer, selectLayer, setLayerOpacity, setLayerBlendMode, setCanvasColor };
 }

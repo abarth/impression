@@ -47,6 +47,7 @@ export function useEngine(
         composite(gpu, {
           backgroundColor: eng.getBackgroundColor(),
           layerCount: eng.getLayerCount(),
+          getLayerBlendMode: (i) => eng.getLayerBlendMode(i),
           time,
         });
         requestAnimationFrame(render);

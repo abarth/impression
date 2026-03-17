@@ -18,6 +18,7 @@ struct VertexOutput {
 
 @fragment fn fs(in: VertexOutput) -> @location(0) vec4f {
     let color = textureSample(layerTexture, layerSampler, in.uv);
-    // Apply layer opacity to the alpha channel
-    return vec4f(color.rgb, color.a * layerOpacity);
+    // Premultiplied alpha output for Porter-Duff compositing
+    let a = color.a * layerOpacity;
+    return vec4f(color.rgb * a, a);
 }

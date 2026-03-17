@@ -75,6 +75,18 @@ impl ImpressionCanvas {
         }
     }
 
+    /// Get the layer blend mode.
+    pub fn layer_blend_mode(&self, layer: u32) -> u32 {
+        self.inner.layer(layer).map(|l| l.blend_mode).unwrap_or(0)
+    }
+
+    /// Set the layer blend mode.
+    pub fn set_layer_blend_mode(&mut self, layer: u32, mode: u32) {
+        if let Some(l) = self.inner.layer_mut(layer) {
+            l.blend_mode = mode;
+        }
+    }
+
     // -- Brush settings --
 
     pub fn set_brush_size(&mut self, size: f32) {

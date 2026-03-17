@@ -2,6 +2,7 @@ import { Plus, Trash2, Eye, EyeOff } from "lucide-react";
 import * as Popover from "@radix-ui/react-popover";
 import { HexColorPicker } from "react-colorful";
 import type { LayerInfo } from "../hooks/useLayerManager";
+import { BLEND_MODES } from "../blendModes";
 
 interface LayerPanelProps {
   layers: LayerInfo[];
@@ -11,6 +12,7 @@ interface LayerPanelProps {
   onRemove: (index: number) => void;
   onSelect: (index: number) => void;
   onOpacityChange: (index: number, opacity: number) => void;
+  onBlendModeChange: (index: number, mode: number) => void;
   onCanvasColorChange: (hex: string) => void;
 }
 
@@ -22,6 +24,7 @@ export function LayerPanel({
   onRemove,
   onSelect,
   onOpacityChange,
+  onBlendModeChange,
   onCanvasColorChange,
 }: LayerPanelProps) {
   const activeLayer = layers[activeIndex];
@@ -54,23 +57,40 @@ export function LayerPanel({
       </div>
 
       {activeLayer && (
-        <div className="flex items-center gap-2">
-          <label className="text-[11px] text-cream-muted whitespace-nowrap">
-            Opacity
-          </label>
-          <input
-            type="range"
-            min={0}
-            max={100}
-            value={Math.round(activeLayer.opacity * 100)}
+        <div className="flex flex-col gap-1.5">
+          <select
+            value={activeLayer.blendMode}
             onChange={(e) =>
-              onOpacityChange(activeIndex, Number(e.target.value) / 100)
+              onBlendModeChange(activeIndex, Number(e.target.value))
             }
-            className="flex-1 accent-cream-muted h-1.5"
-          />
-          <span className="text-[11px] text-cream-dim w-8 text-right">
-            {Math.round(activeLayer.opacity * 100)}%
-          </span>
+            className="w-full bg-graphite-850 text-cream-dim text-[11px] px-2 py-1.5
+              rounded-lg border border-graphite-750 outline-none cursor-pointer
+              transition-all duration-150 hover:border-cream-muted"
+          >
+            {BLEND_MODES.map((mode) => (
+              <option key={mode.value} value={mode.value}>
+                {mode.label}
+              </option>
+            ))}
+          </select>
+          <div className="flex items-center gap-2">
+            <label className="text-[11px] text-cream-muted whitespace-nowrap">
+              Opacity
+            </label>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={Math.round(activeLayer.opacity * 100)}
+              onChange={(e) =>
+                onOpacityChange(activeIndex, Number(e.target.value) / 100)
+              }
+              className="flex-1 accent-cream-muted h-1.5"
+            />
+            <span className="text-[11px] text-cream-dim w-8 text-right">
+              {Math.round(activeLayer.opacity * 100)}%
+            </span>
+          </div>
         </div>
       )}
 

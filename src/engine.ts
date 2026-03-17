@@ -131,6 +131,15 @@ export class Engine {
     this.needsRender = true;
   }
 
+  getLayerBlendMode(layer: number): number {
+    return this.canvas.layer_blend_mode(layer);
+  }
+
+  setLayerBlendMode(layer: number, mode: number): void {
+    this.canvas.set_layer_blend_mode(layer, mode);
+    this.needsRender = true;
+  }
+
   // Selection methods
 
   selectionRect(x: number, y: number, w: number, h: number, mode: number): void {
