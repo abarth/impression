@@ -14,6 +14,7 @@ interface LayerPanelProps {
   onSelect: (index: number) => void;
   onOpacityChange: (index: number, opacity: number) => void;
   onBlendModeChange: (index: number, mode: number) => void;
+  onToggleLayerVisible: (index: number) => void;
   onCanvasColorChange: (hex: string) => void;
   onToggleCanvasVisible: () => void;
 }
@@ -28,6 +29,7 @@ export function LayerPanel({
   onSelect,
   onOpacityChange,
   onBlendModeChange,
+  onToggleLayerVisible,
   onCanvasColorChange,
   onToggleCanvasVisible,
 }: LayerPanelProps) {
@@ -103,7 +105,7 @@ export function LayerPanel({
           const index = layers.length - 1 - reversedIdx;
           const isActive = index === activeIndex;
           return (
-            <button
+            <div
               key={layer.id}
               onClick={() => onSelect(index)}
               className={`flex items-center gap-2.5 px-2.5 py-2 rounded-lg
@@ -115,9 +117,13 @@ export function LayerPanel({
                 }`}
             >
               <span
-                className={
+                className={`cursor-pointer hover:text-cream-muted transition-all duration-150 ${
                   isActive ? "text-cream-muted" : "text-graphite-600"
-                }
+                }`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggleLayerVisible(index);
+                }}
               >
                 {layer.visible ? (
                   <Eye size={14} strokeWidth={1.75} />
@@ -126,7 +132,7 @@ export function LayerPanel({
                 )}
               </span>
               <span className="flex-1 truncate">{layer.name}</span>
-            </button>
+            </div>
           );
         })}
 

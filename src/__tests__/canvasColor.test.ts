@@ -11,6 +11,7 @@ function createMockEngine() {
     getLayerCount: vi.fn().mockReturnValue(1),
     setLayerOpacity: vi.fn(),
     setLayerBlendMode: vi.fn(),
+    setLayerVisible: vi.fn(),
     setBackgroundColor: vi.fn(),
     setCanvasVisible: vi.fn(),
     setBrushColor: vi.fn(),
@@ -67,6 +68,32 @@ describe("Canvas visibility in useLayerManager", () => {
 
     expect(result.current.canvasVisible).toBe(true);
     expect(engine.setCanvasVisible).toHaveBeenCalledWith(true);
+  });
+});
+
+describe("Layer visibility in useLayerManager", () => {
+  it("should initialize layers as visible", () => {
+    const { result } = renderHook(() => useLayerManager(null));
+    expect(result.current.layers[0].visible).toBe(true);
+  });
+
+  it("should toggle layer visibility and call engine.setLayerVisible", () => {
+    const engine = createMockEngine();
+    const { result } = renderHook(() => useLayerManager(engine as never));
+
+    act(() => {
+      result.current.toggleLayerVisible(0);
+    });
+
+    expect(result.current.layers[0].visible).toBe(false);
+    expect(engine.setLayerVisible).toHaveBeenCalledWith(0, false);
+
+    act(() => {
+      result.current.toggleLayerVisible(0);
+    });
+
+    expect(result.current.layers[0].visible).toBe(true);
+    expect(engine.setLayerVisible).toHaveBeenCalledWith(0, true);
   });
 });
 

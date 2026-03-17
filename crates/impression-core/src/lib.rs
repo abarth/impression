@@ -87,6 +87,18 @@ impl ImpressionCanvas {
         }
     }
 
+    /// Get the layer visibility.
+    pub fn layer_visible(&self, layer: u32) -> bool {
+        self.inner.layer(layer).map(|l| l.visible).unwrap_or(false)
+    }
+
+    /// Set the layer visibility.
+    pub fn set_layer_visible(&mut self, layer: u32, visible: bool) {
+        if let Some(l) = self.inner.layer_mut(layer) {
+            l.visible = visible;
+        }
+    }
+
     // -- Brush settings --
 
     pub fn set_brush_size(&mut self, size: f32) {

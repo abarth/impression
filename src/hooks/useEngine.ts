@@ -48,6 +48,7 @@ export function useEngine(
           backgroundColor: eng.getBackgroundColor(),
           canvasVisible: eng.getCanvasVisible(),
           layerCount: eng.getLayerCount(),
+          getLayerVisible: (i) => eng.getLayerVisible(i),
           getLayerBlendMode: (i) => eng.getLayerBlendMode(i),
           time,
         });

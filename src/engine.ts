@@ -152,6 +152,15 @@ export class Engine {
     this.needsRender = true;
   }
 
+  getLayerVisible(layer: number): boolean {
+    return this.canvas.layer_visible(layer);
+  }
+
+  setLayerVisible(layer: number, visible: boolean): void {
+    this.canvas.set_layer_visible(layer, visible);
+    this.needsRender = true;
+  }
+
   // Selection methods
 
   selectionRect(x: number, y: number, w: number, h: number, mode: number): void {

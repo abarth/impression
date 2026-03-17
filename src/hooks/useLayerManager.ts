@@ -116,6 +116,21 @@ export function useLayerManager(engine: Engine | null) {
     [],
   );
 
+  const toggleLayerVisible = useCallback(
+    (index: number) => {
+      const eng = engineRef.current;
+      setLayers((prev) =>
+        prev.map((l, i) => {
+          if (i !== index) return l;
+          const next = !l.visible;
+          if (eng) eng.setLayerVisible(index, next);
+          return { ...l, visible: next };
+        }),
+      );
+    },
+    [],
+  );
+
   const toggleCanvasVisible = useCallback(() => {
     setCanvasVisible((prev) => {
       const next = !prev;
@@ -125,5 +140,5 @@ export function useLayerManager(engine: Engine | null) {
     });
   }, []);
 
-  return { layers, activeIndex, canvasColor, canvasVisible, addLayer, removeLayer, selectLayer, setLayerOpacity, setLayerBlendMode, setCanvasColor, toggleCanvasVisible };
+  return { layers, activeIndex, canvasColor, canvasVisible, addLayer, removeLayer, selectLayer, setLayerOpacity, setLayerBlendMode, toggleLayerVisible, setCanvasColor, toggleCanvasVisible };
 }
