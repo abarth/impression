@@ -111,7 +111,7 @@ export function DocumentPicker({
                   >
                     <div className="text-[13px] text-cream truncate">{doc.name}</div>
                     <div className="text-[11px] text-cream-muted">
-                      {doc.width} × {doc.height} &middot; {formatDate(doc.modified_at)}
+                      {doc.width} × {doc.height} &middot; Modified {formatDate(doc.modified_at)}
                     </div>
                   </div>
                 )}
