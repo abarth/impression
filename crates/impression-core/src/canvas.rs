@@ -54,13 +54,14 @@ impl Canvas {
     }
 
     /// Sample the composited color at (x, y) across all visible layers,
-    /// over the background color. Returns [R, G, B].
+    /// over the background color. Applies each layer's blend mode.
+    /// Returns [R, G, B].
     pub fn sample_color(&self, x: u32, y: u32) -> [u8; 3] {
-        // Start with the background color at full opacity
-        let mut r = self.background_color.r as f32;
-        let mut g = self.background_color.g as f32;
-        let mut b = self.background_color.b as f32;
-        let mut a: f32 = 1.0;
+        // Start with the background color at full opacity (values in 0..1)
+        let mut dr = self.background_color.r as f32 / 255.0;
+        let mut dg = self.background_color.g as f32 / 255.0;
+        let mut db = self.background_color.b as f32 / 255.0;
+        let mut da: f32 = 1.0;
 
         for layer in &self.layers {
             if !layer.visible {
@@ -71,22 +72,25 @@ impl Canvas {
                 if src_a <= 0.0 {
                     continue;
                 }
-                let src_r = px[0] as f32;
-                let src_g = px[1] as f32;
-                let src_b = px[2] as f32;
+                let sr = px[0] as f32 / 255.0;
+                let sg = px[1] as f32 / 255.0;
+                let sb = px[2] as f32 / 255.0;
 
-                // Alpha-over compositing (both dst and src in straight alpha)
-                r = src_r * src_a + r * (1.0 - src_a);
-                g = src_g * src_a + g * (1.0 - src_a);
-                b = src_b * src_a + b * (1.0 - src_a);
-                a = src_a + a * (1.0 - src_a);
+                // Apply blend mode, then composite with alpha
+                let (br, bg, bb) =
+                    crate::color::apply_blend(sr, sg, sb, dr, dg, db, layer.blend_mode);
+
+                dr = src_a * br + (1.0 - src_a) * dr;
+                dg = src_a * bg + (1.0 - src_a) * dg;
+                db = src_a * bb + (1.0 - src_a) * db;
+                da = src_a + da * (1.0 - src_a);
             }
         }
 
         [
-            (r + 0.5).min(255.0) as u8,
-            (g + 0.5).min(255.0) as u8,
-            (b + 0.5).min(255.0) as u8,
+            (dr * 255.0 + 0.5).min(255.0) as u8,
+            (dg * 255.0 + 0.5).min(255.0) as u8,
+            (db * 255.0 + 0.5).min(255.0) as u8,
         ]
     }
 
@@ -199,6 +203,55 @@ mod tests {
         }
         let c = canvas.sample_color(3, 3);
         assert_eq!(c, [255, 255, 255]); // background shows through
+    }
+
+    #[test]
+    fn test_sample_color_with_multiply_blend() {
+        let mut canvas = Canvas::new(10, 10);
+        // Background is white (255, 255, 255)
+        canvas.add_layer();
+        {
+            let layer = canvas.layer_mut(0).unwrap();
+            let px = layer.pixel_mut(3, 3).unwrap();
+            *px = [128, 128, 128, 255]; // opaque mid-gray
+            layer.blend_mode = 2; // Multiply
+        }
+        let c = canvas.sample_color(3, 3);
+        // Multiply: src * dst = 0.502 * 1.0 = 0.502 → ~128
+        assert!((c[0] as i32 - 128).abs() <= 1);
+        assert!((c[1] as i32 - 128).abs() <= 1);
+        assert!((c[2] as i32 - 128).abs() <= 1);
+    }
+
+    #[test]
+    fn test_sample_color_with_screen_blend() {
+        let mut canvas = Canvas::new(10, 10);
+        canvas.background_color = Color::new(128, 128, 128); // mid-gray bg
+        canvas.add_layer();
+        {
+            let layer = canvas.layer_mut(0).unwrap();
+            let px = layer.pixel_mut(3, 3).unwrap();
+            *px = [128, 128, 128, 255]; // opaque mid-gray
+            layer.blend_mode = 6; // Screen
+        }
+        let c = canvas.sample_color(3, 3);
+        // Screen: s + d - s*d ≈ 0.502 + 0.502 - 0.252 ≈ 0.752 → ~192
+        assert!((c[0] as i32 - 192).abs() <= 2);
+    }
+
+    #[test]
+    fn test_sample_color_normal_blend_matches_alpha_over() {
+        // Normal blend (mode 0) should give same result as before
+        let mut canvas = Canvas::new(10, 10);
+        canvas.add_layer();
+        {
+            let layer = canvas.layer_mut(0).unwrap();
+            let px = layer.pixel_mut(3, 3).unwrap();
+            *px = [255, 0, 0, 255]; // opaque red
+            layer.blend_mode = 0; // Normal
+        }
+        let c = canvas.sample_color(3, 3);
+        assert_eq!(c, [255, 0, 0]);
     }
 
     #[test]
