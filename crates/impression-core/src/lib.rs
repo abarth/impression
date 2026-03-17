@@ -3,6 +3,7 @@ mod brush;
 mod canvas;
 mod color;
 mod layer;
+pub mod operation;
 mod selection;
 
 use wasm_bindgen::prelude::*;

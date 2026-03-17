@@ -1,5 +1,7 @@
+use serde::{Deserialize, Serialize};
+
 /// Photoshop-compatible blend modes.
-#[derive(Clone, Copy, Debug, PartialEq, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Default, Serialize, Deserialize)]
 #[repr(u32)]
 pub enum BlendMode {
     #[default]

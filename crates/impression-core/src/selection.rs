@@ -1,5 +1,7 @@
+use serde::{Deserialize, Serialize};
+
 /// Combine mode for selection operations.
-#[derive(Clone, Copy, Debug, PartialEq, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Default, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum CombineMode {
     #[default]
