@@ -64,7 +64,12 @@ export function App() {
   return (
     <div className="flex h-screen w-screen bg-graphite-950">
       {/* Left toolbar */}
-      <Toolbar activeTool={activeTool} onToolChange={selectTool} />
+      <Toolbar
+        activeTool={activeTool}
+        onToolChange={selectTool}
+        documentName={docManager.currentDocument?.name}
+        onBack={docManager.closeDocument}
+      />
 
       {/* Canvas area */}
       <CanvasViewport
