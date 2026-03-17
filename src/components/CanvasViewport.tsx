@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback, type RefObject } from "react";
+import { useRef, useState, useEffect, useCallback, type RefObject } from "react";
 import type { Engine } from "../engine";
 import type { Tool } from "../hooks/useTool";
 import type { ViewTransform } from "../hooks/useViewTransform";
@@ -41,6 +41,9 @@ export function CanvasViewport({
 }: CanvasViewportProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<SVGSVGElement>(null);
+  const [canvasSize, setCanvasSize] = useState<{ w: number; h: number } | null>(
+    null,
+  );
   const dragStart = useRef<{ x: number; y: number } | null>(null);
   const zoomAnchor = useRef<{ x: number; y: number } | null>(null);
   const marqueeStart = useRef<{ x: number; y: number } | null>(null);
@@ -263,6 +266,7 @@ export function CanvasViewport({
     const rect = viewport.getBoundingClientRect();
     canvas.width = Math.floor(rect.width);
     canvas.height = Math.floor(rect.height);
+    setCanvasSize({ w: canvas.width, h: canvas.height });
   }, [canvasRef]);
 
   return (
@@ -280,10 +284,16 @@ export function CanvasViewport({
           transformOrigin: "0 0",
         }}
       >
-        <div
-          className="absolute inset-0 checkerboard"
-          style={{ pointerEvents: "none" }}
-        />
+        {canvasSize && (
+          <div
+            className="absolute checkerboard"
+            style={{
+              width: canvasSize.w,
+              height: canvasSize.h,
+              pointerEvents: "none",
+            }}
+          />
+        )}
         <canvas ref={canvasRef} className="relative" />
         <svg
           ref={overlayRef}
