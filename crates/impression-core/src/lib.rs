@@ -13,6 +13,7 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen]
 pub struct ImpressionCanvas {
     inner: canvas::Canvas,
+    flush_buffer: Vec<u8>,
 }
 
 #[wasm_bindgen]
@@ -21,6 +22,7 @@ impl ImpressionCanvas {
     pub fn new(width: u32, height: u32) -> Self {
         Self {
             inner: canvas::Canvas::new(width, height),
+            flush_buffer: Vec::new(),
         }
     }
 
@@ -267,6 +269,34 @@ impl ImpressionCanvas {
     /// Get the number of active operations.
     pub fn active_operation_count(&self) -> usize {
         self.inner.oplog.active_len()
+    }
+
+    // -- Persistence --
+
+    /// Number of active operations not yet flushed.
+    pub fn pending_operation_count(&self) -> usize {
+        self.inner.pending_operation_count()
+    }
+
+    /// Serialize and flush pending operations. Returns the byte length
+    /// (0 if nothing to flush). Use `flush_data_ptr` to get the pointer.
+    pub fn flush_pending_operations(&mut self) -> usize {
+        match self.inner.flush_pending_operations() {
+            Some(data) => {
+                let len = data.len();
+                self.flush_buffer = data;
+                len
+            }
+            None => {
+                self.flush_buffer.clear();
+                0
+            }
+        }
+    }
+
+    /// Pointer to the last flushed data.
+    pub fn flush_data_ptr(&self) -> *const u8 {
+        self.flush_buffer.as_ptr()
     }
 
     /// Get canvas width.

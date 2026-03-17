@@ -50,6 +50,9 @@ function createMockCanvas() {
     can_undo: vi.fn().mockReturnValue(false),
     can_redo: vi.fn().mockReturnValue(false),
     active_operation_count: vi.fn().mockReturnValue(0),
+    pending_operation_count: vi.fn().mockReturnValue(0),
+    flush_pending_operations: vi.fn().mockReturnValue(0),
+    flush_data_ptr: vi.fn().mockReturnValue(0),
   };
 }
 
@@ -203,5 +206,119 @@ describe("Engine", () => {
   it("should forward setLayerVisible to WASM", () => {
     engine.setLayerVisible(0, false);
     expect(mockCanvas.set_layer_visible).toHaveBeenCalledWith(0, false);
+  });
+
+  it("should forward pendingOperationCount to WASM", () => {
+    mockCanvas.pending_operation_count.mockReturnValue(42);
+    expect(engine.pendingOperationCount()).toBe(42);
+  });
+
+  describe("persistence", () => {
+    function createMockStorage() {
+      return {
+        appendChunk: vi.fn().mockResolvedValue(undefined),
+        updateDocument: vi.fn().mockResolvedValue(undefined),
+        getChunks: vi.fn().mockResolvedValue([]),
+        getChunkCount: vi.fn().mockResolvedValue(0),
+        createDocument: vi.fn().mockResolvedValue(undefined),
+        getDocument: vi.fn().mockResolvedValue(undefined),
+        listDocuments: vi.fn().mockResolvedValue([]),
+        deleteDocument: vi.fn().mockResolvedValue(undefined),
+        deleteChunks: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn(),
+      };
+    }
+
+    const docMeta = {
+      id: "test-doc",
+      name: "Test",
+      width: 100,
+      height: 100,
+      ppi: 72,
+      created_at: 1000,
+      modified_at: 1000,
+    };
+
+    it("should not flush when below batch size", async () => {
+      const mockStorage = createMockStorage();
+      engine.enablePersistence({
+        storage: mockStorage as never,
+        documentMeta: { ...docMeta },
+        batchSize: 100,
+      });
+
+      mockCanvas.pending_operation_count.mockReturnValue(50);
+      await engine.maybeFlush();
+      expect(mockCanvas.flush_pending_operations).not.toHaveBeenCalled();
+    });
+
+    it("should flush when batch size is reached", async () => {
+      const mockStorage = createMockStorage();
+      engine.enablePersistence({
+        storage: mockStorage as never,
+        documentMeta: { ...docMeta },
+        batchSize: 100,
+      });
+
+      mockCanvas.pending_operation_count.mockReturnValue(100);
+      mockCanvas.flush_pending_operations.mockReturnValue(8);
+      mockCanvas.flush_data_ptr.mockReturnValue(0);
+
+      await engine.maybeFlush();
+      expect(mockCanvas.flush_pending_operations).toHaveBeenCalled();
+      expect(mockStorage.appendChunk).toHaveBeenCalledWith(
+        "test-doc",
+        0,
+        expect.any(Uint8Array),
+      );
+      expect(mockStorage.updateDocument).toHaveBeenCalled();
+    });
+
+    it("should increment chunk index on successive flushes", async () => {
+      const mockStorage = createMockStorage();
+      engine.enablePersistence({
+        storage: mockStorage as never,
+        documentMeta: { ...docMeta },
+        batchSize: 1,
+      });
+
+      mockCanvas.pending_operation_count.mockReturnValue(1);
+      mockCanvas.flush_pending_operations.mockReturnValue(4);
+      mockCanvas.flush_data_ptr.mockReturnValue(0);
+
+      await engine.flushAll();
+      await engine.flushAll();
+
+      // First call uses index 0, but second has pending=0 after first flush
+      // so only one appendChunk call
+      expect(mockStorage.appendChunk).toHaveBeenCalledWith(
+        "test-doc",
+        0,
+        expect.any(Uint8Array),
+      );
+    });
+
+    it("flushAll should persist remaining operations", async () => {
+      const mockStorage = createMockStorage();
+      engine.enablePersistence({
+        storage: mockStorage as never,
+        documentMeta: { ...docMeta },
+        batchSize: 10000,
+      });
+
+      mockCanvas.pending_operation_count.mockReturnValue(5);
+      mockCanvas.flush_pending_operations.mockReturnValue(4);
+      mockCanvas.flush_data_ptr.mockReturnValue(0);
+
+      await engine.flushAll();
+      expect(mockCanvas.flush_pending_operations).toHaveBeenCalled();
+      expect(mockStorage.appendChunk).toHaveBeenCalled();
+    });
+
+    it("should not flush when no storage is configured", async () => {
+      mockCanvas.pending_operation_count.mockReturnValue(9999);
+      await engine.maybeFlush();
+      expect(mockCanvas.flush_pending_operations).not.toHaveBeenCalled();
+    });
   });
 });

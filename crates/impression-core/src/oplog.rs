@@ -8,6 +8,8 @@ pub struct OpLog {
     undo_boundaries: Vec<usize>,
     /// Current position in undo_boundaries (one past the last active group).
     undo_cursor: usize,
+    /// Index of the first operation not yet flushed to persistent storage.
+    flush_index: usize,
 }
 
 impl OpLog {
@@ -16,6 +18,7 @@ impl OpLog {
             operations: Vec::new(),
             undo_boundaries: Vec::new(),
             undo_cursor: 0,
+            flush_index: 0,
         }
     }
 
@@ -152,7 +155,29 @@ impl OpLog {
             let keep_ops = self.undo_boundaries[self.undo_cursor];
             self.operations.truncate(keep_ops);
             self.undo_boundaries.truncate(self.undo_cursor);
+            // Clamp flush_index so it doesn't point past truncated ops
+            if self.flush_index > keep_ops {
+                self.flush_index = keep_ops;
+            }
         }
+    }
+
+    /// Number of active operations not yet flushed to persistent storage.
+    pub fn pending_flush_count(&self) -> usize {
+        let active = self.active_len();
+        active.saturating_sub(self.flush_index)
+    }
+
+    /// Serialize and return all pending (unflushed active) operations,
+    /// advancing the flush index. Returns None if nothing to flush.
+    pub fn flush_pending(&mut self) -> Option<Vec<u8>> {
+        let active = self.active_len();
+        if self.flush_index >= active {
+            return None;
+        }
+        let data = serialize_operations(&self.operations[self.flush_index..active]);
+        self.flush_index = active;
+        Some(data)
     }
 
     /// Count of operations in undone (redo-able) groups.
@@ -444,5 +469,96 @@ mod tests {
             log.active_operations()[0],
             Operation::SetLayerBlendMode { layer: 0, mode: BlendMode::Screen }
         );
+    }
+
+    // -- Flush tests --
+
+    #[test]
+    fn test_pending_flush_count() {
+        let mut log = OpLog::new();
+        assert_eq!(log.pending_flush_count(), 0);
+
+        log.begin_undo_group();
+        log.push(Operation::SetBrushSize(10.0));
+        log.push(Operation::SetBrushSpacing(0.15));
+        assert_eq!(log.pending_flush_count(), 2);
+    }
+
+    #[test]
+    fn test_flush_pending_serializes_and_advances() {
+        let mut log = OpLog::new();
+        log.begin_undo_group();
+        log.push(Operation::SetBrushSize(10.0));
+        log.push(Operation::AddLayer);
+
+        let data = log.flush_pending().unwrap();
+        assert!(!data.is_empty());
+        assert_eq!(log.pending_flush_count(), 0);
+
+        // Verify round-trip
+        let ops = deserialize_operations(&data).unwrap();
+        assert_eq!(ops.len(), 2);
+        assert_eq!(ops[0], Operation::SetBrushSize(10.0));
+        assert_eq!(ops[1], Operation::AddLayer);
+    }
+
+    #[test]
+    fn test_flush_returns_none_when_empty() {
+        let mut log = OpLog::new();
+        assert!(log.flush_pending().is_none());
+
+        // Also returns None after everything is already flushed
+        log.begin_undo_group();
+        log.push(Operation::SetBrushSize(10.0));
+        log.flush_pending();
+        assert!(log.flush_pending().is_none());
+    }
+
+    #[test]
+    fn test_incremental_flush() {
+        let mut log = OpLog::new();
+
+        // First batch
+        log.begin_undo_group();
+        log.push(Operation::SetBrushSize(10.0));
+        let data1 = log.flush_pending().unwrap();
+
+        // Second batch
+        log.begin_undo_group();
+        log.push(Operation::AddLayer);
+        log.push(Operation::SetBrushFlow(0.5));
+        let data2 = log.flush_pending().unwrap();
+
+        let ops1 = deserialize_operations(&data1).unwrap();
+        assert_eq!(ops1.len(), 1);
+        assert_eq!(ops1[0], Operation::SetBrushSize(10.0));
+
+        let ops2 = deserialize_operations(&data2).unwrap();
+        assert_eq!(ops2.len(), 2);
+        assert_eq!(ops2[0], Operation::AddLayer);
+    }
+
+    #[test]
+    fn test_flush_index_clamped_on_undo_then_push() {
+        let mut log = OpLog::new();
+
+        log.begin_undo_group();
+        log.push(Operation::SetBrushSize(10.0));
+        log.flush_pending(); // flush_index = 1
+
+        log.begin_undo_group();
+        log.push(Operation::SetBrushSize(20.0));
+        log.flush_pending(); // flush_index = 2
+
+        // Undo group 2, then push new op (truncates redo)
+        log.undo();
+        log.begin_undo_group();
+        log.push(Operation::SetBrushSize(30.0));
+
+        // flush_index was clamped from 2 to 1 by truncate_redo
+        assert_eq!(log.pending_flush_count(), 1);
+        let data = log.flush_pending().unwrap();
+        let ops = deserialize_operations(&data).unwrap();
+        assert_eq!(ops[0], Operation::SetBrushSize(30.0));
     }
 }

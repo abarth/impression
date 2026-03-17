@@ -9,6 +9,13 @@ import {
   uploadSelectionTexture,
   clearSelectionTexture,
 } from "./gpu";
+import type { Storage, DocumentMeta } from "./storage";
+
+export interface PersistenceOptions {
+  storage: Storage;
+  documentMeta: DocumentMeta;
+  batchSize?: number;
+}
 
 export class Engine {
   private canvas: ImpressionCanvas;
@@ -18,6 +25,11 @@ export class Engine {
   private needsRender: boolean = true;
   private _canvasVisible: boolean = true;
 
+  private storage: Storage | null = null;
+  private documentMeta: DocumentMeta | null = null;
+  private nextChunkIndex: number = 0;
+  private batchSize: number = 1000;
+
   constructor(
     canvas: ImpressionCanvas,
     gpu: GPUContext,
@@ -26,6 +38,13 @@ export class Engine {
     this.canvas = canvas;
     this.gpu = gpu;
     this.wasmMemory = wasmMemory;
+  }
+
+  enablePersistence(opts: PersistenceOptions): void {
+    this.storage = opts.storage;
+    this.documentMeta = opts.documentMeta;
+    this.batchSize = opts.batchSize ?? 1000;
+    this.nextChunkIndex = 0;
   }
 
   getActiveLayer(): number {
@@ -66,6 +85,7 @@ export class Engine {
 
   strokeEnd(): void {
     this.canvas.stroke_end();
+    this.maybeFlush();
   }
 
   private syncLayer(layer: number): void {
@@ -265,6 +285,40 @@ export class Engine {
     }
 
     this.needsRender = true;
+  }
+
+  // Persistence
+
+  pendingOperationCount(): number {
+    return this.canvas.pending_operation_count();
+  }
+
+  async maybeFlush(): Promise<void> {
+    if (!this.storage || !this.documentMeta) return;
+    if (this.canvas.pending_operation_count() < this.batchSize) return;
+    await this.flush();
+  }
+
+  async flushAll(): Promise<void> {
+    if (!this.storage || !this.documentMeta) return;
+    if (this.canvas.pending_operation_count() === 0) return;
+    await this.flush();
+  }
+
+  private async flush(): Promise<void> {
+    if (!this.storage || !this.documentMeta) return;
+    const len = this.canvas.flush_pending_operations();
+    if (len === 0) return;
+
+    const ptr = this.canvas.flush_data_ptr();
+    const data = new Uint8Array(this.wasmMemory.buffer, ptr, len).slice();
+    await this.storage.appendChunk(
+      this.documentMeta.id,
+      this.nextChunkIndex++,
+      data,
+    );
+    this.documentMeta.modified_at = Date.now();
+    await this.storage.updateDocument(this.documentMeta);
   }
 
   sampleColor(x: number, y: number): [number, number, number] {

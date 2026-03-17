@@ -269,6 +269,19 @@ impl Canvas {
         }
     }
 
+    // -- Persistence --
+
+    /// Number of active operations not yet flushed to storage.
+    pub fn pending_operation_count(&self) -> usize {
+        self.oplog.pending_flush_count()
+    }
+
+    /// Serialize pending operations and advance the flush cursor.
+    /// Returns None if there are no pending operations.
+    pub fn flush_pending_operations(&mut self) -> Option<Vec<u8>> {
+        self.oplog.flush_pending()
+    }
+
     /// Clear all state and replay active operations from the oplog.
     fn replay_active(&mut self) {
         // Reset all state
