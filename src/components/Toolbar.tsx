@@ -1,5 +1,5 @@
 import * as ToggleGroup from "@radix-ui/react-toggle-group";
-import { Paintbrush, Eraser, Hand, ZoomIn, Pipette, Square, Lasso, ChevronLeft, Undo2, Redo2 } from "lucide-react";
+import { Paintbrush, Eraser, Hand, ZoomIn, Pipette, Square, Lasso, ChevronLeft, Undo2, Redo2, Download } from "lucide-react";
 import type { Tool } from "../hooks/useTool";
 
 interface ToolbarProps {
@@ -11,6 +11,7 @@ interface ToolbarProps {
   onRedo?: () => void;
   canUndo?: boolean;
   canRedo?: boolean;
+  onExport?: () => void;
 }
 
 const tools: {
@@ -28,7 +29,7 @@ const tools: {
   { value: "zoom", icon: ZoomIn, label: "Zoom", shortcut: "Z" },
 ];
 
-export function Toolbar({ activeTool, onToolChange, documentName, onBack, onUndo, onRedo, canUndo = false, canRedo = false }: ToolbarProps) {
+export function Toolbar({ activeTool, onToolChange, documentName, onBack, onUndo, onRedo, canUndo = false, canRedo = false, onExport }: ToolbarProps) {
   return (
     <div className="flex flex-col w-13 bg-graphite-900 border-r border-graphite-850 py-3">
       {onBack && (
@@ -68,7 +69,7 @@ export function Toolbar({ activeTool, onToolChange, documentName, onBack, onUndo
         ))}
       </ToggleGroup.Root>
 
-      {/* Undo/Redo */}
+      {/* Actions */}
       <div className="flex flex-col items-center gap-1 px-1.5 mt-auto">
         <button
           onClick={onUndo}
@@ -91,6 +92,15 @@ export function Toolbar({ activeTool, onToolChange, documentName, onBack, onUndo
             transition-all duration-150 cursor-pointer"
         >
           <Redo2 size={18} strokeWidth={1.75} />
+        </button>
+        <button
+          onClick={onExport}
+          title="Export as PNG"
+          className="flex items-center justify-center w-10 h-10 rounded-[10px]
+            text-cream-muted hover:text-cream hover:bg-graphite-800
+            transition-all duration-150 cursor-pointer"
+        >
+          <Download size={18} strokeWidth={1.75} />
         </button>
       </div>
     </div>

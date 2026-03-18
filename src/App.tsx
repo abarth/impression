@@ -64,6 +64,21 @@ export function App() {
     setUndoState({ canUndo: engine.canUndo(), canRedo: engine.canRedo() });
   }, [engine]);
 
+  const handleExport = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const name = docManager.currentDocument?.name ?? "painting";
+    canvas.toBlob((blob) => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${name}.png`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }, "image/png");
+  }, [docManager.currentDocument?.name]);
+
   // Show loading while storage initializes
   if (!docManager.ready) {
     return (
@@ -100,6 +115,7 @@ export function App() {
         onRedo={handleRedo}
         canUndo={undoState.canUndo}
         canRedo={undoState.canRedo}
+        onExport={handleExport}
       />
 
       {/* Canvas area */}
