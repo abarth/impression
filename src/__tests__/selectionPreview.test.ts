@@ -55,6 +55,7 @@ describe("selection preview overlay", () => {
         canvasRef,
         engine,
         activeTool: tool,
+        brushSize: 10,
         transform: { tx: 0, ty: 0, scale: 1 },
         pan: vi.fn(),
         zoom: vi.fn(),
