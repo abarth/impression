@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { BLEND_MODES, BLEND_MODE_COUNT } from "../blendModes";
+import { BLEND_MODES, BLEND_MODE_COUNT, BLEND_MODE_GROUPS } from "../blendModes";
 
 describe("BLEND_MODES", () => {
   it("should have 20 blend modes", () => {
@@ -8,7 +8,7 @@ describe("BLEND_MODES", () => {
   });
 
   it("should start with Normal at value 0", () => {
-    expect(BLEND_MODES[0]).toEqual({ value: 0, label: "Normal" });
+    expect(BLEND_MODES[0]).toMatchObject({ value: 0, label: "Normal" });
   });
 
   it("should have sequential values", () => {
@@ -30,5 +30,17 @@ describe("BLEND_MODES", () => {
     expect(labels).toContain("Color Burn");
     expect(labels).toContain("Difference");
     expect(labels).toContain("Exclusion");
+  });
+
+  it("should have 5 groups", () => {
+    expect(BLEND_MODE_GROUPS).toHaveLength(5);
+    expect(BLEND_MODE_GROUPS.map(g => g.group)).toEqual([
+      "Normal", "Darken", "Lighten", "Contrast", "Inversion",
+    ]);
+  });
+
+  it("should have all modes across groups", () => {
+    const total = BLEND_MODE_GROUPS.reduce((sum, g) => sum + g.modes.length, 0);
+    expect(total).toBe(20);
   });
 });

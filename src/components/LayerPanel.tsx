@@ -2,7 +2,7 @@ import { Plus, Trash2, Eye, EyeOff } from "lucide-react";
 import * as Popover from "@radix-ui/react-popover";
 import { HexColorPicker } from "react-colorful";
 import type { LayerInfo } from "../hooks/useLayerManager";
-import { BLEND_MODES } from "../blendModes";
+import { BLEND_MODE_GROUPS } from "../blendModes";
 
 interface LayerPanelProps {
   layers: LayerInfo[];
@@ -73,10 +73,14 @@ export function LayerPanel({
               rounded-lg border border-graphite-750 outline-none cursor-pointer
               transition-all duration-150 hover:border-cream-muted"
           >
-            {BLEND_MODES.map((mode) => (
-              <option key={mode.value} value={mode.value}>
-                {mode.label}
-              </option>
+            {BLEND_MODE_GROUPS.map(({ group, modes }) => (
+              <optgroup key={group} label={group}>
+                {modes.map((mode) => (
+                  <option key={mode.value} value={mode.value}>
+                    {mode.label}
+                  </option>
+                ))}
+              </optgroup>
             ))}
           </select>
           <div className="flex items-center gap-2">
