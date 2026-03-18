@@ -20,6 +20,7 @@ export function useColorState(engine: Engine | null) {
     foreground: "#000000",
     background: "#ffffff",
   });
+  const colorsRef = useRef(colors);
   const engineRef = useRef(engine);
   engineRef.current = engine;
 
@@ -36,35 +37,33 @@ export function useColorState(engine: Engine | null) {
 
   const setForeground = useCallback(
     (hex: string) => {
-      setColors((prev) => {
-        const next = { ...prev, foreground: hex };
-        syncToEngine(next);
-        return next;
-      });
+      const next = { ...colorsRef.current, foreground: hex };
+      colorsRef.current = next;
+      setColors(next);
+      syncToEngine(next);
     },
     [syncToEngine],
   );
 
   const setBackground = useCallback(
     (hex: string) => {
-      setColors((prev) => {
-        const next = { ...prev, background: hex };
-        syncToEngine(next);
-        return next;
-      });
+      const next = { ...colorsRef.current, background: hex };
+      colorsRef.current = next;
+      setColors(next);
+      syncToEngine(next);
     },
     [syncToEngine],
   );
 
   const swapColors = useCallback(() => {
-    setColors((prev) => {
-      const next = {
-        foreground: prev.background,
-        background: prev.foreground,
-      };
-      syncToEngine(next);
-      return next;
-    });
+    const prev = colorsRef.current;
+    const next = {
+      foreground: prev.background,
+      background: prev.foreground,
+    };
+    colorsRef.current = next;
+    setColors(next);
+    syncToEngine(next);
   }, [syncToEngine]);
 
   return { colors, setForeground, setBackground, swapColors };

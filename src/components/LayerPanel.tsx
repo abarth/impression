@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Plus, Trash2, Eye, EyeOff } from "lucide-react";
 import * as Popover from "@radix-ui/react-popover";
-import { HexColorPicker } from "react-colorful";
+import { OklchColorPicker } from "./OklchColorPicker";
 import type { LayerInfo } from "../hooks/useLayerManager";
 import { BLEND_MODE_GROUPS } from "../blendModes";
 
@@ -212,7 +212,7 @@ export function LayerPanel({
               className="z-50 rounded-xl bg-graphite-900 border border-graphite-750
                 p-3.5 shadow-panel"
             >
-              <HexColorPicker color={canvasColor} onChange={onCanvasColorChange} />
+              <OklchColorPicker color={canvasColor} onChange={onCanvasColorChange} />
               <Popover.Arrow className="fill-graphite-750" />
             </Popover.Content>
           </Popover.Portal>

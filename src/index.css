@@ -73,26 +73,3 @@ body,
   background-position: 0 0, 0 8px, 8px -8px, -8px 0;
   background-color: #b0b0b0;
 }
-
-/* react-colorful overrides for Soft Graphite theme */
-.react-colorful {
-  width: 180px !important;
-  height: 180px !important;
-}
-
-.react-colorful__saturation {
-  border-radius: 8px !important;
-  border-bottom: none !important;
-}
-
-.react-colorful__hue {
-  height: 14px !important;
-  border-radius: 7px !important;
-  margin-top: 12px !important;
-}
-
-.react-colorful__pointer {
-  width: 18px !important;
-  height: 18px !important;
-  border-width: 2.5px !important;
-}

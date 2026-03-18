@@ -1,5 +1,5 @@
 import * as Popover from "@radix-ui/react-popover";
-import { HexColorPicker } from "react-colorful";
+import { OklchColorPicker } from "./OklchColorPicker";
 import { RefreshCw } from "lucide-react";
 
 interface ColorDisplayProps {
@@ -40,7 +40,7 @@ function ColorSwatch({
           className="z-50 rounded-xl bg-graphite-900 border border-graphite-750
             p-3.5 shadow-panel"
         >
-          <HexColorPicker color={color} onChange={onChange} />
+          <OklchColorPicker color={color} onChange={onChange} />
           <Popover.Arrow className="fill-graphite-750" />
         </Popover.Content>
       </Popover.Portal>
