@@ -118,6 +118,23 @@ export function useBrushSettings(engine: Engine | null, activeTool: Tool) {
           return next;
         });
       }
+
+      // Number keys: set opacity (1=10%, 2=20%, ..., 9=90%, 0=100%)
+      // Shift+number: set flow instead
+      const digit = e.key >= "0" && e.key <= "9" ? parseInt(e.key) : -1;
+      if (digit >= 0 && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        const value = digit === 0 ? 1.0 : digit * 0.1;
+        const setting = e.shiftKey ? "flow" : "opacity";
+        setPerTool((prev) => {
+          const tool = isToolWithSettings(activeToolRef.current)
+            ? activeToolRef.current
+            : "brush";
+          const next = { ...prev, [tool]: { ...prev[tool], [setting]: value } };
+          syncToEngine(next[tool], tool);
+          return next;
+        });
+      }
     };
 
     window.addEventListener("keydown", handleKeyDown);
