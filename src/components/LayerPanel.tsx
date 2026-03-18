@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Plus, Trash2, Eye, EyeOff } from "lucide-react";
 import * as Popover from "@radix-ui/react-popover";
 import { HexColorPicker } from "react-colorful";
@@ -14,6 +15,7 @@ interface LayerPanelProps {
   onSelect: (index: number) => void;
   onOpacityChange: (index: number, opacity: number) => void;
   onBlendModeChange: (index: number, mode: number) => void;
+  onRename: (index: number, name: string) => void;
   onToggleLayerVisible: (index: number) => void;
   onCanvasColorChange: (hex: string) => void;
   onToggleCanvasVisible: () => void;
@@ -29,11 +31,14 @@ export function LayerPanel({
   onSelect,
   onOpacityChange,
   onBlendModeChange,
+  onRename,
   onToggleLayerVisible,
   onCanvasColorChange,
   onToggleCanvasVisible,
 }: LayerPanelProps) {
   const activeLayer = layers[activeIndex];
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [editName, setEditName] = useState("");
   return (
     <div className="flex flex-col gap-2 px-4 py-4 flex-1 border-t border-graphite-850">
       <div className="flex items-center justify-between">
@@ -135,7 +140,41 @@ export function LayerPanel({
                   <EyeOff size={14} strokeWidth={1.75} />
                 )}
               </span>
-              <span className="flex-1 truncate">{layer.name}</span>
+              {editingIndex === index ? (
+                <input
+                  type="text"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      if (editName.trim()) onRename(index, editName.trim());
+                      setEditingIndex(null);
+                    }
+                    if (e.key === "Escape") setEditingIndex(null);
+                    e.stopPropagation();
+                  }}
+                  onBlur={() => {
+                    if (editName.trim()) onRename(index, editName.trim());
+                    setEditingIndex(null);
+                  }}
+                  autoFocus
+                  className="flex-1 bg-graphite-850 text-cream text-[12px] px-1.5 py-0
+                    rounded border border-graphite-700 outline-none
+                    focus:border-warm-accent min-w-0"
+                  onClick={(e) => e.stopPropagation()}
+                />
+              ) : (
+                <span
+                  className="flex-1 truncate"
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    setEditingIndex(index);
+                    setEditName(layer.name);
+                  }}
+                >
+                  {layer.name}
+                </span>
+              )}
             </div>
           );
         })}

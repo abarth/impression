@@ -194,6 +194,14 @@ export class Engine {
     return this.canvas.layer_visible(layer);
   }
 
+  getLayerName(layer: number): string {
+    return this.canvas.layer_name(layer);
+  }
+
+  renameLayer(layer: number, name: string): void {
+    this.canvas.rename_layer(layer, name);
+  }
+
   setLayerVisible(layer: number, visible: boolean): void {
     this.canvas.set_layer_visible(layer, visible);
     this.needsRender = true;

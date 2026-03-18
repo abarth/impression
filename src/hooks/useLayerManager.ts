@@ -37,9 +37,11 @@ export function useLayerManager(engine: Engine | null) {
     eng.addLayer();
     const id = nextLayerId++;
     setLayers((prev) => {
+      const newIndex = prev.length;
+      const name = eng.getLayerName(newIndex);
       const newLayer: LayerInfo = {
         id,
-        name: `Layer ${prev.length + 1}`,
+        name,
         visible: true,
         opacity: 1.0,
         blendMode: 0,
@@ -131,6 +133,17 @@ export function useLayerManager(engine: Engine | null) {
     [],
   );
 
+  const renameLayer = useCallback(
+    (index: number, name: string) => {
+      const eng = engineRef.current;
+      if (eng) eng.renameLayer(index, name);
+      setLayers((prev) =>
+        prev.map((l, i) => (i === index ? { ...l, name } : l)),
+      );
+    },
+    [],
+  );
+
   const toggleCanvasVisible = useCallback(() => {
     setCanvasVisible((prev) => {
       const next = !prev;
@@ -140,5 +153,5 @@ export function useLayerManager(engine: Engine | null) {
     });
   }, []);
 
-  return { layers, activeIndex, canvasColor, canvasVisible, addLayer, removeLayer, selectLayer, setLayerOpacity, setLayerBlendMode, toggleLayerVisible, setCanvasColor, toggleCanvasVisible };
+  return { layers, activeIndex, canvasColor, canvasVisible, addLayer, removeLayer, selectLayer, setLayerOpacity, setLayerBlendMode, renameLayer, toggleLayerVisible, setCanvasColor, toggleCanvasVisible };
 }

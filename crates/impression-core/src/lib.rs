@@ -219,6 +219,19 @@ impl ImpressionCanvas {
         self.inner.clear_layer(layer);
     }
 
+    /// Get the layer name.
+    pub fn layer_name(&self, layer: u32) -> String {
+        self.inner
+            .layer(layer)
+            .map(|l| l.name.clone())
+            .unwrap_or_default()
+    }
+
+    /// Rename a layer.
+    pub fn rename_layer(&mut self, layer: u32, name: &str) {
+        self.inner.rename_layer(layer, name.to_string());
+    }
+
     /// Returns true if the active site has a selection mask.
     pub fn has_selection(&self) -> bool {
         self.inner.sites.get(&self.inner.active_site)

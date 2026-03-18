@@ -99,6 +99,11 @@ pub enum Operation {
     ClearLayer {
         layer: LayerId,
     },
+    /// Rename a layer.
+    RenameLayer {
+        layer: LayerId,
+        name: String,
+    },
 }
 
 /// Serialize a slice of site operations to bytes using postcard.
@@ -225,6 +230,14 @@ mod tests {
     #[test]
     fn test_round_trip_clear_layer() {
         round_trip(Operation::ClearLayer { layer: 42 });
+    }
+
+    #[test]
+    fn test_round_trip_rename_layer() {
+        round_trip(Operation::RenameLayer {
+            layer: 1,
+            name: "Background".to_string(),
+        });
     }
 
     #[test]

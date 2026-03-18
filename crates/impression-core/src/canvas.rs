@@ -371,6 +371,14 @@ impl Canvas {
         }
     }
 
+    /// Rename a layer.
+    pub fn rename_layer(&mut self, index: u32, name: String) {
+        if let Some(l) = self.layers.get(index as usize) {
+            let id = l.id;
+            self.apply(Operation::RenameLayer { layer: id, name });
+        }
+    }
+
     // -- Undo/Redo (per-site) --
 
     pub fn undo(&mut self) -> bool {
@@ -424,6 +432,7 @@ impl Canvas {
                 | Operation::SelectAll
                 | Operation::Deselect
                 | Operation::ClearLayer { .. }
+                | Operation::RenameLayer { .. }
                 | Operation::CreateCanvas { .. } => {
                     self.oplog.begin_undo_group(site_op.site);
                 }
@@ -519,7 +528,9 @@ impl Canvas {
             Operation::SetBrushFlow(flow) => self.site_for_mut(site).brush.flow = flow,
             Operation::SetBrushBlendMode(mode) => self.site_for_mut(site).brush.blend_mode = mode,
             Operation::AddLayer { id } => {
-                self.layers.push(Layer::new(id, self.width, self.height));
+                let mut layer = Layer::new(id, self.width, self.height);
+                layer.name = format!("Layer {}", self.layers.len() + 1);
+                self.layers.push(layer);
                 // Keep layer_id_counter past any loaded IDs
                 let counter = (id & 0xFFFFFFFF) as u32;
                 if counter >= self.layer_id_counter {
@@ -604,6 +615,11 @@ impl Canvas {
                     } else {
                         l.clear();
                     }
+                }
+            }
+            Operation::RenameLayer { layer, name } => {
+                if let Some(l) = self.layer_by_id_mut(layer) {
+                    l.name = name;
                 }
             }
         }
@@ -1387,5 +1403,36 @@ mod tests {
         assert!(canvas.undo());
         let px_restored = canvas.layer(0).unwrap().pixel(50, 50).unwrap();
         assert!(px_restored[3] > 0, "Pixel should be restored after undo");
+    }
+
+    #[test]
+    fn test_layer_default_name() {
+        let mut canvas = Canvas::new(10, 10);
+        canvas.add_layer();
+        assert_eq!(canvas.layer(0).unwrap().name, "Layer 1");
+        canvas.add_layer();
+        assert_eq!(canvas.layer(1).unwrap().name, "Layer 2");
+    }
+
+    #[test]
+    fn test_rename_layer() {
+        let mut canvas = Canvas::new(10, 10);
+        canvas.add_layer();
+        canvas.rename_layer(0, "Background".to_string());
+        assert_eq!(canvas.layer(0).unwrap().name, "Background");
+    }
+
+    #[test]
+    fn test_rename_layer_persists_through_undo_redo() {
+        let mut canvas = Canvas::new(10, 10);
+        canvas.add_layer();
+        canvas.rename_layer(0, "My Layer".to_string());
+        assert_eq!(canvas.layer(0).unwrap().name, "My Layer");
+
+        canvas.undo();
+        assert_eq!(canvas.layer(0).unwrap().name, "Layer 1");
+
+        canvas.redo();
+        assert_eq!(canvas.layer(0).unwrap().name, "My Layer");
     }
 }

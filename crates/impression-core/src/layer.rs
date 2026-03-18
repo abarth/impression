@@ -9,6 +9,7 @@ pub struct Layer {
     /// Globally unique identifier. Generated as `(site_id << 32) | counter`.
     /// See docs/multiplayer-design.md.
     pub id: LayerId,
+    pub name: String,
     pub pixels: Vec<u8>,
     pub width: u32,
     pub height: u32,
@@ -24,6 +25,7 @@ impl Layer {
         let size = (width * height * 4) as usize;
         Self {
             id,
+            name: String::new(),
             pixels: vec![0u8; size],
             width,
             height,
