@@ -100,11 +100,9 @@ export function LayerPanel({
               onChange={(e) =>
                 onOpacityChange(activeIndex, Number(e.target.value) / 100)
               }
-              className="flex-1 accent-cream-muted h-1.5"
+              title={`${Math.round(activeLayer.opacity * 100)}%`}
+              className="flex-1 accent-cream-muted h-1.5 min-w-0"
             />
-            <span className="text-[11px] text-cream-dim w-8 text-right">
-              {Math.round(activeLayer.opacity * 100)}%
-            </span>
           </div>
         </div>
       )}
