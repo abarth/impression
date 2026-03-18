@@ -1,11 +1,15 @@
 import { useEffect } from "react";
 import type { Engine } from "../engine";
 
-export function useSelection(engine: Engine | null, activeLayer: number = 0) {
+interface UseSelectionOptions {
+  onExport?: () => void;
+}
+
+export function useSelection(engine: Engine | null, activeLayer: number = 0, options: UseSelectionOptions = {}) {
+  const { onExport } = options;
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (!engine) return;
-
       // Ignore when typing in inputs
       if (
         e.target instanceof HTMLInputElement ||
@@ -16,19 +20,23 @@ export function useSelection(engine: Engine | null, activeLayer: number = 0) {
 
       const isMod = e.metaKey || e.ctrlKey;
 
-      if (isMod && e.key.toLowerCase() === "z" && e.shiftKey) {
+      if (isMod && e.shiftKey && e.key.toLowerCase() === "e") {
         e.preventDefault();
-        engine.redo();
+        onExport?.();
+      } else if (isMod && e.key.toLowerCase() === "z" && e.shiftKey) {
+        e.preventDefault();
+        engine?.redo();
       } else if (isMod && e.key.toLowerCase() === "z") {
         e.preventDefault();
-        engine.undo();
+        engine?.undo();
       } else if (isMod && e.key.toLowerCase() === "a") {
         e.preventDefault();
-        engine.selectAll();
+        engine?.selectAll();
       } else if (isMod && e.key.toLowerCase() === "d") {
         e.preventDefault();
-        engine.deselect();
+        engine?.deselect();
       } else if (e.key === "Delete" || e.key === "Backspace") {
+        if (!engine) return;
         e.preventDefault();
         engine.clearActiveLayer(activeLayer);
       }
@@ -36,5 +44,5 @@ export function useSelection(engine: Engine | null, activeLayer: number = 0) {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [engine, activeLayer]);
+  }, [engine, activeLayer, onExport]);
 }

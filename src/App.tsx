@@ -8,7 +8,8 @@ import { useLayerManager } from "./hooks/useLayerManager";
 import { useSelection } from "./hooks/useSelection";
 import { useDocumentManager } from "./hooks/useDocumentManager";
 import { CanvasViewport } from "./components/CanvasViewport";
-import { Toolbar } from "./components/Toolbar";
+import { MenuBar } from "./components/MenuBar";
+import { ToolPicker } from "./components/ToolPicker";
 import { BrushSettingsPanel } from "./components/BrushSettingsPanel";
 import { ColorDisplay } from "./components/ColorDisplay";
 import { LayerPanel } from "./components/LayerPanel";
@@ -40,7 +41,6 @@ export function App() {
     useColorState(engine);
   const { layers, activeIndex, canvasColor, canvasVisible, addLayer, removeLayer, selectLayer, setLayerOpacity, setLayerBlendMode, renameLayer, toggleLayerVisible, setCanvasColor, toggleCanvasVisible } =
     useLayerManager(engine);
-  useSelection(engine, activeIndex);
   const [undoState, setUndoState] = useState({ canUndo: false, canRedo: false });
 
   // Poll undo/redo state (cheap WASM call) to keep buttons in sync
@@ -79,6 +79,20 @@ export function App() {
     }, "image/png");
   }, [docManager.currentDocument?.name]);
 
+  const handleSelectAll = useCallback(() => {
+    engine?.selectAll();
+  }, [engine]);
+
+  const handleDeselect = useCallback(() => {
+    engine?.deselect();
+  }, [engine]);
+
+  const handleClear = useCallback(() => {
+    engine?.clearActiveLayer(activeIndex);
+  }, [engine, activeIndex]);
+
+  useSelection(engine, activeIndex, { onExport: handleExport });
+
   // Show loading while storage initializes
   if (!docManager.ready) {
     return (
@@ -104,68 +118,76 @@ export function App() {
   }
 
   return (
-    <div className="flex h-screen w-screen bg-graphite-950">
-      {/* Left toolbar */}
-      <Toolbar
-        activeTool={activeTool}
-        onToolChange={selectTool}
-        documentName={docManager.currentDocument?.name}
-        onBack={docManager.closeDocument}
+    <div className="flex flex-col h-screen w-screen bg-graphite-950">
+      {/* Menu bar */}
+      <MenuBar
         onUndo={handleUndo}
         onRedo={handleRedo}
         canUndo={undoState.canUndo}
         canRedo={undoState.canRedo}
         onExport={handleExport}
+        onClose={docManager.closeDocument}
+        onSelectAll={handleSelectAll}
+        onDeselect={handleDeselect}
+        onClear={handleClear}
       />
 
-      {/* Canvas area */}
-      {gpuError ? (
-        <div className="flex-1 flex items-center justify-center bg-graphite-950">
-          <div className="max-w-sm text-center px-6">
-            <p className="text-cream text-[14px] font-medium mb-2">Unable to initialize WebGPU</p>
-            <p className="text-cream-muted text-[12px]">{gpuError}</p>
-            <p className="text-cream-muted text-[11px] mt-3">
-              Please use Chrome 113+, Edge 113+, or Safari 18+.
-            </p>
-          </div>
-        </div>
-      ) : <CanvasViewport
-        canvasRef={canvasRef}
-        engine={engine}
-        activeTool={activeTool}
-        brushSize={settings.size}
-        transform={transform}
-        pan={pan}
-        zoom={zoom}
-        onColorPick={setForeground}
-        fitToViewport={fitToViewport}
-      />}
+      <div className="flex flex-1 min-h-0">
+        {/* Tool picker */}
+        <ToolPicker
+          activeTool={activeTool}
+          onToolChange={selectTool}
+        />
 
-      {/* Right panel */}
-      <div className="flex flex-col w-56 bg-graphite-900 border-l border-graphite-850 overflow-y-auto">
-        <BrushSettingsPanel settings={settings} toolLabel={toolLabel} onUpdate={updateSetting} />
-        <ColorDisplay
-          foreground={colors.foreground}
-          background={colors.background}
-          onForegroundChange={setForeground}
-          onBackgroundChange={setBackground}
-          onSwap={swapColors}
-        />
-        <LayerPanel
-          layers={layers}
-          activeIndex={activeIndex}
-          canvasColor={canvasColor}
-          canvasVisible={canvasVisible}
-          onAdd={addLayer}
-          onRemove={removeLayer}
-          onSelect={selectLayer}
-          onOpacityChange={setLayerOpacity}
-          onBlendModeChange={setLayerBlendMode}
-          onRename={renameLayer}
-          onToggleLayerVisible={toggleLayerVisible}
-          onCanvasColorChange={setCanvasColor}
-          onToggleCanvasVisible={toggleCanvasVisible}
-        />
+        {/* Canvas area */}
+        {gpuError ? (
+          <div className="flex-1 flex items-center justify-center bg-graphite-950">
+            <div className="max-w-sm text-center px-6">
+              <p className="text-cream text-[14px] font-medium mb-2">Unable to initialize WebGPU</p>
+              <p className="text-cream-muted text-[12px]">{gpuError}</p>
+              <p className="text-cream-muted text-[11px] mt-3">
+                Please use Chrome 113+, Edge 113+, or Safari 18+.
+              </p>
+            </div>
+          </div>
+        ) : <CanvasViewport
+          canvasRef={canvasRef}
+          engine={engine}
+          activeTool={activeTool}
+          brushSize={settings.size}
+          transform={transform}
+          pan={pan}
+          zoom={zoom}
+          onColorPick={setForeground}
+          fitToViewport={fitToViewport}
+        />}
+
+        {/* Right panel */}
+        <div className="flex flex-col w-56 bg-graphite-900 border-l border-graphite-850 overflow-y-auto">
+          <BrushSettingsPanel settings={settings} toolLabel={toolLabel} onUpdate={updateSetting} />
+          <ColorDisplay
+            foreground={colors.foreground}
+            background={colors.background}
+            onForegroundChange={setForeground}
+            onBackgroundChange={setBackground}
+            onSwap={swapColors}
+          />
+          <LayerPanel
+            layers={layers}
+            activeIndex={activeIndex}
+            canvasColor={canvasColor}
+            canvasVisible={canvasVisible}
+            onAdd={addLayer}
+            onRemove={removeLayer}
+            onSelect={selectLayer}
+            onOpacityChange={setLayerOpacity}
+            onBlendModeChange={setLayerBlendMode}
+            onRename={renameLayer}
+            onToggleLayerVisible={toggleLayerVisible}
+            onCanvasColorChange={setCanvasColor}
+            onToggleCanvasVisible={toggleCanvasVisible}
+          />
+        </div>
       </div>
     </div>
   );
