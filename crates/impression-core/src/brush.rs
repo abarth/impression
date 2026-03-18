@@ -255,7 +255,7 @@ pub fn stroke_begin(
 
     // Save snapshot and create stroke buffer
     state.snapshot = layer.pixels.clone();
-    let mut stroke = Layer::new(layer.width, layer.height);
+    let mut stroke = Layer::new(0, layer.width, layer.height);
 
     // Stamp initial point into the stroke buffer
     let radius = (brush.size * pressure) / 2.0;
@@ -321,7 +321,7 @@ mod tests {
 
     #[test]
     fn test_stamp_circle_center_pixel() {
-        let mut layer = Layer::new(10, 10);
+        let mut layer = Layer::new(0, 10, 10);
         stamp_circle(&mut layer, 5.0, 5.0, 2.0, Color::new(255, 0, 0), 1.0, None);
 
         // Center pixel should be fully red
@@ -335,7 +335,7 @@ mod tests {
 
     #[test]
     fn test_stamp_circle_outside_is_transparent() {
-        let mut layer = Layer::new(10, 10);
+        let mut layer = Layer::new(0, 10, 10);
         stamp_circle(&mut layer, 5.0, 5.0, 1.0, Color::new(255, 0, 0), 1.0, None);
 
         // Far corner should be transparent
@@ -345,7 +345,7 @@ mod tests {
 
     #[test]
     fn test_interpolation_spacing() {
-        let mut layer = Layer::new(100, 10);
+        let mut layer = Layer::new(0, 100, 10);
         let brush = BrushSettings {
             size: 4.0,
             spacing: 0.25, // step = 1.0 pixel
@@ -369,7 +369,7 @@ mod tests {
 
     #[test]
     fn test_stroke_lifecycle() {
-        let mut layer = Layer::new(50, 50);
+        let mut layer = Layer::new(0, 50, 50);
         let mut state = StrokeState::new();
         let brush = BrushSettings::default();
 
@@ -387,8 +387,8 @@ mod tests {
 
     #[test]
     fn test_pressure_affects_radius() {
-        let mut layer_full = Layer::new(20, 20);
-        let mut layer_half = Layer::new(20, 20);
+        let mut layer_full = Layer::new(0, 20, 20);
+        let mut layer_half = Layer::new(0, 20, 20);
 
         // Full pressure stamp
         stamp_circle(&mut layer_full, 10.0, 10.0, 5.0, Color::black(), 1.0, None);
@@ -412,7 +412,7 @@ mod tests {
 
     #[test]
     fn test_flow_affects_alpha() {
-        let mut layer = Layer::new(10, 10);
+        let mut layer = Layer::new(0, 10, 10);
         stamp_circle(&mut layer, 5.0, 5.0, 3.0, Color::black(), 0.5, None);
 
         let px = layer.pixel(5, 5).unwrap();
@@ -422,14 +422,14 @@ mod tests {
 
     #[test]
     fn test_stamp_circle_zero_radius_noop() {
-        let mut layer = Layer::new(10, 10);
+        let mut layer = Layer::new(0, 10, 10);
         stamp_circle(&mut layer, 5.0, 5.0, 0.0, Color::black(), 1.0, None);
         assert!(!layer.dirty);
     }
 
     #[test]
     fn test_residual_distance_carries_over() {
-        let mut layer = Layer::new(100, 10);
+        let mut layer = Layer::new(0, 100, 10);
         let brush = BrushSettings {
             size: 10.0,
             spacing: 0.5, // at pressure=1.0: effective_size=10, step=5.0
@@ -485,9 +485,9 @@ mod tests {
 
         // Verify actual interpolate_and_stamp produces the same behavior:
         // draw with low pressure and count non-transparent columns
-        let mut layer_low = Layer::new(200, 10);
+        let mut layer_low = Layer::new(0, 200, 10);
         interpolate_and_stamp(&mut layer_low, 0.0, 5.0, 0.25, 100.0, 5.0, 0.25, &brush, 0.0, None);
-        let mut layer_high = Layer::new(200, 10);
+        let mut layer_high = Layer::new(0, 200, 10);
         interpolate_and_stamp(&mut layer_high, 0.0, 5.0, 1.0, 100.0, 5.0, 1.0, &brush, 0.0, None);
 
         // Count columns with any drawn pixels for each layer
@@ -515,7 +515,7 @@ mod tests {
     #[test]
     fn test_spacing_at_zero_pressure_uses_minimum_step() {
         // When pressure is 0, effective_size=0, so step should clamp to 1.0
-        let mut layer = Layer::new(100, 10);
+        let mut layer = Layer::new(0, 100, 10);
         let brush = BrushSettings {
             size: 20.0,
             spacing: 0.5,
@@ -532,7 +532,7 @@ mod tests {
     fn test_spacing_varies_along_stroke_with_pressure_change() {
         // Stroke goes from low to high pressure. The spacing should be
         // tighter at the low-pressure end and wider at the high-pressure end.
-        let mut layer = Layer::new(200, 20);
+        let mut layer = Layer::new(0, 200, 20);
         let brush = BrushSettings {
             size: 10.0,
             spacing: 0.5, // step = 0.5 * effective_size
@@ -557,7 +557,7 @@ mod tests {
 
     #[test]
     fn test_stamp_circle_clipped_by_selection() {
-        let mut layer = Layer::new(20, 20);
+        let mut layer = Layer::new(0, 20, 20);
         // Selection: only the right half (x >= 10) is selected
         let mut mask = vec![0u8; 20 * 20];
         for y in 0..20u32 {
@@ -581,7 +581,7 @@ mod tests {
     fn test_stroke_opacity_caps_alpha() {
         // With opacity=0.5 and flow=1.0, even overlapping stamps in a single
         // stroke should not produce alpha above ~128.
-        let mut layer = Layer::new(50, 50);
+        let mut layer = Layer::new(0, 50, 50);
         let mut state = StrokeState::new();
         let brush = BrushSettings {
             size: 20.0,
@@ -609,7 +609,7 @@ mod tests {
 
     #[test]
     fn test_stroke_opacity_does_not_change_layer_opacity() {
-        let mut layer = Layer::new(50, 50);
+        let mut layer = Layer::new(0, 50, 50);
         let mut state = StrokeState::new();
         let brush = BrushSettings {
             size: 10.0,
@@ -631,7 +631,7 @@ mod tests {
     #[test]
     fn test_erase_blend_mode_removes_pixels() {
         // Paint some content first with normal blend mode
-        let mut layer = Layer::new(50, 50);
+        let mut layer = Layer::new(0, 50, 50);
         let mut state = StrokeState::new();
         let paint_brush = BrushSettings {
             size: 20.0,
@@ -670,7 +670,7 @@ mod tests {
     #[test]
     fn test_erase_partial_opacity() {
         // Paint fully opaque content
-        let mut layer = Layer::new(50, 50);
+        let mut layer = Layer::new(0, 50, 50);
         let mut state = StrokeState::new();
         let paint_brush = BrushSettings::default();
 

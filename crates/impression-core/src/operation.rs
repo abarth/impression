@@ -3,8 +3,32 @@ use serde::{Deserialize, Serialize};
 use crate::blend_mode::BlendMode;
 use crate::selection::CombineMode;
 
+/// Unique identifier for a site (user session). In single-player mode, this
+/// is always 0. In multiplayer, each connected user receives a unique ID.
+/// See docs/multiplayer-design.md for the full design.
+pub type SiteId = u32;
+
+/// Unique identifier for a layer. Generated as `(site_id << 32) | counter`
+/// to guarantee uniqueness across sites without coordination.
+/// See docs/multiplayer-design.md for the full design.
+pub type LayerId = u64;
+
+/// An operation tagged with the site that created it. Every entry in the
+/// operation log is a `SiteOperation`. The site ID determines undo scope
+/// (per-site undo) and which per-site state (brush, selection) to use.
+/// See docs/multiplayer-design.md for the full design.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SiteOperation {
+    pub site: SiteId,
+    pub op: Operation,
+}
+
 /// Every state-mutating action in the painting application.
 /// Recorded into an append-only log for persistence, undo/redo, and playback.
+///
+/// Layer references use `LayerId` (globally unique) rather than positional
+/// indices to avoid conflicts when multiple sites add or remove layers
+/// concurrently. See docs/multiplayer-design.md.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Operation {
     CreateCanvas {
@@ -13,7 +37,7 @@ pub enum Operation {
         ppi: u32,
     },
     StrokeBegin {
-        layer: u32,
+        layer: LayerId,
         x: f32,
         y: f32,
         pressure: f32,
@@ -34,18 +58,22 @@ pub enum Operation {
     SetBrushOpacity(f32),
     SetBrushFlow(f32),
     SetBrushBlendMode(BlendMode),
-    AddLayer,
-    RemoveLayer(u32),
+    /// Add a new layer with the given globally unique ID.
+    AddLayer {
+        id: LayerId,
+    },
+    /// Remove a layer by its unique ID.
+    RemoveLayer(LayerId),
     SetLayerOpacity {
-        layer: u32,
+        layer: LayerId,
         opacity: f32,
     },
     SetLayerBlendMode {
-        layer: u32,
+        layer: LayerId,
         mode: BlendMode,
     },
     SetLayerVisible {
-        layer: u32,
+        layer: LayerId,
         visible: bool,
     },
     SetBackgroundColor {
@@ -69,13 +97,13 @@ pub enum Operation {
     Deselect,
 }
 
-/// Serialize a slice of operations to bytes using postcard.
-pub fn serialize_operations(ops: &[Operation]) -> Vec<u8> {
+/// Serialize a slice of site operations to bytes using postcard.
+pub fn serialize_operations(ops: &[SiteOperation]) -> Vec<u8> {
     postcard::to_allocvec(ops).expect("serialization should not fail")
 }
 
-/// Deserialize operations from bytes.
-pub fn deserialize_operations(data: &[u8]) -> Result<Vec<Operation>, postcard::Error> {
+/// Deserialize site operations from bytes.
+pub fn deserialize_operations(data: &[u8]) -> Result<Vec<SiteOperation>, postcard::Error> {
     postcard::from_bytes(data)
 }
 
@@ -84,9 +112,10 @@ mod tests {
     use super::*;
 
     fn round_trip(op: Operation) {
-        let bytes = postcard::to_allocvec(&op).unwrap();
-        let decoded: Operation = postcard::from_bytes(&bytes).unwrap();
-        assert_eq!(op, decoded);
+        let site_op = SiteOperation { site: 0, op: op.clone() };
+        let bytes = postcard::to_allocvec(&site_op).unwrap();
+        let decoded: SiteOperation = postcard::from_bytes(&bytes).unwrap();
+        assert_eq!(site_op, decoded);
     }
 
     #[test]
@@ -101,7 +130,7 @@ mod tests {
     #[test]
     fn test_round_trip_stroke_begin() {
         round_trip(Operation::StrokeBegin {
-            layer: 0,
+            layer: 1,
             x: 100.5,
             y: 200.3,
             pressure: 0.75,
@@ -137,14 +166,14 @@ mod tests {
 
     #[test]
     fn test_round_trip_layer_operations() {
-        round_trip(Operation::AddLayer);
+        round_trip(Operation::AddLayer { id: 1 });
         round_trip(Operation::RemoveLayer(2));
         round_trip(Operation::SetLayerOpacity {
             layer: 1,
             opacity: 0.5,
         });
         round_trip(Operation::SetLayerBlendMode {
-            layer: 0,
+            layer: 1,
             mode: BlendMode::Multiply,
         });
         round_trip(Operation::SetLayerVisible {
@@ -191,16 +220,17 @@ mod tests {
 
     #[test]
     fn test_stroke_end_compact() {
-        let bytes = postcard::to_allocvec(&Operation::StrokeEnd).unwrap();
-        assert!(bytes.len() <= 2, "StrokeEnd should be very compact, got {} bytes", bytes.len());
+        let site_op = SiteOperation { site: 0, op: Operation::StrokeEnd };
+        let bytes = postcard::to_allocvec(&site_op).unwrap();
+        assert!(bytes.len() <= 4, "SiteOperation(StrokeEnd) should be compact, got {} bytes", bytes.len());
     }
 
     #[test]
     fn test_serialize_operations_batch() {
-        let ops = vec![
+        let ops: Vec<SiteOperation> = vec![
             Operation::SetBrushSize(10.0),
             Operation::StrokeBegin {
-                layer: 0,
+                layer: 1,
                 x: 50.0,
                 y: 50.0,
                 pressure: 1.0,
@@ -211,9 +241,27 @@ mod tests {
                 pressure: 0.9,
             },
             Operation::StrokeEnd,
-        ];
+        ].into_iter().map(|op| SiteOperation { site: 0, op }).collect();
         let bytes = serialize_operations(&ops);
         let decoded = deserialize_operations(&bytes).unwrap();
         assert_eq!(ops, decoded);
+    }
+
+    #[test]
+    fn test_site_operation_with_different_sites() {
+        let op1 = SiteOperation { site: 0, op: Operation::SetBrushSize(10.0) };
+        let op2 = SiteOperation { site: 1, op: Operation::SetBrushSize(10.0) };
+        assert_ne!(op1, op2, "Same operation from different sites should not be equal");
+    }
+
+    #[test]
+    fn test_layer_id_encoding() {
+        // Verify the (site_id << 32) | counter encoding produces unique IDs
+        let site_0_layer_0: LayerId = (0u64 << 32) | 0;
+        let site_0_layer_1: LayerId = (0u64 << 32) | 1;
+        let site_1_layer_0: LayerId = (1u64 << 32) | 0;
+        assert_ne!(site_0_layer_0, site_0_layer_1);
+        assert_ne!(site_0_layer_0, site_1_layer_0);
+        assert_ne!(site_0_layer_1, site_1_layer_0);
     }
 }

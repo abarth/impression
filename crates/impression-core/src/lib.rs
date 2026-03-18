@@ -214,42 +214,43 @@ impl ImpressionCanvas {
         self.inner.deselect();
     }
 
-    /// Returns true if a selection mask is active.
+    /// Returns true if the active site has a selection mask.
     pub fn has_selection(&self) -> bool {
-        self.inner.selection.is_some()
+        self.inner.sites.get(&self.inner.active_site)
+            .and_then(|s| s.selection.as_ref())
+            .is_some()
     }
 
-    /// Pointer to selection mask data for GPU upload.
+    /// Pointer to the active site's selection mask data for GPU upload.
     pub fn selection_mask_ptr(&self) -> *const u8 {
-        self.inner
-            .selection
-            .as_ref()
+        self.inner.sites.get(&self.inner.active_site)
+            .and_then(|s| s.selection.as_ref())
             .map(|s| s.data.as_ptr())
             .unwrap_or(std::ptr::null())
     }
 
-    /// Byte length of selection mask data.
+    /// Byte length of the active site's selection mask data.
     pub fn selection_mask_len(&self) -> usize {
-        self.inner
-            .selection
-            .as_ref()
+        self.inner.sites.get(&self.inner.active_site)
+            .and_then(|s| s.selection.as_ref())
             .map(|s| s.data.len())
             .unwrap_or(0)
     }
 
-    /// Check if selection mask has been modified.
+    /// Check if the active site's selection mask has been modified.
     pub fn is_selection_dirty(&self) -> bool {
-        self.inner
-            .selection
-            .as_ref()
+        self.inner.sites.get(&self.inner.active_site)
+            .and_then(|s| s.selection.as_ref())
             .map(|s| s.dirty)
             .unwrap_or(false)
     }
 
-    /// Clear selection dirty flag.
+    /// Clear the active site's selection dirty flag.
     pub fn clear_selection_dirty(&mut self) {
-        if let Some(ref mut s) = self.inner.selection {
-            s.dirty = false;
+        if let Some(site) = self.inner.sites.get_mut(&self.inner.active_site) {
+            if let Some(ref mut s) = site.selection {
+                s.dirty = false;
+            }
         }
     }
 
@@ -274,19 +275,19 @@ impl ImpressionCanvas {
     // -- Undo/Redo --
 
     pub fn can_undo(&self) -> bool {
-        self.inner.oplog.can_undo()
+        self.inner.oplog.can_undo(self.inner.active_site)
     }
 
     pub fn can_redo(&self) -> bool {
-        self.inner.oplog.can_redo()
+        self.inner.oplog.can_redo(self.inner.active_site)
     }
 
-    /// Undo the last operation group and replay. Returns true if undo occurred.
+    /// Undo the last operation group for the active site and replay.
     pub fn undo(&mut self) -> bool {
         self.inner.undo()
     }
 
-    /// Redo the next operation group and replay. Returns true if redo occurred.
+    /// Redo the next operation group for the active site and replay.
     pub fn redo(&mut self) -> bool {
         self.inner.redo()
     }

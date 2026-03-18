@@ -1,10 +1,14 @@
 use crate::blend_mode::BlendMode;
+use crate::operation::LayerId;
 
 /// Dirty region bounds: (x_min, y_min, x_max, y_max) inclusive.
 pub type DirtyBounds = (u32, u32, u32, u32);
 
 #[derive(Debug)]
 pub struct Layer {
+    /// Globally unique identifier. Generated as `(site_id << 32) | counter`.
+    /// See docs/multiplayer-design.md.
+    pub id: LayerId,
     pub pixels: Vec<u8>,
     pub width: u32,
     pub height: u32,
@@ -16,9 +20,10 @@ pub struct Layer {
 }
 
 impl Layer {
-    pub fn new(width: u32, height: u32) -> Self {
+    pub fn new(id: LayerId, width: u32, height: u32) -> Self {
         let size = (width * height * 4) as usize;
         Self {
+            id,
             pixels: vec![0u8; size],
             width,
             height,
@@ -99,7 +104,7 @@ mod tests {
 
     #[test]
     fn test_new_layer_is_transparent() {
-        let layer = Layer::new(10, 10);
+        let layer = Layer::new(0, 10, 10);
         assert_eq!(layer.pixels.len(), 400);
         assert!(layer.pixels.iter().all(|&b| b == 0));
         assert!(!layer.dirty);
@@ -107,7 +112,7 @@ mod tests {
 
     #[test]
     fn test_clear_sets_dirty() {
-        let mut layer = Layer::new(4, 4);
+        let mut layer = Layer::new(0, 4, 4);
         layer.pixels[0] = 255;
         layer.clear();
         assert!(layer.dirty);
@@ -116,7 +121,7 @@ mod tests {
 
     #[test]
     fn test_pixel_access() {
-        let mut layer = Layer::new(4, 4);
+        let mut layer = Layer::new(0, 4, 4);
         {
             let px = layer.pixel_mut(1, 2).unwrap();
             px[0] = 255;
@@ -128,27 +133,27 @@ mod tests {
 
     #[test]
     fn test_out_of_bounds() {
-        let layer = Layer::new(4, 4);
+        let layer = Layer::new(0, 4, 4);
         assert!(layer.pixel(4, 0).is_none());
         assert!(layer.pixel(0, 4).is_none());
     }
 
     #[test]
     fn test_default_blend_mode() {
-        let layer = Layer::new(4, 4);
+        let layer = Layer::new(0, 4, 4);
         assert_eq!(layer.blend_mode, BlendMode::Normal);
     }
 
     #[test]
     fn test_set_blend_mode() {
-        let mut layer = Layer::new(4, 4);
+        let mut layer = Layer::new(0, 4, 4);
         layer.blend_mode = BlendMode::ColorBurn;
         assert_eq!(layer.blend_mode, BlendMode::ColorBurn);
     }
 
     #[test]
     fn test_expand_dirty() {
-        let mut layer = Layer::new(100, 100);
+        let mut layer = Layer::new(0, 100, 100);
         assert!(layer.dirty_bounds.is_none());
 
         layer.expand_dirty((10, 20, 30, 40));
@@ -161,7 +166,7 @@ mod tests {
 
     #[test]
     fn test_clear_dirty() {
-        let mut layer = Layer::new(100, 100);
+        let mut layer = Layer::new(0, 100, 100);
         layer.expand_dirty((10, 20, 30, 40));
         layer.clear_dirty();
         assert!(!layer.dirty);
@@ -170,7 +175,7 @@ mod tests {
 
     #[test]
     fn test_pixel_fingerprint_changes_with_content() {
-        let mut layer = Layer::new(10, 10);
+        let mut layer = Layer::new(0, 10, 10);
         let fp1 = layer.pixel_fingerprint();
 
         layer.pixels[0] = 255;
@@ -181,14 +186,14 @@ mod tests {
 
     #[test]
     fn test_pixel_fingerprint_identical_for_same_content() {
-        let layer1 = Layer::new(10, 10);
-        let layer2 = Layer::new(10, 10);
+        let layer1 = Layer::new(0, 10, 10);
+        let layer2 = Layer::new(0, 10, 10);
         assert_eq!(layer1.pixel_fingerprint(), layer2.pixel_fingerprint());
     }
 
     #[test]
     fn test_mark_fully_dirty() {
-        let mut layer = Layer::new(100, 50);
+        let mut layer = Layer::new(0, 100, 50);
         layer.mark_fully_dirty();
         assert!(layer.dirty);
         assert_eq!(layer.dirty_bounds, Some((0, 0, 99, 49)));
