@@ -106,14 +106,40 @@ pub enum Operation {
     },
 }
 
-/// Serialize a slice of site operations to bytes using postcard.
+/// Magic byte prefix indicating a versioned format.
+/// 0xFF is chosen because postcard varint uses the high bit as a continuation
+/// flag, so a Vec with 127+ elements would need multiple bytes. This makes
+/// 0xFF extremely unlikely as the first byte of unversioned postcard data.
+const VERSION_MAGIC: u8 = 0xFF;
+
+/// Current serialization format version.
+const FORMAT_VERSION: u8 = 1;
+
+/// Serialize a slice of site operations to bytes using postcard, with a version header.
 pub fn serialize_operations(ops: &[SiteOperation]) -> Vec<u8> {
-    postcard::to_allocvec(ops).expect("serialization should not fail")
+    let payload = postcard::to_allocvec(ops).expect("serialization should not fail");
+    let mut out = Vec::with_capacity(2 + payload.len());
+    out.push(VERSION_MAGIC);
+    out.push(FORMAT_VERSION);
+    out.extend_from_slice(&payload);
+    out
 }
 
 /// Deserialize site operations from bytes.
+/// Accepts versioned format (magic + version + postcard) and legacy (raw postcard).
 pub fn deserialize_operations(data: &[u8]) -> Result<Vec<SiteOperation>, postcard::Error> {
-    postcard::from_bytes(data)
+    if data.is_empty() {
+        return Ok(Vec::new());
+    }
+    if data.len() >= 2 && data[0] == VERSION_MAGIC {
+        match data[1] {
+            FORMAT_VERSION => postcard::from_bytes(&data[2..]),
+            _ => Err(postcard::Error::DeserializeUnexpectedEnd),
+        }
+    } else {
+        // Legacy format: no version header, parse directly
+        postcard::from_bytes(data)
+    }
 }
 
 #[cfg(test)]
@@ -285,5 +311,29 @@ mod tests {
         assert_ne!(site_0_layer_0, site_0_layer_1);
         assert_ne!(site_0_layer_0, site_1_layer_0);
         assert_ne!(site_0_layer_1, site_1_layer_0);
+    }
+
+    #[test]
+    fn test_serialization_has_version_header() {
+        let ops = vec![SiteOperation { site: 0, op: Operation::StrokeEnd }];
+        let bytes = serialize_operations(&ops);
+        assert_eq!(bytes[0], 0xFF, "First byte should be version magic");
+        assert_eq!(bytes[1], 1, "Second byte should be version 1");
+    }
+
+    #[test]
+    fn test_deserialize_legacy_format() {
+        // Legacy format: no version header, raw postcard bytes
+        let ops = vec![SiteOperation { site: 0, op: Operation::StrokeEnd }];
+        let legacy_bytes = postcard::to_allocvec(&ops).unwrap();
+        // Should still deserialize successfully (fallback)
+        let decoded = deserialize_operations(&legacy_bytes).unwrap();
+        assert_eq!(ops, decoded);
+    }
+
+    #[test]
+    fn test_deserialize_empty_data() {
+        let decoded = deserialize_operations(&[]).unwrap();
+        assert!(decoded.is_empty());
     }
 }
