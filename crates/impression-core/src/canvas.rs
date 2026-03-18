@@ -168,6 +168,21 @@ impl Canvas {
         self.layer_id_counter = cp.layer_id_counter;
     }
 
+    /// Record an operation as a new undo group and execute it.
+    fn apply(&mut self, op: Operation) {
+        let site_op = SiteOperation { site: self.active_site, op };
+        self.begin_group();
+        self.oplog.push(site_op.clone());
+        self.execute_op(site_op);
+    }
+
+    /// Record an operation in the current undo group and execute it.
+    fn apply_continue(&mut self, op: Operation) {
+        let site_op = SiteOperation { site: self.active_site, op };
+        self.oplog.push(site_op.clone());
+        self.execute_op(site_op);
+    }
+
     // -- Layer access by index (for WASM API) --
 
     pub fn layer(&self, index: u32) -> Option<&Layer> {
@@ -192,27 +207,14 @@ impl Canvas {
 
     pub fn add_layer(&mut self) -> u32 {
         let id = self.next_layer_id();
-        let layer = Layer::new(id, self.width, self.height);
-        let index = self.layers.len() as u32;
-        self.layers.push(layer);
-        self.begin_group();
-        self.oplog.push(SiteOperation {
-            site: self.active_site,
-            op: Operation::AddLayer { id },
-        });
-        index
+        self.apply(Operation::AddLayer { id });
+        (self.layers.len() - 1) as u32
     }
 
     pub fn remove_layer(&mut self, index: u32) -> bool {
-        let i = index as usize;
-        if i < self.layers.len() {
-            let id = self.layers[i].id;
-            self.layers.remove(i);
-            self.begin_group();
-            self.oplog.push(SiteOperation {
-                site: self.active_site,
-                op: Operation::RemoveLayer(id),
-            });
+        if let Some(l) = self.layers.get(index as usize) {
+            let id = l.id;
+            self.apply(Operation::RemoveLayer(id));
             true
         } else {
             false
@@ -220,116 +222,62 @@ impl Canvas {
     }
 
     pub fn set_layer_opacity(&mut self, index: u32, opacity: f32) {
-        if let Some(l) = self.layers.get_mut(index as usize) {
+        if let Some(l) = self.layers.get(index as usize) {
             let id = l.id;
-            l.opacity = opacity;
-            self.begin_group();
-            self.oplog.push(SiteOperation {
-                site: self.active_site,
-                op: Operation::SetLayerOpacity { layer: id, opacity },
-            });
+            self.apply(Operation::SetLayerOpacity { layer: id, opacity });
         }
     }
 
     pub fn set_layer_blend_mode(&mut self, index: u32, mode: BlendMode) {
-        if let Some(l) = self.layers.get_mut(index as usize) {
+        if let Some(l) = self.layers.get(index as usize) {
             let id = l.id;
-            l.blend_mode = mode;
-            self.begin_group();
-            self.oplog.push(SiteOperation {
-                site: self.active_site,
-                op: Operation::SetLayerBlendMode { layer: id, mode },
-            });
+            self.apply(Operation::SetLayerBlendMode { layer: id, mode });
         }
     }
 
     pub fn set_layer_visible(&mut self, index: u32, visible: bool) {
-        if let Some(l) = self.layers.get_mut(index as usize) {
+        if let Some(l) = self.layers.get(index as usize) {
             let id = l.id;
-            l.visible = visible;
-            self.begin_group();
-            self.oplog.push(SiteOperation {
-                site: self.active_site,
-                op: Operation::SetLayerVisible { layer: id, visible },
-            });
+            self.apply(Operation::SetLayerVisible { layer: id, visible });
         }
     }
 
     pub fn set_background_color(&mut self, color: Color) {
-        self.background_color = color;
-        self.begin_group();
-        self.oplog.push(SiteOperation {
-            site: self.active_site,
-            op: Operation::SetBackgroundColor {
-                r: color.r,
-                g: color.g,
-                b: color.b,
-            },
+        self.apply(Operation::SetBackgroundColor {
+            r: color.r,
+            g: color.g,
+            b: color.b,
         });
     }
 
     pub fn set_canvas_visible(&mut self, visible: bool) {
-        self.begin_group();
-        self.oplog.push(SiteOperation {
-            site: self.active_site,
-            op: Operation::SetCanvasVisible(visible),
-        });
+        self.apply(Operation::SetCanvasVisible(visible));
     }
 
     // -- Brush settings (per-site) --
 
     pub fn set_brush_size(&mut self, size: f32) {
-        self.site_mut().brush.size = size;
-        self.begin_group();
-        self.oplog.push(SiteOperation {
-            site: self.active_site,
-            op: Operation::SetBrushSize(size),
-        });
+        self.apply(Operation::SetBrushSize(size));
     }
 
     pub fn set_brush_spacing(&mut self, spacing: f32) {
-        self.site_mut().brush.spacing = spacing;
-        self.begin_group();
-        self.oplog.push(SiteOperation {
-            site: self.active_site,
-            op: Operation::SetBrushSpacing(spacing),
-        });
+        self.apply(Operation::SetBrushSpacing(spacing));
     }
 
     pub fn set_brush_color(&mut self, r: u8, g: u8, b: u8) {
-        self.site_mut().brush.color = Color::new(r, g, b);
-        self.begin_group();
-        self.oplog.push(SiteOperation {
-            site: self.active_site,
-            op: Operation::SetBrushColor { r, g, b },
-        });
+        self.apply(Operation::SetBrushColor { r, g, b });
     }
 
     pub fn set_brush_opacity(&mut self, opacity: f32) {
-        self.site_mut().brush.opacity = opacity;
-        self.begin_group();
-        self.oplog.push(SiteOperation {
-            site: self.active_site,
-            op: Operation::SetBrushOpacity(opacity),
-        });
+        self.apply(Operation::SetBrushOpacity(opacity));
     }
 
     pub fn set_brush_flow(&mut self, flow: f32) {
-        self.site_mut().brush.flow = flow;
-        self.begin_group();
-        self.oplog.push(SiteOperation {
-            site: self.active_site,
-            op: Operation::SetBrushFlow(flow),
-        });
+        self.apply(Operation::SetBrushFlow(flow));
     }
 
     pub fn set_brush_blend_mode(&mut self, mode: BlendMode) {
-        self.site_mut().brush.blend_mode = mode;
-        self.begin_group();
-        self.oplog.push(SiteOperation {
-            site: self.active_site,
-            op: Operation::SetBrushBlendMode(mode),
-        });
+        self.apply(Operation::SetBrushBlendMode(mode));
     }
 
     /// Sample the composited color at (x, y) across all visible layers,
@@ -377,63 +325,21 @@ impl Canvas {
             Some(l) => l.id,
             None => return,
         };
-        self.begin_group();
-        self.oplog.push(SiteOperation {
-            site: self.active_site,
-            op: Operation::StrokeBegin { layer: layer_id, x, y, pressure },
-        });
-        let site = self.active_site;
-        let site_state = self.sites.get(&site).unwrap();
-        let sel_data: Option<Vec<u8>> = site_state.selection.as_ref().map(|s| s.data.clone());
-        let brush = site_state.brush.clone();
-        let sel_ref = sel_data.as_deref();
-        if let Some(l) = self.layers.get_mut(layer_index as usize) {
-            let stroke_state = &mut self.sites.get_mut(&site).unwrap().stroke_state;
-            brush::stroke_begin(l, stroke_state, &brush, x, y, pressure, sel_ref);
-        }
+        self.apply(Operation::StrokeBegin { layer: layer_id, x, y, pressure });
     }
 
-    pub fn stroke_move(&mut self, layer_index: u32, x: f32, y: f32, pressure: f32) {
-        self.oplog.push(SiteOperation {
-            site: self.active_site,
-            op: Operation::StrokeMove { x, y, pressure },
-        });
-        let site = self.active_site;
-        let site_state = self.sites.get(&site).unwrap();
-        let sel_data: Option<Vec<u8>> = site_state.selection.as_ref().map(|s| s.data.clone());
-        let brush = site_state.brush.clone();
-        let sel_ref = sel_data.as_deref();
-        if let Some(l) = self.layers.get_mut(layer_index as usize) {
-            let stroke_state = &mut self.sites.get_mut(&site).unwrap().stroke_state;
-            brush::stroke_move(l, stroke_state, &brush, x, y, pressure, sel_ref);
-        }
+    pub fn stroke_move(&mut self, _layer_index: u32, x: f32, y: f32, pressure: f32) {
+        self.apply_continue(Operation::StrokeMove { x, y, pressure });
     }
 
     pub fn stroke_end(&mut self) {
-        self.oplog.push(SiteOperation {
-            site: self.active_site,
-            op: Operation::StrokeEnd,
-        });
-        brush::stroke_end(&mut self.site_mut().stroke_state);
+        self.apply_continue(Operation::StrokeEnd);
     }
 
     // -- Selection operations --
 
     pub fn selection_rect(&mut self, x: u32, y: u32, w: u32, h: u32, mode: CombineMode) {
-        let (width, height) = (self.width, self.height);
-        let site = self.sites.entry(self.active_site).or_default();
-        if mode == CombineMode::Replace || site.selection.is_none() {
-            let mut mask = SelectionMask::new(width, height);
-            mask.fill_rect(x, y, w, h, CombineMode::Replace);
-            site.selection = Some(mask);
-        } else if let Some(ref mut mask) = site.selection {
-            mask.fill_rect(x, y, w, h, mode);
-        }
-        self.begin_group();
-        self.oplog.push(SiteOperation {
-            site: self.active_site,
-            op: Operation::SelectionRect { x, y, w, h, mode },
-        });
+        self.apply(Operation::SelectionRect { x, y, w, h, mode });
     }
 
     pub fn selection_lasso_begin(&mut self) {
@@ -445,43 +351,16 @@ impl Canvas {
     }
 
     pub fn selection_lasso_end(&mut self, mode: CombineMode) {
-        let (width, height) = (self.width, self.height);
-        let site = self.sites.entry(self.active_site).or_default();
-        let points: Vec<(f32, f32)> = site.lasso_points.drain(..).collect();
-        if mode == CombineMode::Replace || site.selection.is_none() {
-            let mut mask = SelectionMask::new(width, height);
-            mask.fill_polygon(&points, CombineMode::Replace);
-            site.selection = Some(mask);
-        } else if let Some(ref mut mask) = site.selection {
-            mask.fill_polygon(&points, mode);
-        }
-        self.begin_group();
-        self.oplog.push(SiteOperation {
-            site: self.active_site,
-            op: Operation::SelectionLasso { points, mode },
-        });
+        let points: Vec<(f32, f32)> = self.site_mut().lasso_points.drain(..).collect();
+        self.apply(Operation::SelectionLasso { points, mode });
     }
 
     pub fn select_all(&mut self) {
-        let (width, height) = (self.width, self.height);
-        let site = self.sites.entry(self.active_site).or_default();
-        let mut mask = SelectionMask::new_full(width, height);
-        mask.dirty = true;
-        site.selection = Some(mask);
-        self.begin_group();
-        self.oplog.push(SiteOperation {
-            site: self.active_site,
-            op: Operation::SelectAll,
-        });
+        self.apply(Operation::SelectAll);
     }
 
     pub fn deselect(&mut self) {
-        self.site_mut().selection = None;
-        self.begin_group();
-        self.oplog.push(SiteOperation {
-            site: self.active_site,
-            op: Operation::Deselect,
-        });
+        self.apply(Operation::Deselect);
     }
 
     // -- Undo/Redo (per-site) --
