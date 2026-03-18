@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
-import { initGPU, type GPUContext } from "../gpu";
+import { initGPU, destroyGPU, type GPUContext } from "../gpu";
 import { Engine } from "../engine";
 import { composite } from "../compositor";
 import init, { ImpressionCanvas } from "../wasm/impression_core";
@@ -31,6 +31,10 @@ export function useEngine(
     if (!options) {
       renderRunning.current = false;
       initStarted.current = false;
+      if (gpuRef.current) {
+        destroyGPU(gpuRef.current);
+        gpuRef.current = null;
+      }
       setEngine(null);
     }
   }, [options]);

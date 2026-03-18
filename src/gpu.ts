@@ -456,6 +456,29 @@ export function updateLayerOpacity(
   gpu.device.queue.writeBuffer(buffer, 0, new Uint32Array([floatToUint32(opacity)]));
 }
 
+/** Release all GPU resources (textures, buffers, device). */
+export function destroyGPU(gpu: GPUContext): void {
+  // Destroy layer resources
+  for (const tex of gpu.layerTextures) tex.destroy();
+  for (const buf of gpu.layerUniformBuffers) buf.destroy();
+  gpu.layerTextures.length = 0;
+  gpu.layerBindGroups.length = 0;
+  gpu.layerUniformBuffers.length = 0;
+
+  // Destroy accumulation textures
+  for (const tex of gpu.accumTextures) tex.destroy();
+
+  // Destroy selection resources
+  if (gpu.selectionTexture) gpu.selectionTexture.destroy();
+  gpu.selectionTimeBuffer.destroy();
+
+  // Destroy shared buffers
+  gpu.blitUniformBuffer.destroy();
+
+  // Destroy the device itself
+  gpu.device.destroy();
+}
+
 export function updateLayerBlendMode(
   gpu: GPUContext,
   layerIndex: number,
