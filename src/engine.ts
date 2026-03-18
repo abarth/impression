@@ -104,7 +104,7 @@ export class Engine {
     const dw = this.canvas.layer_dirty_width(layer);
     const dh = this.canvas.layer_dirty_height(layer);
 
-    if (dw > 0 && dh > 0 && dw < width && dh < height) {
+    if (dw > 0 && dh > 0 && (dw < width || dh < height)) {
       uploadLayerTexture(this.gpu, layer, pixels, width, height, {
         x: dx, y: dy, w: dw, h: dh,
       });

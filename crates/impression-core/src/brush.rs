@@ -697,4 +697,42 @@ mod tests {
         assert!(alpha_after < alpha_before, "Should have reduced alpha: before={alpha_before} after={alpha_after}");
         assert!(alpha_after > 10, "Should not be fully erased at half opacity: a={alpha_after}");
     }
+
+    #[test]
+    fn test_dirty_bounds_incremental_after_clear() {
+        // Verify that dirty bounds represent only the latest segment after clear_dirty
+        let mut layer = Layer::new(0, 200, 200);
+        let mut state = StrokeState::new();
+        let brush = BrushSettings {
+            size: 10.0,
+            spacing: 0.25,
+            ..Default::default()
+        };
+
+        // Begin stroke at (10, 100)
+        stroke_begin(&mut layer, &mut state, &brush, 10.0, 100.0, 1.0, None);
+        let bounds1 = layer.dirty_bounds.unwrap();
+
+        // Clear dirty to simulate syncLayer
+        layer.clear_dirty();
+        assert!(layer.dirty_bounds.is_none());
+
+        // Move to (50, 100) — far from start
+        stroke_move(&mut layer, &mut state, &brush, 50.0, 100.0, 1.0, None);
+        let bounds2 = layer.dirty_bounds.unwrap();
+
+        // Clear dirty again
+        layer.clear_dirty();
+
+        // Move to (190, 100) — far from previous
+        stroke_move(&mut layer, &mut state, &brush, 190.0, 100.0, 1.0, None);
+        let bounds3 = layer.dirty_bounds.unwrap();
+
+        // bounds3 should NOT include x=10 (the stroke start)
+        // It should only cover the segment from x=50 to x=190
+        assert!(bounds3.0 > 40, "Dirty x_min should not reach back to stroke start, got {}", bounds3.0);
+        // And should not include the first segment either
+        assert!(bounds2.0 < bounds3.0 || bounds2.2 < bounds3.2,
+            "Each segment should have different dirty bounds after clear");
+    }
 }
