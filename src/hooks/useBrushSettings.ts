@@ -90,5 +90,39 @@ export function useBrushSettings(engine: Engine | null, activeTool: Tool) {
     [syncToEngine],
   );
 
+  // Keyboard shortcuts: [ to decrease size, ] to increase size
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement
+      ) {
+        return;
+      }
+
+      if (e.key === "[" || e.key === "]") {
+        e.preventDefault();
+        setPerTool((prev) => {
+          const tool = isToolWithSettings(activeToolRef.current)
+            ? activeToolRef.current
+            : "brush";
+          const current = prev[tool].size;
+          const step = current >= 20 ? Math.round(current * 0.1) : 1;
+          const newSize =
+            e.key === "["
+              ? Math.max(1, current - step)
+              : Math.min(100, current + step);
+          if (newSize === current) return prev;
+          const next = { ...prev, [tool]: { ...prev[tool], size: newSize } };
+          syncToEngine(next[tool], tool);
+          return next;
+        });
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [syncToEngine]);
+
   return { settings, updateSetting, toolLabel: currentTool };
 }
