@@ -32,7 +32,7 @@ impl Default for BrushSettings {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct StrokeState {
     pub active: bool,
     pub last_point: Option<(f32, f32, f32)>, // x, y, pressure

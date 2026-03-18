@@ -4,7 +4,7 @@ use crate::operation::LayerId;
 /// Dirty region bounds: (x_min, y_min, x_max, y_max) inclusive.
 pub type DirtyBounds = (u32, u32, u32, u32);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Layer {
     /// Globally unique identifier. Generated as `(site_id << 32) | counter`.
     /// See docs/multiplayer-design.md.

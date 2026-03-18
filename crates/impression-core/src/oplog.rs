@@ -167,6 +167,32 @@ impl OpLog {
         self.groups[search_start..].iter().any(|g| g.site == site && g.undone)
     }
 
+    /// Total number of undo groups.
+    pub fn group_count(&self) -> usize {
+        self.groups.len()
+    }
+
+    /// Return the undone flag for each group, in order.
+    pub fn group_undone_flags(&self) -> Vec<bool> {
+        self.groups.iter().map(|g| g.undone).collect()
+    }
+
+    /// Number of non-undone groups.
+    pub fn active_group_count(&self) -> usize {
+        self.groups.iter().filter(|g| !g.undone).count()
+    }
+
+    /// Collect active operations from groups at index >= `group_start`.
+    pub fn active_operations_from_group(&self, group_start: usize) -> Vec<SiteOperation> {
+        let mut ops = Vec::new();
+        for group in self.groups[group_start..].iter() {
+            if !group.undone {
+                ops.extend_from_slice(&self.operations[group.start..group.end]);
+            }
+        }
+        ops
+    }
+
     /// Discard all undone (redo) groups for a site and their operations.
     fn discard_redo_for_site(&mut self, site: SiteId) {
         let last_active = self.groups.iter()
