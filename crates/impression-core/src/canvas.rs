@@ -1216,4 +1216,181 @@ mod tests {
         // so it should no longer be valid
         assert!(valid.is_none(), "Checkpoint should be invalidated after redo discard");
     }
+
+    // -- Multi-site integration tests --
+
+    /// Helper to switch the active site on a canvas.
+    fn switch_site(canvas: &mut Canvas, site: SiteId) {
+        canvas.active_site = site;
+        // Ensure site state exists
+        canvas.sites.entry(site).or_default();
+    }
+
+    #[test]
+    fn test_multi_site_interleaved_strokes() {
+        let mut canvas = Canvas::new(100, 100);
+        canvas.add_layer(); // layer 0
+        canvas.add_layer(); // layer 1
+
+        // Site 0 draws on layer 0
+        switch_site(&mut canvas, 0);
+        canvas.stroke_begin(0, 10.0, 10.0, 1.0);
+        canvas.stroke_move(0, 20.0, 10.0, 1.0);
+        canvas.stroke_end();
+
+        // Site 1 draws on layer 1
+        switch_site(&mut canvas, 1);
+        canvas.stroke_begin(1, 50.0, 50.0, 1.0);
+        canvas.stroke_move(1, 60.0, 50.0, 1.0);
+        canvas.stroke_end();
+
+        // Both strokes should be present
+        let px0 = canvas.layer(0).unwrap().pixel(10, 10).unwrap();
+        assert!(px0[3] > 0, "Site 0's stroke should be on layer 0");
+
+        let px1 = canvas.layer(1).unwrap().pixel(50, 50).unwrap();
+        assert!(px1[3] > 0, "Site 1's stroke should be on layer 1");
+    }
+
+    #[test]
+    fn test_multi_site_undo_isolation() {
+        let mut canvas = Canvas::new(100, 100);
+        canvas.add_layer();
+        canvas.add_layer();
+
+        // Site 0 draws on layer 0
+        switch_site(&mut canvas, 0);
+        canvas.stroke_begin(0, 10.0, 10.0, 1.0);
+        canvas.stroke_end();
+
+        // Site 1 draws on layer 1
+        switch_site(&mut canvas, 1);
+        canvas.stroke_begin(1, 50.0, 50.0, 1.0);
+        canvas.stroke_end();
+
+        // Undo site 1 — should only affect site 1's stroke
+        switch_site(&mut canvas, 1);
+        assert!(canvas.undo());
+
+        let px0 = canvas.layer(0).unwrap().pixel(10, 10).unwrap();
+        assert!(px0[3] > 0, "Site 0's stroke should remain after site 1 undo");
+
+        let px1 = canvas.layer(1).unwrap().pixel(50, 50).unwrap();
+        assert_eq!(px1[3], 0, "Site 1's stroke should be gone after undo");
+    }
+
+    #[test]
+    fn test_multi_site_undo_does_not_affect_other_site() {
+        let mut canvas = Canvas::new(100, 100);
+
+        // Site 0 changes brush
+        switch_site(&mut canvas, 0);
+        canvas.set_brush_size(30.0);
+
+        // Site 1 changes brush
+        switch_site(&mut canvas, 1);
+        canvas.set_brush_size(50.0);
+
+        // Undo site 0
+        switch_site(&mut canvas, 0);
+        canvas.undo();
+
+        // Site 0 should revert to default
+        assert!((canvas.sites.get(&0).unwrap().brush.size - 10.0).abs() < 0.01,
+            "Site 0 brush should revert to default");
+
+        // Site 1 should be unaffected
+        assert!((canvas.sites.get(&1).unwrap().brush.size - 50.0).abs() < 0.01,
+            "Site 1 brush should remain at 50");
+    }
+
+    #[test]
+    fn test_multi_site_independent_selections() {
+        let mut canvas = Canvas::new(100, 100);
+
+        // Site 0 makes a selection
+        switch_site(&mut canvas, 0);
+        canvas.selection_rect(10, 10, 20, 20, CombineMode::Replace);
+
+        // Site 1 makes a different selection
+        switch_site(&mut canvas, 1);
+        canvas.selection_rect(50, 50, 30, 30, CombineMode::Replace);
+
+        // Verify selections are independent
+        let sel0 = canvas.sites.get(&0).unwrap().selection.as_ref().unwrap();
+        let sel1 = canvas.sites.get(&1).unwrap().selection.as_ref().unwrap();
+
+        // Site 0's selection should cover (15, 15) but not (55, 55)
+        let idx_15_15 = (15 * 100 + 15) as usize;
+        let idx_55_55 = (55 * 100 + 55) as usize;
+
+        assert!(sel0.data[idx_15_15] > 0, "Site 0 should have selection at (15,15)");
+        assert_eq!(sel0.data[idx_55_55], 0, "Site 0 should not have selection at (55,55)");
+
+        assert_eq!(sel1.data[idx_15_15], 0, "Site 1 should not have selection at (15,15)");
+        assert!(sel1.data[idx_55_55] > 0, "Site 1 should have selection at (55,55)");
+    }
+
+    #[test]
+    fn test_multi_site_load_chunk() {
+        let mut canvas1 = Canvas::new(50, 50);
+
+        // Site 0 adds a layer and draws
+        switch_site(&mut canvas1, 0);
+        canvas1.add_layer();
+        canvas1.stroke_begin(0, 10.0, 10.0, 1.0);
+        canvas1.stroke_end();
+
+        // Site 1 changes brush
+        switch_site(&mut canvas1, 1);
+        canvas1.set_brush_size(42.0);
+
+        let data = canvas1.flush_pending_operations().unwrap();
+
+        // Load into fresh canvas
+        let mut canvas2 = Canvas::new(50, 50);
+        assert!(canvas2.load_chunk(&data).is_ok());
+
+        // Verify state
+        assert_eq!(canvas2.layers.len(), 1);
+        let px = canvas2.layer(0).unwrap().pixel(10, 10).unwrap();
+        assert!(px[3] > 0, "Loaded canvas should have site 0's stroke");
+
+        // Site 1's brush size should be restored
+        assert!((canvas2.sites.get(&1).unwrap().brush.size - 42.0).abs() < 0.01,
+            "Site 1's brush size should be loaded");
+    }
+
+    #[test]
+    fn test_multi_site_redo_isolation() {
+        let mut canvas = Canvas::new(100, 100);
+        canvas.add_layer();
+        canvas.add_layer();
+
+        // Site 0 draws
+        switch_site(&mut canvas, 0);
+        canvas.stroke_begin(0, 10.0, 10.0, 1.0);
+        canvas.stroke_end();
+
+        // Site 1 draws
+        switch_site(&mut canvas, 1);
+        canvas.stroke_begin(1, 50.0, 50.0, 1.0);
+        canvas.stroke_end();
+
+        // Undo both
+        switch_site(&mut canvas, 0);
+        canvas.undo();
+        switch_site(&mut canvas, 1);
+        canvas.undo();
+
+        // Redo site 0 only
+        switch_site(&mut canvas, 0);
+        assert!(canvas.redo());
+
+        let px0 = canvas.layer(0).unwrap().pixel(10, 10).unwrap();
+        assert!(px0[3] > 0, "Site 0's stroke should be back after redo");
+
+        let px1 = canvas.layer(1).unwrap().pixel(50, 50).unwrap();
+        assert_eq!(px1[3], 0, "Site 1's stroke should still be undone");
+    }
 }
