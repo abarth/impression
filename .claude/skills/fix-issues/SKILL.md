@@ -10,7 +10,7 @@ Fix all open GitHub issues in the project, one at a time.
 
 ### 1. List open issues
 
-Run `gh issue list --state open` to get all open issues. If there are none, report that and stop.
+Run `gh issue list --state open --label approved` to get all open, approved issues. If there are none, report that and stop.
 
 Pick an issue to work on. Prefer issues that are not blocked by other open issues. If an issue has blocking issues that are still open, work on the blockers first.
 
