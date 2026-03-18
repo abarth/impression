@@ -250,6 +250,12 @@ export class Engine {
     this.needsRender = true;
   }
 
+  /** Clear the selected region on the active layer, or the whole layer if no selection. */
+  clearActiveLayer(layer: number): void {
+    this.canvas.clear_layer(layer);
+    this.syncLayer(layer);
+  }
+
   // Undo/redo
 
   canUndo(): boolean {

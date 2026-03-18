@@ -214,6 +214,11 @@ impl ImpressionCanvas {
         self.inner.deselect();
     }
 
+    /// Clear the selected region on a layer, or the whole layer if no selection.
+    pub fn clear_layer(&mut self, layer: u32) {
+        self.inner.clear_layer(layer);
+    }
+
     /// Returns true if the active site has a selection mask.
     pub fn has_selection(&self) -> bool {
         self.inner.sites.get(&self.inner.active_site)

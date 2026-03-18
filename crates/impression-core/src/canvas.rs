@@ -363,6 +363,14 @@ impl Canvas {
         self.apply(Operation::Deselect);
     }
 
+    /// Clear the selected region on a layer (or the whole layer if no selection).
+    pub fn clear_layer(&mut self, index: u32) {
+        if let Some(l) = self.layers.get(index as usize) {
+            let id = l.id;
+            self.apply(Operation::ClearLayer { layer: id });
+        }
+    }
+
     // -- Undo/Redo (per-site) --
 
     pub fn undo(&mut self) -> bool {
@@ -415,6 +423,7 @@ impl Canvas {
                 | Operation::SelectionLasso { .. }
                 | Operation::SelectAll
                 | Operation::Deselect
+                | Operation::ClearLayer { .. }
                 | Operation::CreateCanvas { .. } => {
                     self.oplog.begin_undo_group(site_op.site);
                 }
@@ -574,6 +583,28 @@ impl Canvas {
             }
             Operation::Deselect => {
                 self.site_for_mut(site).selection = None;
+            }
+            Operation::ClearLayer { layer } => {
+                let sel_data: Option<Vec<u8>> = self.sites.get(&site)
+                    .and_then(|s| s.selection.as_ref())
+                    .map(|s| s.data.clone());
+                if let Some(l) = self.layer_by_id_mut(layer) {
+                    if let Some(mask) = sel_data {
+                        // Clear only selected pixels
+                        for i in 0..mask.len() {
+                            if mask[i] > 0 {
+                                let px = i * 4;
+                                l.pixels[px] = 0;
+                                l.pixels[px + 1] = 0;
+                                l.pixels[px + 2] = 0;
+                                l.pixels[px + 3] = 0;
+                            }
+                        }
+                        l.mark_fully_dirty();
+                    } else {
+                        l.clear();
+                    }
+                }
             }
         }
     }
@@ -1271,5 +1302,90 @@ mod tests {
 
         let px1 = canvas.layer(1).unwrap().pixel(50, 50).unwrap();
         assert_eq!(px1[3], 0, "Site 1's stroke should still be undone");
+    }
+
+    #[test]
+    fn test_clear_layer_no_selection() {
+        let mut canvas = Canvas::new(10, 10);
+        canvas.add_layer();
+        // Paint a pixel
+        {
+            let px = canvas.layer_mut(0).unwrap().pixel_mut(5, 5).unwrap();
+            *px = [255, 0, 0, 255];
+        }
+        canvas.layer_mut(0).unwrap().clear_dirty();
+
+        canvas.clear_layer(0);
+
+        let px = canvas.layer(0).unwrap().pixel(5, 5).unwrap();
+        assert_eq!(px, [0, 0, 0, 0], "Pixel should be cleared");
+        assert!(canvas.layer(0).unwrap().dirty, "Layer should be dirty after clear");
+    }
+
+    #[test]
+    fn test_clear_layer_with_selection() {
+        let mut canvas = Canvas::new(10, 10);
+        canvas.add_layer();
+        // Paint two pixels
+        {
+            let l = canvas.layer_mut(0).unwrap();
+            *l.pixel_mut(2, 2).unwrap() = [255, 0, 0, 255];
+            *l.pixel_mut(5, 5).unwrap() = [0, 255, 0, 255];
+        }
+        // Select only a rect covering (5,5) but not (2,2)
+        canvas.selection_rect(4, 4, 3, 3, CombineMode::Replace);
+
+        canvas.clear_layer(0);
+
+        let px_outside = canvas.layer(0).unwrap().pixel(2, 2).unwrap();
+        assert_eq!(px_outside, [255, 0, 0, 255], "Pixel outside selection should be untouched");
+
+        let px_inside = canvas.layer(0).unwrap().pixel(5, 5).unwrap();
+        assert_eq!(px_inside, [0, 0, 0, 0], "Pixel inside selection should be cleared");
+    }
+
+    #[test]
+    fn test_clear_layer_is_undoable() {
+        let mut canvas = Canvas::new(10, 10);
+        canvas.add_layer();
+        {
+            let px = canvas.layer_mut(0).unwrap().pixel_mut(3, 3).unwrap();
+            *px = [100, 200, 50, 255];
+        }
+
+        canvas.clear_layer(0);
+        assert_eq!(canvas.layer(0).unwrap().pixel(3, 3).unwrap(), [0, 0, 0, 0]);
+
+        canvas.undo();
+        // After undo, the clear should be reverted — pixel data restored via replay
+        // Note: the pixel was set directly (not via operation), so after undo+replay
+        // it will be transparent since there was no stroke operation.
+        // Let's test with a proper stroke instead.
+    }
+
+    #[test]
+    fn test_clear_layer_undo_with_stroke() {
+        let mut canvas = Canvas::new(100, 100);
+        canvas.add_layer();
+        canvas.set_brush_size(20.0);
+        canvas.set_brush_flow(1.0);
+        canvas.set_brush_opacity(1.0);
+
+        // Draw a stroke
+        canvas.stroke_begin(0, 50.0, 50.0, 1.0);
+        canvas.stroke_end();
+
+        let px_before = canvas.layer(0).unwrap().pixel(50, 50).unwrap();
+        assert!(px_before[3] > 0, "Should have painted pixel");
+
+        // Clear the layer
+        canvas.clear_layer(0);
+        let px_cleared = canvas.layer(0).unwrap().pixel(50, 50).unwrap();
+        assert_eq!(px_cleared[3], 0, "Pixel should be cleared");
+
+        // Undo the clear
+        assert!(canvas.undo());
+        let px_restored = canvas.layer(0).unwrap().pixel(50, 50).unwrap();
+        assert!(px_restored[3] > 0, "Pixel should be restored after undo");
     }
 }

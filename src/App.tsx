@@ -40,7 +40,7 @@ export function App() {
     useColorState(engine);
   const { layers, activeIndex, canvasColor, canvasVisible, addLayer, removeLayer, selectLayer, setLayerOpacity, setLayerBlendMode, toggleLayerVisible, setCanvasColor, toggleCanvasVisible } =
     useLayerManager(engine);
-  useSelection(engine);
+  useSelection(engine, activeIndex);
 
   // Show loading while storage initializes
   if (!docManager.ready) {

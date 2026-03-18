@@ -95,6 +95,10 @@ pub enum Operation {
     },
     SelectAll,
     Deselect,
+    /// Clear the selected area on a layer (or entire layer if no selection).
+    ClearLayer {
+        layer: LayerId,
+    },
 }
 
 /// Serialize a slice of site operations to bytes using postcard.
@@ -216,6 +220,11 @@ mod tests {
     fn test_round_trip_select_all_deselect() {
         round_trip(Operation::SelectAll);
         round_trip(Operation::Deselect);
+    }
+
+    #[test]
+    fn test_round_trip_clear_layer() {
+        round_trip(Operation::ClearLayer { layer: 42 });
     }
 
     #[test]

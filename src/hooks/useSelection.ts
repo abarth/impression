@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import type { Engine } from "../engine";
 
-export function useSelection(engine: Engine | null) {
+export function useSelection(engine: Engine | null, activeLayer: number = 0) {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!engine) return;
@@ -28,10 +28,13 @@ export function useSelection(engine: Engine | null) {
       } else if (isMod && e.key.toLowerCase() === "d") {
         e.preventDefault();
         engine.deselect();
+      } else if (e.key === "Delete" || e.key === "Backspace") {
+        e.preventDefault();
+        engine.clearActiveLayer(activeLayer);
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [engine]);
+  }, [engine, activeLayer]);
 }
