@@ -32,7 +32,7 @@ export function App() {
     };
   }, [docManager.currentDocument, docManager.currentChunks, docManager.storage]);
 
-  const engine = useEngine(canvasRef, engineOptions);
+  const { engine, error: gpuError } = useEngine(canvasRef, engineOptions);
   const { transform, pan, zoom, fitToViewport } = useViewTransform();
   const { activeTool, selectTool } = useTool();
   const { settings, updateSetting, toolLabel } = useBrushSettings(engine, activeTool);
@@ -103,7 +103,17 @@ export function App() {
       />
 
       {/* Canvas area */}
-      <CanvasViewport
+      {gpuError ? (
+        <div className="flex-1 flex items-center justify-center bg-graphite-950">
+          <div className="max-w-sm text-center px-6">
+            <p className="text-cream text-[14px] font-medium mb-2">Unable to initialize WebGPU</p>
+            <p className="text-cream-muted text-[12px]">{gpuError}</p>
+            <p className="text-cream-muted text-[11px] mt-3">
+              Please use Chrome 113+, Edge 113+, or Safari 18+.
+            </p>
+          </div>
+        </div>
+      ) : <CanvasViewport
         canvasRef={canvasRef}
         engine={engine}
         activeTool={activeTool}
@@ -113,7 +123,7 @@ export function App() {
         zoom={zoom}
         onColorPick={setForeground}
         fitToViewport={fitToViewport}
-      />
+      />}
 
       {/* Right panel */}
       <div className="flex flex-col w-56 bg-graphite-900 border-l border-graphite-850 overflow-y-auto">

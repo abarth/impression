@@ -17,11 +17,17 @@ export interface EngineInitOptions {
   documentMeta?: DocumentMeta | null;
 }
 
+export interface UseEngineResult {
+  engine: Engine | null;
+  error: string | null;
+}
+
 export function useEngine(
   canvasRef: RefObject<HTMLCanvasElement | null>,
   options?: EngineInitOptions | null,
-): Engine | null {
+): UseEngineResult {
   const [engine, setEngine] = useState<Engine | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const gpuRef = useRef<GPUContext | null>(null);
   const initStarted = useRef(false);
   const renderRunning = useRef(false);
@@ -36,6 +42,7 @@ export function useEngine(
         gpuRef.current = null;
       }
       setEngine(null);
+      setError(null);
     }
   }, [options]);
 
@@ -49,59 +56,64 @@ export function useEngine(
     canvas.height = documentSize.height;
 
     (async () => {
-      const wasmModule = await init();
-      const gpu = await initGPU(canvas);
-      gpuRef.current = gpu;
+      try {
+        const wasmModule = await init();
+        const gpu = await initGPU(canvas);
+        gpuRef.current = gpu;
 
-      const impressionCanvas = new ImpressionCanvas(
-        documentSize.width,
-        documentSize.height,
-      );
-      const eng = new Engine(impressionCanvas, gpu, wasmModule.memory);
+        const impressionCanvas = new ImpressionCanvas(
+          documentSize.width,
+          documentSize.height,
+        );
+        const eng = new Engine(impressionCanvas, gpu, wasmModule.memory);
 
-      if (chunks && chunks.length > 0) {
-        // Load saved operations from storage
-        for (const chunk of chunks) {
-          eng.loadChunk(chunk);
+        if (chunks && chunks.length > 0) {
+          // Load saved operations from storage
+          for (const chunk of chunks) {
+            eng.loadChunk(chunk);
+          }
+        } else {
+          // New document: add initial layer and set defaults
+          eng.addLayer();
+          eng.setBrushSize(20);
+          eng.setBrushSpacing(0.15);
+          eng.setBrushColor(0, 0, 0);
+          eng.setBrushOpacity(1.0);
+          eng.setBrushFlow(0.8);
         }
-      } else {
-        // New document: add initial layer and set defaults
-        eng.addLayer();
-        eng.setBrushSize(20);
-        eng.setBrushSpacing(0.15);
-        eng.setBrushColor(0, 0, 0);
-        eng.setBrushOpacity(1.0);
-        eng.setBrushFlow(0.8);
-      }
 
-      // Enable persistence so future strokes are saved
-      if (storage && documentMeta) {
-        eng.enablePersistence({
-          storage,
-          documentMeta,
-          startChunkIndex: chunks?.length ?? 0,
-        });
-      }
+        // Enable persistence so future strokes are saved
+        if (storage && documentMeta) {
+          eng.enablePersistence({
+            storage,
+            documentMeta,
+            startChunkIndex: chunks?.length ?? 0,
+          });
+        }
 
-      setEngine(eng);
+        setEngine(eng);
 
-      // Render loop
-      renderRunning.current = true;
-      function render(time: number) {
-        if (!renderRunning.current) return;
-        composite(gpu, {
-          backgroundColor: eng.getBackgroundColor(),
-          canvasVisible: eng.getCanvasVisible(),
-          layerCount: eng.getLayerCount(),
-          getLayerVisible: (i) => eng.getLayerVisible(i),
-          getLayerBlendMode: (i) => eng.getLayerBlendMode(i),
-          time,
-        });
+        // Render loop
+        renderRunning.current = true;
+        function render(time: number) {
+          if (!renderRunning.current) return;
+          composite(gpu, {
+            backgroundColor: eng.getBackgroundColor(),
+            canvasVisible: eng.getCanvasVisible(),
+            layerCount: eng.getLayerCount(),
+            getLayerVisible: (i) => eng.getLayerVisible(i),
+            getLayerBlendMode: (i) => eng.getLayerBlendMode(i),
+            time,
+          });
+          requestAnimationFrame(render);
+        }
         requestAnimationFrame(render);
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        setError(message);
       }
-      requestAnimationFrame(render);
     })();
   }, [canvasRef, options]);
 
-  return engine;
+  return { engine, error };
 }
