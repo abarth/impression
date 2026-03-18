@@ -24,7 +24,7 @@ const contentClass =
 
 function MenuTrigger({ label }: { label: string }) {
   return (
-    <Menubar.Trigger className="px-2.5 py-1 text-[12px] text-cream-muted rounded-md outline-none cursor-default select-none transition-colors duration-100 hover:text-cream-dim data-[state=open]:bg-graphite-800 data-[state=open]:text-cream-dim">
+    <Menubar.Trigger className="px-3 py-1 text-[12px] text-cream-muted rounded-md outline-none cursor-default select-none transition-colors duration-100 hover:text-cream-dim data-[state=open]:bg-graphite-800 data-[state=open]:text-cream-dim">
       {label}
     </Menubar.Trigger>
   );
@@ -47,7 +47,7 @@ export function MenuBar({
   onClear,
 }: MenuBarProps) {
   return (
-    <Menubar.Root className="flex items-center h-7 px-1.5 bg-graphite-950 border-b border-graphite-850 shrink-0">
+    <Menubar.Root className="flex items-center h-8 px-1 gap-0.5 bg-graphite-950 border-b border-graphite-850 shrink-0">
       <Menubar.Menu>
         <MenuTrigger label="File" />
         <Menubar.Portal>
