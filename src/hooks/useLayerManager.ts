@@ -20,6 +20,9 @@ export function useLayerManager(engine: Engine | null) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [canvasColor, setCanvasColorState] = useState("#ffffff");
   const [canvasVisible, setCanvasVisible] = useState(true);
+  const layersRef = useRef(layers);
+  const activeIndexRef = useRef(activeIndex);
+  const canvasVisibleRef = useRef(canvasVisible);
   const engineRef = useRef(engine);
   engineRef.current = engine;
 
@@ -36,41 +39,41 @@ export function useLayerManager(engine: Engine | null) {
     if (!eng) return;
     eng.addLayer();
     const id = nextLayerId++;
-    setLayers((prev) => {
-      const newIndex = prev.length;
-      const name = eng.getLayerName(newIndex);
-      const newLayer: LayerInfo = {
-        id,
-        name,
-        visible: true,
-        opacity: 1.0,
-        blendMode: 0,
-      };
-      return [...prev, newLayer];
-    });
-    setActiveIndex((prev) => {
-      const newIndex = prev + 1;
-      eng.setActiveLayer(newIndex);
-      return newIndex;
-    });
+    const prev = layersRef.current;
+    const newIndex = prev.length;
+    const name = eng.getLayerName(newIndex);
+    const newLayer: LayerInfo = {
+      id,
+      name,
+      visible: true,
+      opacity: 1.0,
+      blendMode: 0,
+    };
+    const nextLayers = [...prev, newLayer];
+    layersRef.current = nextLayers;
+    setLayers(nextLayers);
+    const nextActive = activeIndexRef.current + 1;
+    activeIndexRef.current = nextActive;
+    setActiveIndex(nextActive);
+    eng.setActiveLayer(nextActive);
   }, []);
 
   const removeLayer = useCallback(
     (index: number) => {
       const eng = engineRef.current;
       if (!eng) return;
-      setLayers((prev) => {
-        if (prev.length <= 1) return prev; // keep at least one layer
-        const removed = eng.removeLayer(index);
-        if (!removed) return prev;
-        const next = prev.filter((_, i) => i !== index);
-        return next;
-      });
-      setActiveIndex((prev) => {
-        const count = eng.getLayerCount();
-        if (prev >= count) return Math.max(0, count - 1);
-        return prev;
-      });
+      const prev = layersRef.current;
+      if (prev.length <= 1) return; // keep at least one layer
+      const removed = eng.removeLayer(index);
+      if (!removed) return;
+      const nextLayers = prev.filter((_, i) => i !== index);
+      layersRef.current = nextLayers;
+      setLayers(nextLayers);
+      const count = eng.getLayerCount();
+      const prevActive = activeIndexRef.current;
+      const nextActive = prevActive >= count ? Math.max(0, count - 1) : prevActive;
+      activeIndexRef.current = nextActive;
+      setActiveIndex(nextActive);
     },
     [],
   );
@@ -79,6 +82,7 @@ export function useLayerManager(engine: Engine | null) {
     (index: number) => {
       const eng = engineRef.current;
       if (eng) eng.setActiveLayer(index);
+      activeIndexRef.current = index;
       setActiveIndex(index);
     },
     [],
@@ -88,9 +92,9 @@ export function useLayerManager(engine: Engine | null) {
     (index: number, opacity: number) => {
       const eng = engineRef.current;
       if (eng) eng.setLayerOpacity(index, opacity);
-      setLayers((prev) =>
-        prev.map((l, i) => (i === index ? { ...l, opacity } : l)),
-      );
+      const nextLayers = layersRef.current.map((l, i) => (i === index ? { ...l, opacity } : l));
+      layersRef.current = nextLayers;
+      setLayers(nextLayers);
     },
     [],
   );
@@ -99,9 +103,9 @@ export function useLayerManager(engine: Engine | null) {
     (index: number, mode: number) => {
       const eng = engineRef.current;
       if (eng) eng.setLayerBlendMode(index, mode);
-      setLayers((prev) =>
-        prev.map((l, i) => (i === index ? { ...l, blendMode: mode } : l)),
-      );
+      const nextLayers = layersRef.current.map((l, i) => (i === index ? { ...l, blendMode: mode } : l));
+      layersRef.current = nextLayers;
+      setLayers(nextLayers);
     },
     [],
   );
@@ -121,14 +125,15 @@ export function useLayerManager(engine: Engine | null) {
   const toggleLayerVisible = useCallback(
     (index: number) => {
       const eng = engineRef.current;
-      setLayers((prev) =>
-        prev.map((l, i) => {
-          if (i !== index) return l;
-          const next = !l.visible;
-          if (eng) eng.setLayerVisible(index, next);
-          return { ...l, visible: next };
-        }),
-      );
+      const prev = layersRef.current;
+      const nextLayers = prev.map((l, i) => {
+        if (i !== index) return l;
+        const next = !l.visible;
+        if (eng) eng.setLayerVisible(index, next);
+        return { ...l, visible: next };
+      });
+      layersRef.current = nextLayers;
+      setLayers(nextLayers);
     },
     [],
   );
@@ -137,20 +142,19 @@ export function useLayerManager(engine: Engine | null) {
     (index: number, name: string) => {
       const eng = engineRef.current;
       if (eng) eng.renameLayer(index, name);
-      setLayers((prev) =>
-        prev.map((l, i) => (i === index ? { ...l, name } : l)),
-      );
+      const nextLayers = layersRef.current.map((l, i) => (i === index ? { ...l, name } : l));
+      layersRef.current = nextLayers;
+      setLayers(nextLayers);
     },
     [],
   );
 
   const toggleCanvasVisible = useCallback(() => {
-    setCanvasVisible((prev) => {
-      const next = !prev;
-      const eng = engineRef.current;
-      if (eng) eng.setCanvasVisible(next);
-      return next;
-    });
+    const next = !canvasVisibleRef.current;
+    canvasVisibleRef.current = next;
+    setCanvasVisible(next);
+    const eng = engineRef.current;
+    if (eng) eng.setCanvasVisible(next);
   }, []);
 
   return { layers, activeIndex, canvasColor, canvasVisible, addLayer, removeLayer, selectLayer, setLayerOpacity, setLayerBlendMode, renameLayer, toggleLayerVisible, setCanvasColor, toggleCanvasVisible };

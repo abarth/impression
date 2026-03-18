@@ -20,6 +20,18 @@ A WebGPU painting application with a Rust/WASM drawing engine and React UI. Depl
 
 The `Engine` instance is created imperatively in `useEngine` and stored as React state. It is **not** part of React's reconciliation — React controls the UI; the engine owns the GPU. React callbacks call imperative `engine.setXxx()` methods. The `requestAnimationFrame` render loop runs outside React.
 
+**CRITICAL: Never call engine methods inside React state updater functions** (e.g., `setState(prev => { eng.doThing(); ... })`). The WASM object uses `RefCell` borrowing — if React synchronously re-renders during the updater, the render loop will try to borrow the same object, causing a "recursive use of an object detected" panic. Instead, read current state from a ref, call `setState(newValue)`, then call the engine *after*:
+```typescript
+// WRONG — engine call inside updater
+setFoo(prev => { eng.update(prev + 1); return prev + 1; });
+
+// RIGHT — engine call outside updater
+const next = fooRef.current + 1;
+fooRef.current = next;
+setFoo(next);
+eng.update(next);
+```
+
 ## Build & Run
 
 ```bash

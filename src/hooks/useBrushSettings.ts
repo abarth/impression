@@ -44,6 +44,7 @@ export function useBrushSettings(engine: Engine | null, activeTool: Tool) {
     brush: DEFAULT_BRUSH,
     eraser: DEFAULT_ERASER,
   });
+  const perToolRef = useRef(perTool);
   const engineRef = useRef(engine);
   engineRef.current = engine;
   const activeToolRef = useRef(activeTool);
@@ -81,11 +82,11 @@ export function useBrushSettings(engine: Engine | null, activeTool: Tool) {
   const updateSetting = useCallback(
     <K extends keyof BrushSettings>(key: K, value: BrushSettings[K]) => {
       const tool = isToolWithSettings(activeToolRef.current) ? activeToolRef.current : "brush";
-      setPerTool((prev) => {
-        const next = { ...prev, [tool]: { ...prev[tool], [key]: value } };
-        syncToEngine(next[tool], tool);
-        return next;
-      });
+      const prev = perToolRef.current;
+      const next = { ...prev, [tool]: { ...prev[tool], [key]: value } };
+      perToolRef.current = next;
+      setPerTool(next);
+      syncToEngine(next[tool], tool);
     },
     [syncToEngine],
   );
@@ -102,21 +103,22 @@ export function useBrushSettings(engine: Engine | null, activeTool: Tool) {
 
       if (e.key === "[" || e.key === "]") {
         e.preventDefault();
-        setPerTool((prev) => {
-          const tool = isToolWithSettings(activeToolRef.current)
-            ? activeToolRef.current
-            : "brush";
-          const current = prev[tool].size;
-          const step = current >= 20 ? Math.round(current * 0.1) : 1;
-          const newSize =
-            e.key === "["
-              ? Math.max(1, current - step)
-              : Math.min(100, current + step);
-          if (newSize === current) return prev;
+        const tool = isToolWithSettings(activeToolRef.current)
+          ? activeToolRef.current
+          : "brush";
+        const prev = perToolRef.current;
+        const current = prev[tool].size;
+        const step = current >= 20 ? Math.round(current * 0.1) : 1;
+        const newSize =
+          e.key === "["
+            ? Math.max(1, current - step)
+            : Math.min(100, current + step);
+        if (newSize !== current) {
           const next = { ...prev, [tool]: { ...prev[tool], size: newSize } };
+          perToolRef.current = next;
+          setPerTool(next);
           syncToEngine(next[tool], tool);
-          return next;
-        });
+        }
       }
 
       // Number keys: set opacity (1=10%, 2=20%, ..., 9=90%, 0=100%)
@@ -126,14 +128,14 @@ export function useBrushSettings(engine: Engine | null, activeTool: Tool) {
         e.preventDefault();
         const value = digit === 0 ? 1.0 : digit * 0.1;
         const setting = e.shiftKey ? "flow" : "opacity";
-        setPerTool((prev) => {
-          const tool = isToolWithSettings(activeToolRef.current)
-            ? activeToolRef.current
-            : "brush";
-          const next = { ...prev, [tool]: { ...prev[tool], [setting]: value } };
-          syncToEngine(next[tool], tool);
-          return next;
-        });
+        const tool = isToolWithSettings(activeToolRef.current)
+          ? activeToolRef.current
+          : "brush";
+        const prev = perToolRef.current;
+        const next = { ...prev, [tool]: { ...prev[tool], [setting]: value } };
+        perToolRef.current = next;
+        setPerTool(next);
+        syncToEngine(next[tool], tool);
       }
     };
 
