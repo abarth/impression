@@ -1,12 +1,17 @@
 import type { Engine } from "./engine";
 
+/** Get pressure from a pointer event, defaulting to 1.0 for non-pen devices. */
+function getPressure(e: PointerEvent): number {
+  return e.pointerType === "pen" ? e.pressure : 1.0;
+}
+
 export function setupInput(canvas: HTMLCanvasElement, engine: Engine): void {
   let activeLayer = 0;
 
   canvas.addEventListener("pointerdown", (e: PointerEvent) => {
     canvas.setPointerCapture(e.pointerId);
     activeLayer = engine.getActiveLayer();
-    engine.strokeBegin(activeLayer, e.offsetX, e.offsetY, e.pressure || 0.5);
+    engine.strokeBegin(activeLayer, e.offsetX, e.offsetY, getPressure(e));
   });
 
   canvas.addEventListener("pointermove", (e: PointerEvent) => {
@@ -15,7 +20,7 @@ export function setupInput(canvas: HTMLCanvasElement, engine: Engine): void {
     // Use coalesced events for smoother input when available
     const events = e.getCoalescedEvents?.() ?? [e];
     for (const ce of events) {
-      engine.strokeMove(activeLayer, ce.offsetX, ce.offsetY, ce.pressure || 0.5);
+      engine.strokeMove(activeLayer, ce.offsetX, ce.offsetY, getPressure(ce));
     }
   });
 

@@ -172,11 +172,12 @@ export function CanvasViewport({
       } else if ((tool === "brush" || tool === "eraser") && engine) {
         viewport.setPointerCapture(e.pointerId);
         const { x, y } = screenToCanvas(e.clientX, e.clientY);
+        const pressure = e.pointerType === "pen" ? e.pressure : 1.0;
         engine.strokeBegin(
           engine.getActiveLayer(),
           x,
           y,
-          e.pressure > 0 ? e.pressure : 1.0,
+          pressure,
         );
       } else if (tool === "pan" || tool === "zoom") {
         viewport.setPointerCapture(e.pointerId);
@@ -212,11 +213,12 @@ export function CanvasViewport({
         const events = e.getCoalescedEvents?.() ?? [e];
         for (const ce of events) {
           const { x, y } = screenToCanvas(ce.clientX, ce.clientY);
+          const pressure = ce.pointerType === "pen" ? ce.pressure : 1.0;
           engine.strokeMove(
             engine.getActiveLayer(),
             x,
             y,
-            ce.pressure > 0 ? ce.pressure : 1.0,
+            pressure,
           );
         }
       } else if (tool === "pan" && dragStart.current) {

@@ -65,13 +65,24 @@ describe("setupInput", () => {
     );
   });
 
-  it("should call strokeBegin on pointerdown", () => {
+  it("should call strokeBegin on pointerdown with pressure 1.0 for mouse", () => {
+    canvas._fire("pointerdown", {
+      offsetX: 100,
+      offsetY: 200,
+      pressure: 0.5,
+    });
+    expect(canvas.setPointerCapture).toHaveBeenCalled();
+    // Mouse (no pointerType) should default to pressure 1.0
+    expect(engine.strokeBegin).toHaveBeenCalledWith(0, 100, 200, 1.0);
+  });
+
+  it("should use actual pressure for pen input", () => {
     canvas._fire("pointerdown", {
       offsetX: 100,
       offsetY: 200,
       pressure: 0.75,
-    });
-    expect(canvas.setPointerCapture).toHaveBeenCalled();
+      pointerType: "pen",
+    } as unknown as Partial<PointerEvent>);
     expect(engine.strokeBegin).toHaveBeenCalledWith(0, 100, 200, 0.75);
   });
 
@@ -82,7 +93,8 @@ describe("setupInput", () => {
       pressure: 0.6,
       buttons: 1,
     });
-    expect(engine.strokeMove).toHaveBeenCalledWith(0, 150, 250, 0.6);
+    // Mouse should default to pressure 1.0
+    expect(engine.strokeMove).toHaveBeenCalledWith(0, 150, 250, 1.0);
   });
 
   it("should not call strokeMove when no button is pressed", () => {
@@ -100,25 +112,27 @@ describe("setupInput", () => {
     expect(engine.strokeEnd).toHaveBeenCalled();
   });
 
-  it("should use default pressure of 0.5 when pressure is 0", () => {
+  it("should use pressure 1.0 for mouse when pressure is 0", () => {
     canvas._fire("pointerdown", {
       offsetX: 50,
       offsetY: 50,
       pressure: 0,
     });
-    expect(engine.strokeBegin).toHaveBeenCalledWith(0, 50, 50, 0.5);
+    // Mouse (no pointerType) should default to 1.0
+    expect(engine.strokeBegin).toHaveBeenCalledWith(0, 50, 50, 1.0);
   });
 
   it("should use coalesced events when available", () => {
     const coalescedEvents = [
-      { offsetX: 10, offsetY: 10, pressure: 0.5 },
-      { offsetX: 20, offsetY: 20, pressure: 0.6 },
+      { offsetX: 10, offsetY: 10, pressure: 0.5, pointerType: "pen" },
+      { offsetX: 20, offsetY: 20, pressure: 0.6, pointerType: "pen" },
     ];
     canvas._fire("pointermove", {
       offsetX: 20,
       offsetY: 20,
       pressure: 0.6,
       buttons: 1,
+      pointerType: "pen",
       getCoalescedEvents: () => coalescedEvents,
     } as unknown as Partial<PointerEvent>);
 
