@@ -1,4 +1,5 @@
 import { useState } from "react";
+import * as AlertDialog from "@radix-ui/react-alert-dialog";
 import { FileText, Trash2, Pencil, Check, X } from "lucide-react";
 import type { DocumentMeta } from "../storage";
 import { NewDocumentDialog } from "./NewDocumentDialog";
@@ -29,7 +30,7 @@ export function DocumentPicker({
 }: DocumentPickerProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<DocumentMeta | null>(null);
 
   function startRename(doc: DocumentMeta) {
     setEditingId(doc.id);
@@ -126,33 +127,14 @@ export function DocumentPicker({
                     >
                       <Pencil size={13} strokeWidth={2} />
                     </button>
-                    {confirmDeleteId === doc.id ? (
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={e => { e.stopPropagation(); onDelete(doc.id); setConfirmDeleteId(null); }}
-                          className="px-2 py-1 rounded-lg text-[11px] bg-red-900/50 text-red-300
-                            hover:bg-red-900/80 transition-all duration-150 cursor-pointer"
-                        >
-                          Delete
-                        </button>
-                        <button
-                          onClick={e => { e.stopPropagation(); setConfirmDeleteId(null); }}
-                          className="p-1.5 rounded-lg text-cream-muted hover:text-cream
-                            hover:bg-graphite-750 transition-all duration-150 cursor-pointer"
-                        >
-                          <X size={13} />
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={e => { e.stopPropagation(); setConfirmDeleteId(doc.id); }}
-                        title="Delete"
-                        className="p-1.5 rounded-lg text-cream-muted hover:text-cream
-                          hover:bg-graphite-750 transition-all duration-150 cursor-pointer"
-                      >
-                        <Trash2 size={13} strokeWidth={2} />
-                      </button>
-                    )}
+                    <button
+                      onClick={e => { e.stopPropagation(); setDeleteTarget(doc); }}
+                      title="Delete"
+                      className="p-1.5 rounded-lg text-cream-muted hover:text-cream
+                        hover:bg-graphite-750 transition-all duration-150 cursor-pointer"
+                    >
+                      <Trash2 size={13} strokeWidth={2} />
+                    </button>
                   </div>
                 )}
               </div>
@@ -160,6 +142,51 @@ export function DocumentPicker({
           </div>
         )}
       </div>
+
+      <AlertDialog.Root
+        open={deleteTarget !== null}
+        onOpenChange={open => { if (!open) setDeleteTarget(null); }}
+      >
+        <AlertDialog.Portal>
+          <AlertDialog.Overlay className="fixed inset-0 bg-black/50" />
+          <AlertDialog.Content
+            className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2
+              w-[340px] bg-graphite-900 rounded-2xl shadow-panel
+              border border-graphite-750 p-6 focus:outline-none"
+          >
+            <AlertDialog.Title className="text-[15px] font-medium text-cream mb-2">
+              Delete &lsquo;{deleteTarget?.name}&rsquo;?
+            </AlertDialog.Title>
+            <AlertDialog.Description className="text-[13px] text-cream-muted mb-5">
+              This cannot be undone.
+            </AlertDialog.Description>
+            <div className="flex justify-end gap-2">
+              <AlertDialog.Cancel asChild>
+                <button
+                  className="px-4 py-2 rounded-xl text-[13px] text-cream
+                    bg-graphite-800 hover:bg-graphite-750
+                    transition-all duration-150 cursor-pointer"
+                >
+                  Cancel
+                </button>
+              </AlertDialog.Cancel>
+              <AlertDialog.Action asChild>
+                <button
+                  onClick={() => {
+                    if (deleteTarget) onDelete(deleteTarget.id);
+                    setDeleteTarget(null);
+                  }}
+                  className="px-4 py-2 rounded-xl text-[13px] text-red-300
+                    bg-red-900/50 hover:bg-red-900/80
+                    transition-all duration-150 cursor-pointer"
+                >
+                  Delete
+                </button>
+              </AlertDialog.Action>
+            </div>
+          </AlertDialog.Content>
+        </AlertDialog.Portal>
+      </AlertDialog.Root>
     </div>
   );
 }
