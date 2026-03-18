@@ -1,5 +1,5 @@
 import * as ToggleGroup from "@radix-ui/react-toggle-group";
-import { Paintbrush, Eraser, Hand, ZoomIn, Pipette, Square, Lasso, ChevronLeft } from "lucide-react";
+import { Paintbrush, Eraser, Hand, ZoomIn, Pipette, Square, Lasso, ChevronLeft, Undo2, Redo2 } from "lucide-react";
 import type { Tool } from "../hooks/useTool";
 
 interface ToolbarProps {
@@ -7,6 +7,10 @@ interface ToolbarProps {
   onToolChange: (tool: Tool) => void;
   documentName?: string;
   onBack?: () => void;
+  onUndo?: () => void;
+  onRedo?: () => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
 }
 
 const tools: {
@@ -24,7 +28,7 @@ const tools: {
   { value: "zoom", icon: ZoomIn, label: "Zoom", shortcut: "Z" },
 ];
 
-export function Toolbar({ activeTool, onToolChange, documentName, onBack }: ToolbarProps) {
+export function Toolbar({ activeTool, onToolChange, documentName, onBack, onUndo, onRedo, canUndo = false, canRedo = false }: ToolbarProps) {
   return (
     <div className="flex flex-col w-13 bg-graphite-900 border-r border-graphite-850 py-3">
       {onBack && (
@@ -63,6 +67,32 @@ export function Toolbar({ activeTool, onToolChange, documentName, onBack }: Tool
           </ToggleGroup.Item>
         ))}
       </ToggleGroup.Root>
+
+      {/* Undo/Redo */}
+      <div className="flex flex-col items-center gap-1 px-1.5 mt-auto">
+        <button
+          onClick={onUndo}
+          disabled={!canUndo}
+          title="Undo (Cmd+Z)"
+          className="flex items-center justify-center w-10 h-10 rounded-[10px]
+            text-cream-muted hover:text-cream hover:bg-graphite-800
+            disabled:opacity-30 disabled:pointer-events-none
+            transition-all duration-150 cursor-pointer"
+        >
+          <Undo2 size={18} strokeWidth={1.75} />
+        </button>
+        <button
+          onClick={onRedo}
+          disabled={!canRedo}
+          title="Redo (Cmd+Shift+Z)"
+          className="flex items-center justify-center w-10 h-10 rounded-[10px]
+            text-cream-muted hover:text-cream hover:bg-graphite-800
+            disabled:opacity-30 disabled:pointer-events-none
+            transition-all duration-150 cursor-pointer"
+        >
+          <Redo2 size={18} strokeWidth={1.75} />
+        </button>
+      </div>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useRef, useMemo } from "react";
+import { useRef, useMemo, useCallback, useState, useEffect } from "react";
 import { useEngine, type EngineInitOptions } from "./hooks/useEngine";
 import { useViewTransform } from "./hooks/useViewTransform";
 import { useTool } from "./hooks/useTool";
@@ -41,6 +41,28 @@ export function App() {
   const { layers, activeIndex, canvasColor, canvasVisible, addLayer, removeLayer, selectLayer, setLayerOpacity, setLayerBlendMode, toggleLayerVisible, setCanvasColor, toggleCanvasVisible } =
     useLayerManager(engine);
   useSelection(engine, activeIndex);
+  const [undoState, setUndoState] = useState({ canUndo: false, canRedo: false });
+
+  // Poll undo/redo state (cheap WASM call) to keep buttons in sync
+  useEffect(() => {
+    if (!engine) return;
+    const refresh = () => setUndoState({ canUndo: engine.canUndo(), canRedo: engine.canRedo() });
+    refresh();
+    const id = setInterval(refresh, 250);
+    return () => clearInterval(id);
+  }, [engine]);
+
+  const handleUndo = useCallback(() => {
+    if (!engine) return;
+    engine.undo();
+    setUndoState({ canUndo: engine.canUndo(), canRedo: engine.canRedo() });
+  }, [engine]);
+
+  const handleRedo = useCallback(() => {
+    if (!engine) return;
+    engine.redo();
+    setUndoState({ canUndo: engine.canUndo(), canRedo: engine.canRedo() });
+  }, [engine]);
 
   // Show loading while storage initializes
   if (!docManager.ready) {
@@ -74,6 +96,10 @@ export function App() {
         onToolChange={selectTool}
         documentName={docManager.currentDocument?.name}
         onBack={docManager.closeDocument}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+        canUndo={undoState.canUndo}
+        canRedo={undoState.canRedo}
       />
 
       {/* Canvas area */}
