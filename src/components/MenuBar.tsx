@@ -13,27 +13,18 @@ interface MenuBarProps {
 }
 
 const itemClass =
-  `flex items-center justify-between px-2.5 py-[5px] text-[12.5px] text-cream-dim
-   outline-none rounded-md cursor-default select-none
-   data-[highlighted]:bg-graphite-750 data-[highlighted]:text-cream
-   data-[disabled]:opacity-30 data-[disabled]:pointer-events-none`;
+  "flex items-center justify-between px-2.5 py-[5px] text-[12.5px] text-cream-dim outline-none rounded-md cursor-default select-none data-[highlighted]:bg-graphite-750 data-[highlighted]:text-cream data-[disabled]:opacity-30 data-[disabled]:pointer-events-none";
 
 const shortcutClass = "ml-auto pl-5 text-[11px] text-cream-muted tabular-nums tracking-wide";
 
 const separatorClass = "h-px my-1 bg-graphite-800";
 
 const contentClass =
-  `min-w-[180px] bg-graphite-900 border border-graphite-800
-   rounded-lg p-1 shadow-panel z-50`;
+  "min-w-[180px] bg-graphite-900 border border-graphite-800 rounded-lg p-1 shadow-panel z-50";
 
 function MenuTrigger({ label }: { label: string }) {
   return (
-    <Menubar.Trigger
-      className="px-2 py-0.5 text-[12px] text-cream-muted rounded-md outline-none
-        cursor-default select-none transition-colors duration-100
-        hover:text-cream-dim
-        data-[state=open]:bg-graphite-800 data-[state=open]:text-cream-dim"
-    >
+    <Menubar.Trigger className="px-2.5 py-1 text-[12px] text-cream-muted rounded-md outline-none cursor-default select-none transition-colors duration-100 hover:text-cream-dim data-[state=open]:bg-graphite-800 data-[state=open]:text-cream-dim">
       {label}
     </Menubar.Trigger>
   );
