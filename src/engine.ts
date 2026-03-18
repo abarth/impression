@@ -276,7 +276,7 @@ export class Engine {
     return result;
   }
 
-  /** Re-upload all layer textures after replay. */
+  /** Re-upload layer textures after replay, skipping unchanged layers. */
   private syncAllLayers(): void {
     const count = this.canvas.layer_count();
     const width = this.canvas.width();
@@ -290,15 +290,18 @@ export class Engine {
       createLayerTexture(this.gpu, width, height);
     }
 
-    // Upload each layer
+    // Upload only layers whose pixels actually changed
     for (let i = 0; i < count; i++) {
-      const ptr = this.canvas.layer_pixels_ptr(i);
-      const len = this.canvas.layer_pixels_len(i);
-      const pixels = new Uint8Array(this.wasmMemory.buffer, ptr, len);
-      uploadLayerTexture(this.gpu, i, pixels, width, height);
+      if (this.canvas.is_layer_dirty(i)) {
+        const ptr = this.canvas.layer_pixels_ptr(i);
+        const len = this.canvas.layer_pixels_len(i);
+        const pixels = new Uint8Array(this.wasmMemory.buffer, ptr, len);
+        uploadLayerTexture(this.gpu, i, pixels, width, height);
+        this.canvas.clear_layer_dirty(i);
+      }
+      // Always sync opacity and blend mode (cheap uniform updates)
       updateLayerOpacity(this.gpu, i, this.canvas.layer_opacity(i));
       updateLayerBlendMode(this.gpu, i, this.canvas.layer_blend_mode(i));
-      this.canvas.clear_layer_dirty(i);
     }
 
     this.needsRender = true;

@@ -70,6 +70,17 @@ impl Layer {
         Some((&mut self.pixels[idx..idx + 4]).try_into().unwrap())
     }
 
+    /// Compute a fast fingerprint of the pixel data for change detection.
+    /// Uses FNV-1a hash which is fast for byte sequences.
+    pub fn pixel_fingerprint(&self) -> u64 {
+        let mut hash: u64 = 0xcbf29ce484222325;
+        for &byte in &self.pixels {
+            hash ^= byte as u64;
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+        hash
+    }
+
     /// Get pixel at (x, y) as [R, G, B, A].
     pub fn pixel(&self, x: u32, y: u32) -> Option<[u8; 4]> {
         if x >= self.width || y >= self.height {
@@ -155,6 +166,24 @@ mod tests {
         layer.clear_dirty();
         assert!(!layer.dirty);
         assert!(layer.dirty_bounds.is_none());
+    }
+
+    #[test]
+    fn test_pixel_fingerprint_changes_with_content() {
+        let mut layer = Layer::new(10, 10);
+        let fp1 = layer.pixel_fingerprint();
+
+        layer.pixels[0] = 255;
+        let fp2 = layer.pixel_fingerprint();
+
+        assert_ne!(fp1, fp2, "Fingerprint should change when pixels change");
+    }
+
+    #[test]
+    fn test_pixel_fingerprint_identical_for_same_content() {
+        let layer1 = Layer::new(10, 10);
+        let layer2 = Layer::new(10, 10);
+        assert_eq!(layer1.pixel_fingerprint(), layer2.pixel_fingerprint());
     }
 
     #[test]

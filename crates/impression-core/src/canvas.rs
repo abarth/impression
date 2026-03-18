@@ -329,7 +329,13 @@ impl Canvas {
     }
 
     /// Clear all state and replay active operations from the oplog.
+    /// Only marks layers as dirty if their pixel content actually changed,
+    /// so the GPU side can skip uploading unchanged layers.
     fn replay_active(&mut self) {
+        // Fingerprint each layer's pixels before replay
+        let old_fingerprints: Vec<u64> = self.layers.iter().map(|l| l.pixel_fingerprint()).collect();
+        let old_count = self.layers.len();
+
         // Reset all state
         self.layers.clear();
         self.brush = BrushSettings::default();
@@ -345,6 +351,23 @@ impl Canvas {
         let mut stroke_layer: u32 = 0;
         for op in ops {
             self.execute_op(op, &mut stroke_layer);
+        }
+
+        // Compare fingerprints: only mark layers dirty if their pixels changed
+        for (i, layer) in self.layers.iter_mut().enumerate() {
+            if i < old_count {
+                let new_fp = layer.pixel_fingerprint();
+                if new_fp == old_fingerprints[i] {
+                    // Pixels unchanged — clear the dirty flag so GPU skips upload
+                    layer.clear_dirty();
+                } else {
+                    // Pixels changed — mark fully dirty for full GPU upload
+                    layer.mark_fully_dirty();
+                }
+            } else {
+                // New layer (didn't exist before) — always upload
+                layer.mark_fully_dirty();
+            }
         }
     }
 
@@ -768,6 +791,63 @@ mod tests {
         // Second stroke pixel should be clear
         let px2 = canvas.layer(0).unwrap().pixel(80, 80).unwrap();
         assert_eq!(px2[3], 0, "Second stroke should be gone after undo");
+    }
+
+    #[test]
+    fn test_undo_only_dirties_changed_layer() {
+        let mut canvas = Canvas::new(100, 100);
+        canvas.add_layer(); // layer 0
+        canvas.add_layer(); // layer 1
+
+        // Draw on layer 0
+        canvas.stroke_begin(0, 50.0, 50.0, 1.0);
+        canvas.stroke_end();
+
+        // Clear dirty flags (simulating GPU upload)
+        canvas.layers[0].clear_dirty();
+        canvas.layers[1].clear_dirty();
+
+        // Draw on layer 1
+        canvas.stroke_begin(1, 50.0, 50.0, 1.0);
+        canvas.stroke_end();
+
+        // Clear dirty flags again
+        canvas.layers[0].clear_dirty();
+        canvas.layers[1].clear_dirty();
+
+        // Undo the stroke on layer 1
+        canvas.undo();
+
+        // Layer 0 should NOT be dirty (its pixels didn't change)
+        assert!(!canvas.layers[0].dirty, "Unchanged layer should not be dirty after undo");
+        // Layer 1 SHOULD be dirty (the stroke was removed)
+        assert!(canvas.layers[1].dirty, "Changed layer should be dirty after undo");
+    }
+
+    #[test]
+    fn test_redo_only_dirties_changed_layer() {
+        let mut canvas = Canvas::new(100, 100);
+        canvas.add_layer(); // layer 0
+        canvas.add_layer(); // layer 1
+
+        // Draw on both layers
+        canvas.stroke_begin(0, 50.0, 50.0, 1.0);
+        canvas.stroke_end();
+        canvas.stroke_begin(1, 50.0, 50.0, 1.0);
+        canvas.stroke_end();
+
+        // Undo stroke on layer 1, then clear dirty
+        canvas.undo();
+        canvas.layers[0].clear_dirty();
+        canvas.layers[1].clear_dirty();
+
+        // Redo stroke on layer 1
+        canvas.redo();
+
+        // Layer 0 should NOT be dirty
+        assert!(!canvas.layers[0].dirty, "Unchanged layer should not be dirty after redo");
+        // Layer 1 SHOULD be dirty
+        assert!(canvas.layers[1].dirty, "Changed layer should be dirty after redo");
     }
 
     #[test]
