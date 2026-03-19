@@ -3,6 +3,7 @@ mod brush;
 mod canvas;
 mod color;
 pub mod document;
+mod dynamics;
 mod layer;
 pub mod operation;
 pub mod oplog;
@@ -178,6 +179,63 @@ impl ImpressionCanvas {
     /// Clear the active brush tip (revert to computed circle).
     pub fn clear_brush_tip(&mut self) {
         self.inner.clear_brush_tip();
+    }
+
+    /// Set shape dynamics. Control values: 0=Off, 1=PenPressure, 2=Random.
+    pub fn set_shape_dynamics(
+        &mut self,
+        size_jitter: f32,
+        size_control: u8,
+        size_min: f32,
+        angle_jitter: f32,
+        angle_control: u8,
+        roundness_jitter: f32,
+        roundness_control: u8,
+        roundness_min: f32,
+    ) {
+        use dynamics::{DynamicControl, DynamicParam, ShapeDynamics};
+        self.inner.set_shape_dynamics(ShapeDynamics {
+            size: DynamicParam {
+                jitter: size_jitter,
+                control: DynamicControl::from_u8(size_control),
+                minimum: size_min,
+            },
+            angle: DynamicParam {
+                jitter: angle_jitter,
+                control: DynamicControl::from_u8(angle_control),
+                minimum: 0.0, // angle minimum is not meaningful (additive)
+            },
+            roundness: DynamicParam {
+                jitter: roundness_jitter,
+                control: DynamicControl::from_u8(roundness_control),
+                minimum: roundness_min,
+            },
+        });
+    }
+
+    /// Set transfer dynamics. Control values: 0=Off, 1=PenPressure, 2=Random.
+    pub fn set_transfer_dynamics(
+        &mut self,
+        opacity_jitter: f32,
+        opacity_control: u8,
+        opacity_min: f32,
+        flow_jitter: f32,
+        flow_control: u8,
+        flow_min: f32,
+    ) {
+        use dynamics::{DynamicControl, DynamicParam, TransferDynamics};
+        self.inner.set_transfer_dynamics(TransferDynamics {
+            opacity: DynamicParam {
+                jitter: opacity_jitter,
+                control: DynamicControl::from_u8(opacity_control),
+                minimum: opacity_min,
+            },
+            flow: DynamicParam {
+                jitter: flow_jitter,
+                control: DynamicControl::from_u8(flow_control),
+                minimum: flow_min,
+            },
+        });
     }
 
     pub fn set_background_color(&mut self, r: u8, g: u8, b: u8) {

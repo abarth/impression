@@ -1,5 +1,7 @@
+import { useState } from "react";
+import { ChevronRight } from "lucide-react";
 import { SliderControl } from "./SliderControl";
-import type { BrushSettings } from "../hooks/useBrushSettings";
+import type { BrushSettings, DynamicParam, DynamicControl } from "../hooks/useBrushSettings";
 
 interface BrushSettingsPanelProps {
   settings: BrushSettings;
@@ -8,6 +10,93 @@ interface BrushSettingsPanelProps {
     key: K,
     value: BrushSettings[K],
   ) => void;
+}
+
+const CONTROL_LABELS: Record<DynamicControl, string> = {
+  0: "Off",
+  1: "Pen Pressure",
+  2: "Random",
+};
+
+function DynamicParamControl({
+  label,
+  param,
+  onChange,
+  showMinimum,
+}: {
+  label: string;
+  param: DynamicParam;
+  onChange: (p: DynamicParam) => void;
+  showMinimum?: boolean;
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex justify-between items-center gap-2">
+        <span className="text-[12px] text-cream-dim shrink-0">{label}</span>
+        <select
+          value={param.control}
+          onChange={(e) =>
+            onChange({ ...param, control: Number(e.target.value) as DynamicControl })
+          }
+          className="text-[11px] bg-graphite-850 text-cream-dim border border-graphite-800 rounded px-1.5 py-0.5 outline-none focus:border-graphite-600 transition-colors duration-150"
+        >
+          <option value={0}>{CONTROL_LABELS[0]}</option>
+          <option value={1}>{CONTROL_LABELS[1]}</option>
+          <option value={2}>{CONTROL_LABELS[2]}</option>
+        </select>
+      </div>
+      {param.control !== 0 && (
+        <>
+          <SliderControl
+            label="Jitter"
+            value={param.jitter}
+            min={0}
+            max={1.0}
+            step={0.01}
+            displayValue={`${Math.round(param.jitter * 100)}%`}
+            onChange={(v) => onChange({ ...param, jitter: v })}
+          />
+          {showMinimum !== false && (
+            <SliderControl
+              label="Minimum"
+              value={param.minimum}
+              min={0}
+              max={1.0}
+              step={0.01}
+              displayValue={`${Math.round(param.minimum * 100)}%`}
+              onChange={(v) => onChange({ ...param, minimum: v })}
+            />
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function CollapsibleSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="flex flex-col">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1 text-[11px] font-medium text-cream-muted tracking-wide uppercase py-1 hover:text-cream-dim transition-colors duration-150"
+      >
+        <ChevronRight
+          size={12}
+          className={`transition-transform duration-150 ${open ? "rotate-90" : ""}`}
+        />
+        {title}
+      </button>
+      {open && <div className="flex flex-col gap-3 pt-2 pl-1">{children}</div>}
+    </div>
+  );
 }
 
 export function BrushSettingsPanel({
@@ -94,6 +183,54 @@ export function BrushSettingsPanel({
           onChange={(v) => onUpdate("smoothing", v)}
         />
       </div>
+
+      <CollapsibleSection title="Shape Dynamics">
+        <DynamicParamControl
+          label="Size"
+          param={settings.shapeDynamics.size}
+          onChange={(p) =>
+            onUpdate("shapeDynamics", { ...settings.shapeDynamics, size: p })
+          }
+        />
+        <DynamicParamControl
+          label="Angle"
+          param={settings.shapeDynamics.angle}
+          onChange={(p) =>
+            onUpdate("shapeDynamics", { ...settings.shapeDynamics, angle: p })
+          }
+          showMinimum={false}
+        />
+        <DynamicParamControl
+          label="Roundness"
+          param={settings.shapeDynamics.roundness}
+          onChange={(p) =>
+            onUpdate("shapeDynamics", { ...settings.shapeDynamics, roundness: p })
+          }
+        />
+      </CollapsibleSection>
+
+      <CollapsibleSection title="Transfer Dynamics">
+        <DynamicParamControl
+          label="Opacity"
+          param={settings.transferDynamics.opacity}
+          onChange={(p) =>
+            onUpdate("transferDynamics", {
+              ...settings.transferDynamics,
+              opacity: p,
+            })
+          }
+        />
+        <DynamicParamControl
+          label="Flow"
+          param={settings.transferDynamics.flow}
+          onChange={(p) =>
+            onUpdate("transferDynamics", {
+              ...settings.transferDynamics,
+              flow: p,
+            })
+          }
+        />
+      </CollapsibleSection>
     </div>
   );
 }

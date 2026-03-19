@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::blend_mode::BlendMode;
+use crate::dynamics::{ShapeDynamics, TransferDynamics};
 use crate::selection::CombineMode;
 
 /// Unique identifier for a site (user session). In single-player mode, this
@@ -114,6 +115,8 @@ pub enum Operation {
         layer: LayerId,
         before: Option<LayerId>,
     },
+    SetShapeDynamics(ShapeDynamics),
+    SetTransferDynamics(TransferDynamics),
 }
 
 /// Magic byte prefix indicating a versioned format.

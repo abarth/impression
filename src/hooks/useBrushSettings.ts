@@ -2,6 +2,26 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import type { Engine } from "../engine";
 import type { Tool } from "./useTool";
 
+/** Control source for a dynamic brush parameter. */
+export type DynamicControl = 0 | 1 | 2; // 0=Off, 1=PenPressure, 2=Random
+
+export interface DynamicParam {
+  jitter: number;
+  control: DynamicControl;
+  minimum: number;
+}
+
+export interface ShapeDynamics {
+  size: DynamicParam;
+  angle: DynamicParam;
+  roundness: DynamicParam;
+}
+
+export interface TransferDynamics {
+  opacity: DynamicParam;
+  flow: DynamicParam;
+}
+
 export interface BrushSettings {
   size: number;
   spacing: number;
@@ -11,11 +31,26 @@ export interface BrushSettings {
   roundness: number;
   angle: number;
   smoothing: number;
+  shapeDynamics: ShapeDynamics;
+  transferDynamics: TransferDynamics;
 }
 
 /** Blend mode constants matching Rust BlendMode enum values. */
 export const BLEND_MODE_NORMAL = 0;
 export const BLEND_MODE_DST_OUT = 108;
+
+const DEFAULT_DYNAMIC_PARAM: DynamicParam = { jitter: 0, control: 0, minimum: 0 };
+
+const DEFAULT_SHAPE_DYNAMICS: ShapeDynamics = {
+  size: { ...DEFAULT_DYNAMIC_PARAM },
+  angle: { ...DEFAULT_DYNAMIC_PARAM },
+  roundness: { ...DEFAULT_DYNAMIC_PARAM },
+};
+
+const DEFAULT_TRANSFER_DYNAMICS: TransferDynamics = {
+  opacity: { ...DEFAULT_DYNAMIC_PARAM },
+  flow: { ...DEFAULT_DYNAMIC_PARAM },
+};
 
 const DEFAULT_BRUSH: BrushSettings = {
   size: 20,
@@ -26,6 +61,8 @@ const DEFAULT_BRUSH: BrushSettings = {
   roundness: 1.0,
   angle: 0,
   smoothing: 0,
+  shapeDynamics: DEFAULT_SHAPE_DYNAMICS,
+  transferDynamics: DEFAULT_TRANSFER_DYNAMICS,
 };
 
 const DEFAULT_ERASER: BrushSettings = {
@@ -37,6 +74,8 @@ const DEFAULT_ERASER: BrushSettings = {
   roundness: 1.0,
   angle: 0,
   smoothing: 0,
+  shapeDynamics: DEFAULT_SHAPE_DYNAMICS,
+  transferDynamics: DEFAULT_TRANSFER_DYNAMICS,
 };
 
 /** Tools that have their own brush settings. */
@@ -72,6 +111,17 @@ export function useBrushSettings(engine: Engine | null, activeTool: Tool) {
     eng.setBrushRoundness(s.roundness);
     eng.setBrushAngle(s.angle);
     eng.setBrushBlendMode(TOOL_BLEND_MODES[tool]);
+    const sd = s.shapeDynamics;
+    eng.setShapeDynamics(
+      sd.size.jitter, sd.size.control, sd.size.minimum,
+      sd.angle.jitter, sd.angle.control,
+      sd.roundness.jitter, sd.roundness.control, sd.roundness.minimum,
+    );
+    const td = s.transferDynamics;
+    eng.setTransferDynamics(
+      td.opacity.jitter, td.opacity.control, td.opacity.minimum,
+      td.flow.jitter, td.flow.control, td.flow.minimum,
+    );
   }, []);
 
   // Sync when engine becomes available

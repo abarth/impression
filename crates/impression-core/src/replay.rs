@@ -271,6 +271,12 @@ impl Canvas {
                     self.layers.insert(insert_at, moved);
                 }
             }
+            Operation::SetShapeDynamics(dynamics) => {
+                self.site_for_mut(site).brush.shape_dynamics = dynamics;
+            }
+            Operation::SetTransferDynamics(dynamics) => {
+                self.site_for_mut(site).brush.transfer_dynamics = dynamics;
+            }
         }
     }
 }

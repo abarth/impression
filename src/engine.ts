@@ -182,6 +182,28 @@ export class Engine {
     this.canvas.set_brush_angle(angle);
   }
 
+  setShapeDynamics(
+    sizeJitter: number, sizeControl: number, sizeMin: number,
+    angleJitter: number, angleControl: number,
+    roundnessJitter: number, roundnessControl: number, roundnessMin: number,
+  ): void {
+    this.canvas.set_shape_dynamics(
+      sizeJitter, sizeControl, sizeMin,
+      angleJitter, angleControl,
+      roundnessJitter, roundnessControl, roundnessMin,
+    );
+  }
+
+  setTransferDynamics(
+    opacityJitter: number, opacityControl: number, opacityMin: number,
+    flowJitter: number, flowControl: number, flowMin: number,
+  ): void {
+    this.canvas.set_transfer_dynamics(
+      opacityJitter, opacityControl, opacityMin,
+      flowJitter, flowControl, flowMin,
+    );
+  }
+
   registerBrushTip(id: string, pixels: Uint8Array, width: number, height: number): void {
     this.canvas.register_brush_tip(id, pixels, width, height);
   }

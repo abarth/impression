@@ -1,5 +1,6 @@
 use crate::blend_mode::{porter_duff_composite, BlendMode};
 use crate::color::{blend_pixel, Color};
+use crate::dynamics::{self, Rng, ShapeDynamics, TransferDynamics};
 use crate::layer::Layer;
 
 /// A custom brush tip image: grayscale alpha mask.
@@ -33,6 +34,10 @@ pub struct BrushSettings {
     pub roundness: f32,
     /// Rotation angle of the brush in degrees (0.0 to 360.0).
     pub angle: f32,
+    /// Per-stamp shape variation (size, angle, roundness).
+    pub shape_dynamics: ShapeDynamics,
+    /// Per-stamp transfer variation (opacity, flow).
+    pub transfer_dynamics: TransferDynamics,
 }
 
 impl Default for BrushSettings {
@@ -47,6 +52,8 @@ impl Default for BrushSettings {
             hardness: 1.0,
             roundness: 1.0,
             angle: 0.0,
+            shape_dynamics: ShapeDynamics::default(),
+            transfer_dynamics: TransferDynamics::default(),
         }
     }
 }
@@ -60,6 +67,8 @@ pub struct StrokeState {
     snapshot: Vec<u8>,
     /// Temporary buffer where stamps accumulate during the stroke.
     stroke_layer: Option<Layer>,
+    /// Per-stroke PRNG for random dynamics, seeded from stroke start coordinates.
+    pub rng: Option<Rng>,
 }
 
 impl StrokeState {
@@ -70,6 +79,7 @@ impl StrokeState {
             residual_distance: 0.0,
             snapshot: Vec::new(),
             stroke_layer: None,
+            rng: None,
         }
     }
 
@@ -79,6 +89,7 @@ impl StrokeState {
         self.residual_distance = 0.0;
         self.snapshot.clear();
         self.stroke_layer = None;
+        self.rng = None;
     }
 }
 
@@ -365,6 +376,7 @@ pub fn interpolate_and_stamp(
     residual: f32,
     tip: Option<&BrushTip>,
     selection: Option<&[u8]>,
+    rng: &mut Rng,
 ) -> f32 {
     let dx = x1 - x0;
     let dy = y1 - y0;
@@ -382,12 +394,20 @@ pub fn interpolate_and_stamp(
         let y = y0 + dy * t;
         let pressure = p0 + (p1 - p0) * t;
 
-        let effective_size = brush.size * pressure;
+        let effective_size = dynamics::apply_dynamic(&brush.shape_dynamics.size, brush.size, pressure, rng);
         let radius = effective_size / 2.0;
+        let stamp_roundness = dynamics::apply_dynamic(&brush.shape_dynamics.roundness, brush.roundness, pressure, rng)
+            .clamp(0.01, 1.0);
+        let stamp_angle = dynamics::apply_angle_dynamic(&brush.shape_dynamics.angle, brush.angle, pressure, rng);
+
+        // Apply transfer dynamics
+        let stamp_flow = dynamics::apply_dynamic(&brush.transfer_dynamics.flow, brush.flow, pressure, rng)
+            .clamp(0.0, 1.0);
+
         if let Some(tip) = tip {
-            stamp_tip(target, x, y, radius, tip, brush.color, brush.flow, brush.roundness, brush.angle, selection);
+            stamp_tip(target, x, y, radius, tip, brush.color, stamp_flow, stamp_roundness, stamp_angle, selection);
         } else {
-            stamp_ellipse(target, x, y, radius, brush.color, brush.flow, brush.hardness, brush.roundness, brush.angle, selection);
+            stamp_ellipse(target, x, y, radius, brush.color, stamp_flow, brush.hardness, stamp_roundness, stamp_angle, selection);
         }
 
         // Spacing is relative to the current circle's effective size
@@ -413,23 +433,37 @@ pub fn stroke_begin(
     state.last_point = Some((x, y, pressure));
     state.residual_distance = 0.0;
 
+    // Seed per-stroke PRNG from start coordinates
+    let mut rng = Rng::from_coords(x, y);
+
     // Save snapshot and create stroke buffer
     state.snapshot = layer.pixels.clone();
     let mut stroke = Layer::new(0, layer.width, layer.height);
 
-    // Stamp initial point into the stroke buffer
-    let radius = (brush.size * pressure) / 2.0;
+    let effective_size = dynamics::apply_dynamic(&brush.shape_dynamics.size, brush.size, pressure, &mut rng);
+    let radius = effective_size / 2.0;
+    let stamp_roundness = dynamics::apply_dynamic(&brush.shape_dynamics.roundness, brush.roundness, pressure, &mut rng)
+        .clamp(0.01, 1.0);
+    let stamp_angle = dynamics::apply_angle_dynamic(&brush.shape_dynamics.angle, brush.angle, pressure, &mut rng);
+    let stamp_flow = dynamics::apply_dynamic(&brush.transfer_dynamics.flow, brush.flow, pressure, &mut rng)
+        .clamp(0.0, 1.0);
+
     if let Some(tip) = tip {
-        stamp_tip(&mut stroke, x, y, radius, tip, brush.color, brush.flow, brush.roundness, brush.angle, selection);
+        stamp_tip(&mut stroke, x, y, radius, tip, brush.color, stamp_flow, stamp_roundness, stamp_angle, selection);
     } else {
-        stamp_ellipse(&mut stroke, x, y, radius, brush.color, brush.flow, brush.hardness, brush.roundness, brush.angle, selection);
+        stamp_ellipse(&mut stroke, x, y, radius, brush.color, stamp_flow, brush.hardness, stamp_roundness, stamp_angle, selection);
     }
 
+    // Apply transfer dynamics to stroke opacity
+    let stroke_opacity = dynamics::apply_dynamic(&brush.transfer_dynamics.opacity, brush.opacity, pressure, &mut rng)
+        .clamp(0.0, 1.0);
+
     // Composite stroke buffer over snapshot into layer
-    let bounds = stamp_bounds(x, y, radius, brush.roundness, layer.width, layer.height);
-    recomposite_region(layer, &state.snapshot, &stroke, brush.opacity, brush.blend_mode, bounds);
+    let bounds = stamp_bounds(x, y, radius, stamp_roundness, layer.width, layer.height);
+    recomposite_region(layer, &state.snapshot, &stroke, stroke_opacity, brush.blend_mode, bounds);
 
     state.stroke_layer = Some(stroke);
+    state.rng = Some(rng);
 }
 
 /// Continue a stroke to the given position.
@@ -452,6 +486,11 @@ pub fn stroke_move(
         None => return,
     };
 
+    let rng = match state.rng.as_mut() {
+        Some(r) => r,
+        None => return,
+    };
+
     if let Some((lx, ly, lp)) = state.last_point {
         let residual = interpolate_and_stamp(
             stroke,
@@ -465,6 +504,7 @@ pub fn stroke_move(
             state.residual_distance,
             tip,
             selection,
+            rng,
         );
         state.residual_distance = residual;
 
@@ -484,6 +524,7 @@ pub fn stroke_end(state: &mut StrokeState) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dynamics::Rng;
 
     #[test]
     fn test_stamp_circle_center_pixel() {
@@ -522,7 +563,7 @@ mod tests {
         };
 
         // Draw a horizontal line of 10 pixels
-        let residual = interpolate_and_stamp(&mut layer, 0.0, 5.0, 1.0, 10.0, 5.0, 1.0, &brush, 0.0, None, None);
+        let residual = interpolate_and_stamp(&mut layer, 0.0, 5.0, 1.0, 10.0, 5.0, 1.0, &brush, 0.0, None, None, &mut Rng::from_coords(0.0, 5.0));
         assert!(residual >= 0.0);
         // step=1.0, segment=10.0, stamps at 0,1,...,10 -> next at 11, residual=1.0
         assert!(residual <= 1.01, "residual={residual}");
@@ -603,122 +644,93 @@ mod tests {
         };
 
         // First segment: 7 pixels long, step=5, stamps at 0 and 5, next at 10 -> residual=10-7=3
-        let residual = interpolate_and_stamp(&mut layer, 0.0, 5.0, 1.0, 7.0, 5.0, 1.0, &brush, 0.0, None, None);
+        let mut rng = Rng::from_coords(0.0, 5.0);
+        let residual = interpolate_and_stamp(&mut layer, 0.0, 5.0, 1.0, 7.0, 5.0, 1.0, &brush, 0.0, None, None, &mut rng);
         assert!((residual - 3.0).abs() < 0.01, "residual should be ~3.0, got {}", residual);
 
         // Second segment: 7 pixels, starting with residual=3, stamp at 3, next at 8 -> residual=8-7=1
-        let residual2 = interpolate_and_stamp(&mut layer, 7.0, 5.0, 1.0, 14.0, 5.0, 1.0, &brush, residual, None, None);
+        let residual2 = interpolate_and_stamp(&mut layer, 7.0, 5.0, 1.0, 14.0, 5.0, 1.0, &brush, residual, None, None, &mut rng);
         assert!((residual2 - 1.0).abs() < 0.01, "residual should be ~1.0, got {}", residual2);
     }
 
     #[test]
-    fn test_spacing_depends_on_pressure() {
-        // With pressure-dependent spacing, low pressure should produce
-        // more closely spaced (smaller) stamps than high pressure.
-        let brush = BrushSettings {
-            size: 20.0,
-            spacing: 0.5, // step = 0.5 * effective_size
-            color: Color::black(),
-            opacity: 1.0,
-            flow: 1.0,
-            ..Default::default()
-        };
-
-        // Count stamps at full pressure: effective_size=20, step=10
-        let mut stamps_full = 0u32;
-        let mut dist = 0.0f32;
-        let segment_len = 100.0f32;
-        while dist <= segment_len {
-            stamps_full += 1;
-            let step = (brush.spacing * (brush.size * 1.0)).max(1.0); // pressure=1.0
-            dist += step;
-        }
-
-        // Count stamps at half pressure: effective_size=10, step=5
-        let mut stamps_half = 0u32;
-        dist = 0.0;
-        while dist <= segment_len {
-            stamps_half += 1;
-            let step = (brush.spacing * (brush.size * 0.5)).max(1.0); // pressure=0.5
-            dist += step;
-        }
-
-        // Half pressure should produce more stamps (closer spacing)
-        assert!(
-            stamps_half > stamps_full,
-            "Half pressure ({stamps_half} stamps) should produce more stamps than full ({stamps_full})"
-        );
-
-        // Verify actual interpolate_and_stamp produces the same behavior:
-        // draw with low pressure and count non-transparent columns
-        let mut layer_low = Layer::new(0, 200, 10);
-        interpolate_and_stamp(&mut layer_low, 0.0, 5.0, 0.25, 100.0, 5.0, 0.25, &brush, 0.0, None, None);
-        let mut layer_high = Layer::new(0, 200, 10);
-        interpolate_and_stamp(&mut layer_high, 0.0, 5.0, 1.0, 100.0, 5.0, 1.0, &brush, 0.0, None, None);
-
-        // Count columns with any drawn pixels for each layer
-        let cols_drawn = |layer: &Layer| -> usize {
-            (0..200)
-                .filter(|&x| (0..10u32).any(|y| layer.pixel(x, y).unwrap()[3] > 0))
-                .count()
-        };
-
-        // Low pressure circles are smaller but more closely spaced,
-        // high pressure circles are larger and more spread out.
-        // With low pressure the circles are small, so they cover fewer columns per stamp.
-        // With high pressure the circles are large, so they cover more columns per stamp.
-        // The key invariant: low pressure stamps more frequently.
-        let low_cols = cols_drawn(&layer_low);
-        let high_cols = cols_drawn(&layer_high);
-
-        // High pressure covers more area per stamp (bigger circles), so it covers more columns
-        assert!(
-            high_cols > low_cols,
-            "High pressure ({high_cols} cols) should cover more area than low ({low_cols} cols)"
-        );
-    }
-
-    #[test]
-    fn test_spacing_at_zero_pressure_uses_minimum_step() {
-        // When pressure is 0, effective_size=0, so step should clamp to 1.0
-        let mut layer = Layer::new(0, 100, 10);
+    fn test_size_constant_without_dynamics() {
+        // With default dynamics (Off), pressure should NOT affect stamp size.
         let brush = BrushSettings {
             size: 20.0,
             spacing: 0.5,
             ..Default::default()
         };
 
-        // This should not infinite-loop because step is clamped to max(1.0)
-        let residual = interpolate_and_stamp(&mut layer, 0.0, 5.0, 0.0, 50.0, 5.0, 0.0, &brush, 0.0, None, None);
-        assert!(residual >= 0.0);
-        assert!(residual <= 1.0);
+        let mut layer_low = Layer::new(0, 200, 20);
+        interpolate_and_stamp(&mut layer_low, 0.0, 10.0, 0.25, 100.0, 10.0, 0.25, &brush, 0.0, None, None, &mut Rng::from_coords(0.0, 10.0));
+        let mut layer_high = Layer::new(0, 200, 20);
+        interpolate_and_stamp(&mut layer_high, 0.0, 10.0, 1.0, 100.0, 10.0, 1.0, &brush, 0.0, None, None, &mut Rng::from_coords(0.0, 10.0));
+
+        let cols_drawn = |layer: &Layer| -> usize {
+            (0..200)
+                .filter(|&x| (0..20u32).any(|y| layer.pixel(x, y).unwrap()[3] > 0))
+                .count()
+        };
+
+        assert_eq!(
+            cols_drawn(&layer_low),
+            cols_drawn(&layer_high),
+            "Without dynamics, pressure should not affect size"
+        );
     }
 
     #[test]
-    fn test_spacing_varies_along_stroke_with_pressure_change() {
-        // Stroke goes from low to high pressure. The spacing should be
-        // tighter at the low-pressure end and wider at the high-pressure end.
-        let mut layer = Layer::new(0, 200, 20);
+    fn test_size_varies_with_pressure_dynamics() {
+        use crate::dynamics::{DynamicControl, DynamicParam, ShapeDynamics};
+
         let brush = BrushSettings {
-            size: 10.0,
-            spacing: 0.5, // step = 0.5 * effective_size
-            color: Color::black(),
-            opacity: 1.0,
-            flow: 1.0,
+            size: 20.0,
+            spacing: 0.5,
+            shape_dynamics: ShapeDynamics {
+                size: DynamicParam { jitter: 1.0, control: DynamicControl::PenPressure, minimum: 0.0 },
+                ..Default::default()
+            },
             ..Default::default()
         };
 
-        interpolate_and_stamp(&mut layer, 0.0, 10.0, 0.2, 100.0, 10.0, 1.0, &brush, 0.0, None, None);
+        let mut layer_low = Layer::new(0, 200, 20);
+        interpolate_and_stamp(&mut layer_low, 0.0, 10.0, 0.25, 100.0, 10.0, 0.25, &brush, 0.0, None, None, &mut Rng::from_coords(0.0, 10.0));
+        let mut layer_high = Layer::new(0, 200, 20);
+        interpolate_and_stamp(&mut layer_high, 0.0, 10.0, 1.0, 100.0, 10.0, 1.0, &brush, 0.0, None, None, &mut Rng::from_coords(0.0, 10.0));
 
-        // Check that the first half (low pressure region) has stamps drawn
+        let cols_drawn = |layer: &Layer| -> usize {
+            (0..200)
+                .filter(|&x| (0..20u32).any(|y| layer.pixel(x, y).unwrap()[3] > 0))
+                .count()
+        };
+
+        let low_cols = cols_drawn(&layer_low);
+        let high_cols = cols_drawn(&layer_high);
+        assert!(
+            high_cols > low_cols,
+            "With pressure dynamics, high pressure ({high_cols} cols) should cover more than low ({low_cols} cols)"
+        );
+    }
+
+    #[test]
+    fn test_stamps_along_full_stroke() {
+        let mut layer = Layer::new(0, 200, 20);
+        let brush = BrushSettings {
+            size: 10.0,
+            spacing: 0.5,
+            ..Default::default()
+        };
+
+        interpolate_and_stamp(&mut layer, 0.0, 10.0, 1.0, 100.0, 10.0, 1.0, &brush, 0.0, None, None, &mut Rng::from_coords(0.0, 10.0));
+
         let first_quarter_has_stamps = (0..25u32)
             .any(|x| (0..20u32).any(|y| layer.pixel(x, y).unwrap()[3] > 0));
-        assert!(first_quarter_has_stamps, "Should have stamps in low-pressure region");
+        assert!(first_quarter_has_stamps, "Should have stamps in first quarter");
 
-        // Check that the last quarter (high pressure region) also has stamps
         let last_quarter_has_stamps = (75..100u32)
             .any(|x| (0..20u32).any(|y| layer.pixel(x, y).unwrap()[3] > 0));
-        assert!(last_quarter_has_stamps, "Should have stamps in high-pressure region");
+        assert!(last_quarter_has_stamps, "Should have stamps in last quarter");
     }
 
     #[test]
@@ -809,6 +821,7 @@ mod tests {
             hardness: 1.0,
             roundness: 1.0,
             angle: 0.0,
+            ..Default::default()
         };
 
         stroke_begin(&mut layer, &mut state, &paint_brush, 25.0, 25.0, 1.0, None, None);
@@ -829,6 +842,7 @@ mod tests {
             hardness: 1.0,
             roundness: 1.0,
             angle: 0.0,
+            ..Default::default()
         };
 
         stroke_begin(&mut layer, &mut state, &erase_brush, 25.0, 25.0, 1.0, None, None);

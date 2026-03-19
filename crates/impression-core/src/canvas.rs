@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use crate::blend_mode::BlendMode;
 use crate::brush::BrushTip;
 use crate::color::Color;
+use crate::dynamics::{ShapeDynamics, TransferDynamics};
 use crate::layer::Layer;
 use crate::operation::{LayerId, Operation, SiteId, SiteOperation};
 use crate::oplog::OpLog;
@@ -220,6 +221,14 @@ impl Canvas {
         self.apply(Operation::SetBrushTip(None));
     }
 
+    pub fn set_shape_dynamics(&mut self, dynamics: ShapeDynamics) {
+        self.apply(Operation::SetShapeDynamics(dynamics));
+    }
+
+    pub fn set_transfer_dynamics(&mut self, dynamics: TransferDynamics) {
+        self.apply(Operation::SetTransferDynamics(dynamics));
+    }
+
     /// Sample the composited color at (x, y) across all visible layers,
     /// over the background color. Applies each layer's blend mode.
     pub fn sample_color(&self, x: u32, y: u32) -> [u8; 3] {
@@ -378,6 +387,8 @@ impl Canvas {
                 | Operation::ClearLayer { .. }
                 | Operation::RenameLayer { .. }
                 | Operation::MoveLayer { .. }
+                | Operation::SetShapeDynamics(_)
+                | Operation::SetTransferDynamics(_)
                 | Operation::CreateCanvas { .. } => {
                     self.oplog.begin_undo_group(site_op.site);
                 }

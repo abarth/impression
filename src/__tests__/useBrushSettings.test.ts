@@ -19,6 +19,8 @@ function createMockEngine(): Engine {
     setBrushRoundness: () => {},
     setBrushAngle: () => {},
     setBrushBlendMode: () => {},
+    setShapeDynamics: () => {},
+    setTransferDynamics: () => {},
   } as unknown as Engine;
 }
 

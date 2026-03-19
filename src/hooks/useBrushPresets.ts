@@ -63,6 +63,8 @@ export function useBrushPresets({
       }
       if (preset.flow !== undefined) partial.flow = preset.flow;
       if (preset.opacity !== undefined) partial.opacity = preset.opacity;
+      if (preset.shapeDynamics) partial.shapeDynamics = preset.shapeDynamics;
+      if (preset.transferDynamics) partial.transferDynamics = preset.transferDynamics;
 
       onApplyPreset(partial);
     },
