@@ -7,6 +7,9 @@ export interface BrushSettings {
   spacing: number;
   flow: number;
   opacity: number;
+  hardness: number;
+  roundness: number;
+  angle: number;
 }
 
 /** Blend mode constants matching Rust BlendMode enum values. */
@@ -18,6 +21,9 @@ const DEFAULT_BRUSH: BrushSettings = {
   spacing: 0.15,
   flow: 0.8,
   opacity: 1.0,
+  hardness: 1.0,
+  roundness: 1.0,
+  angle: 0,
 };
 
 const DEFAULT_ERASER: BrushSettings = {
@@ -25,6 +31,9 @@ const DEFAULT_ERASER: BrushSettings = {
   spacing: 0.15,
   flow: 1.0,
   opacity: 1.0,
+  hardness: 1.0,
+  roundness: 1.0,
+  angle: 0,
 };
 
 /** Tools that have their own brush settings. */
@@ -56,6 +65,9 @@ export function useBrushSettings(engine: Engine | null, activeTool: Tool) {
     eng.setBrushSpacing(s.spacing);
     eng.setBrushFlow(s.flow);
     eng.setBrushOpacity(s.opacity);
+    eng.setBrushHardness(s.hardness);
+    eng.setBrushRoundness(s.roundness);
+    eng.setBrushAngle(s.angle);
     eng.setBrushBlendMode(TOOL_BLEND_MODES[tool]);
   }, []);
 
@@ -143,5 +155,17 @@ export function useBrushSettings(engine: Engine | null, activeTool: Tool) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [syncToEngine]);
 
-  return { settings, updateSetting, toolLabel: currentTool };
+  const applyPreset = useCallback(
+    (partial: Partial<BrushSettings>) => {
+      const tool = isToolWithSettings(activeToolRef.current) ? activeToolRef.current : "brush";
+      const prev = perToolRef.current;
+      const next = { ...prev, [tool]: { ...prev[tool], ...partial } };
+      perToolRef.current = next;
+      setPerTool(next);
+      syncToEngine(next[tool], tool);
+    },
+    [syncToEngine],
+  );
+
+  return { settings, updateSetting, applyPreset, toolLabel: currentTool };
 }

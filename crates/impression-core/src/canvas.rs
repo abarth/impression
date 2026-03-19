@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use crate::blend_mode::BlendMode;
+use crate::brush::BrushTip;
 use crate::color::Color;
 use crate::layer::Layer;
 use crate::operation::{LayerId, Operation, SiteId, SiteOperation};
@@ -24,6 +25,8 @@ pub struct Canvas {
     pub(crate) layer_id_counter: u32,
     /// Periodic state checkpoints for incremental undo/redo.
     pub(crate) checkpoints: Vec<Checkpoint>,
+    /// Registry of custom brush tip images, keyed by tip ID.
+    pub tip_registry: HashMap<String, BrushTip>,
 }
 
 impl Canvas {
@@ -40,7 +43,13 @@ impl Canvas {
             oplog: OpLog::new(),
             layer_id_counter: 0,
             checkpoints: Vec::new(),
+            tip_registry: HashMap::new(),
         }
+    }
+
+    /// Register a custom brush tip image in the tip registry.
+    pub fn register_brush_tip(&mut self, id: String, pixels: Vec<u8>, width: u32, height: u32) {
+        self.tip_registry.insert(id, BrushTip { pixels, width, height });
     }
 
     /// Get the active site's state.
@@ -189,6 +198,26 @@ impl Canvas {
 
     pub fn set_brush_blend_mode(&mut self, mode: BlendMode) {
         self.apply(Operation::SetBrushBlendMode(mode));
+    }
+
+    pub fn set_brush_hardness(&mut self, hardness: f32) {
+        self.apply(Operation::SetBrushHardness(hardness));
+    }
+
+    pub fn set_brush_roundness(&mut self, roundness: f32) {
+        self.apply(Operation::SetBrushRoundness(roundness));
+    }
+
+    pub fn set_brush_angle(&mut self, angle: f32) {
+        self.apply(Operation::SetBrushAngle(angle));
+    }
+
+    pub fn set_brush_tip(&mut self, id: &str) {
+        self.apply(Operation::SetBrushTip(Some(id.to_string())));
+    }
+
+    pub fn clear_brush_tip(&mut self) {
+        self.apply(Operation::SetBrushTip(None));
     }
 
     /// Sample the composited color at (x, y) across all visible layers,
@@ -365,6 +394,10 @@ impl Canvas {
                 | Operation::SetBrushOpacity(_)
                 | Operation::SetBrushFlow(_)
                 | Operation::SetBrushBlendMode(_)
+                | Operation::SetBrushHardness(_)
+                | Operation::SetBrushRoundness(_)
+                | Operation::SetBrushAngle(_)
+                | Operation::SetBrushTip(_)
                 | Operation::SetLayerOpacity { .. }
                 | Operation::SetLayerBlendMode { .. }
                 | Operation::SetLayerVisible { .. }

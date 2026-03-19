@@ -67,7 +67,7 @@ Located in `src/__tests__/`. Uses vitest with happy-dom environment. WebGPU glob
 ## Key modules
 
 **Rust** (`crates/impression-core/src/`):
-- `brush.rs` — Point interpolation (pressure-dependent spacing), circle rasterization with selection mask clipping. `stamp_circle` accepts `Option<&[u8]>` selection mask.
+- `brush.rs` — Point interpolation (pressure-dependent spacing), elliptical stamp rasterization with hardness/roundness/angle, custom brush tip images with bilinear interpolation, selection mask clipping. `BrushTip` struct for custom grayscale alpha masks.
 - `layer.rs` — Per-layer RGBA pixel buffer with dirty tracking
 - `canvas.rs` — Layer stack, brush settings, stroke state, selection mask, color sampling (composites all visible layers)
 - `color.rs` — Alpha-over compositing math
@@ -86,6 +86,7 @@ Located in `src/__tests__/`. Uses vitest with happy-dom environment. WebGPU glob
 **React components** (`src/components/`):
 - `CanvasViewport.tsx` — Pannable/zoomable canvas container, tool-aware input handling. **Important**: coordinates passed to `zoom()` must be viewport-local (subtract viewport rect), not raw `clientX/clientY`, or the zoom anchor will drift.
 - `Toolbar.tsx` — Tool selection (marquee, lasso, brush, eyedropper, pan, zoom) using Radix ToggleGroup
+- `BrushPicker.tsx` — Brush preset picker with group display and ABR import button
 - `DocumentPicker.tsx` — Painting list with rename, delete, open; integrates `NewDocumentDialog`
 - `NewDocumentDialog.tsx` — Radix Dialog for creating new paintings with size presets
 
@@ -96,6 +97,7 @@ Located in `src/__tests__/`. Uses vitest with happy-dom environment. WebGPU glob
 - `useSelection` — Cmd/Ctrl+A (select all), Cmd/Ctrl+D (deselect) keyboard shortcuts
 - `useDocumentManager` — Document CRUD, IndexedDB persistence, hash-based URL routing
 - `useBrushSettings`, `useColorState`, `useLayerManager` — State synced to engine
+- `useBrushPresets` — Brush preset management (IndexedDB), per-tool preset tracking, ABR import
 
 ## Tools & keyboard shortcuts (matching Photoshop)
 
@@ -142,8 +144,20 @@ When adding UI components: use `graphite-*` and `cream-*` tokens, `shadow-soft` 
 
 - **Spacing** is pressure-dependent: `step = spacing × size × pressure`. Lower pressure → smaller circles with tighter spacing to maintain stroke density.
 - **Flow** controls per-stamp alpha. **Opacity** controls whole-stroke alpha (applied at compositing via layer opacity).
-- Circle rasterization uses smoothstep anti-aliasing at the edge.
+- **Hardness** (0.0–1.0) controls the falloff gradient. `inner_r = r * hardness`; full alpha inside inner_r, smoothstep to outer edge.
+- **Roundness** (0.01–1.0) squashes the brush into an ellipse. Before computing distance, y is scaled by `1/roundness`.
+- **Angle** (0–360°) rotates the brush by applying inverse rotation before distance computation.
+- **Custom brush tips** are grayscale alpha masks stamped with bilinear interpolation, scaled to the current radius. Stored in IndexedDB, referenced by ID in the oplog.
+- Circle/ellipse rasterization uses smoothstep anti-aliasing at the edge.
 - When a selection is active, brush strokes are clipped to the selected region (selection mask alpha multiplied into stamp alpha).
+
+## Brush presets
+
+- Named brush presets organized into groups, stored in `brush_presets` IndexedDB store.
+- Each preset specifies tip type (computed circle with hardness, or custom tip image), size, spacing, roundness, angle, and optional flow/opacity.
+- Brush and eraser each track their own active preset independently.
+- The Rust engine knows only parameters (hardness/roundness/angle/tip), not presets — "preset" is a TypeScript/UI concept.
+- **ABR import**: Photoshop .abr files (version 6+) can be imported. The parser extracts brush tip images from `samp` sections and creates presets in a group named after the file.
 
 ## URL routing
 

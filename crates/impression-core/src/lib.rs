@@ -152,6 +152,33 @@ impl ImpressionCanvas {
             .set_brush_blend_mode(blend_mode::BlendMode::from_u32(mode));
     }
 
+    pub fn set_brush_hardness(&mut self, hardness: f32) {
+        self.inner.set_brush_hardness(hardness);
+    }
+
+    pub fn set_brush_roundness(&mut self, roundness: f32) {
+        self.inner.set_brush_roundness(roundness);
+    }
+
+    pub fn set_brush_angle(&mut self, angle: f32) {
+        self.inner.set_brush_angle(angle);
+    }
+
+    /// Register a custom brush tip image. Called from TypeScript before replay.
+    pub fn register_brush_tip(&mut self, id: &str, pixels: &[u8], width: u32, height: u32) {
+        self.inner.register_brush_tip(id.to_string(), pixels.to_vec(), width, height);
+    }
+
+    /// Set the active brush tip by ID (must be registered first).
+    pub fn set_brush_tip(&mut self, id: &str) {
+        self.inner.set_brush_tip(id);
+    }
+
+    /// Clear the active brush tip (revert to computed circle).
+    pub fn clear_brush_tip(&mut self) {
+        self.inner.clear_brush_tip();
+    }
+
     pub fn set_background_color(&mut self, r: u8, g: u8, b: u8) {
         self.inner.set_background_color(color::Color::new(r, g, b));
     }

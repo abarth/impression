@@ -31,6 +31,15 @@ export function BrushSettingsPanel({
           onChange={(v) => onUpdate("size", v)}
         />
         <SliderControl
+          label="Hardness"
+          value={settings.hardness}
+          min={0}
+          max={1.0}
+          step={0.01}
+          displayValue={`${Math.round(settings.hardness * 100)}%`}
+          onChange={(v) => onUpdate("hardness", v)}
+        />
+        <SliderControl
           label="Spacing"
           value={settings.spacing}
           min={0.01}
@@ -38,6 +47,24 @@ export function BrushSettingsPanel({
           step={0.01}
           displayValue={`${Math.round(settings.spacing * 100)}%`}
           onChange={(v) => onUpdate("spacing", v)}
+        />
+        <SliderControl
+          label="Roundness"
+          value={settings.roundness}
+          min={0.01}
+          max={1.0}
+          step={0.01}
+          displayValue={`${Math.round(settings.roundness * 100)}%`}
+          onChange={(v) => onUpdate("roundness", v)}
+        />
+        <SliderControl
+          label="Angle"
+          value={settings.angle}
+          min={0}
+          max={360}
+          step={1}
+          displayValue={`${Math.round(settings.angle)}°`}
+          onChange={(v) => onUpdate("angle", v)}
         />
         <SliderControl
           label="Flow"

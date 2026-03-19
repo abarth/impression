@@ -7,9 +7,11 @@ import { useColorState } from "./hooks/useColorState";
 import { useLayerManager } from "./hooks/useLayerManager";
 import { useSelection } from "./hooks/useSelection";
 import { useDocumentManager } from "./hooks/useDocumentManager";
+import { useBrushPresets } from "./hooks/useBrushPresets";
 import { CanvasViewport } from "./components/CanvasViewport";
 import { MenuBar } from "./components/MenuBar";
 import { ToolPicker } from "./components/ToolPicker";
+import { BrushPicker } from "./components/BrushPicker";
 import { BrushSettingsPanel } from "./components/BrushSettingsPanel";
 import { ColorDisplay } from "./components/ColorDisplay";
 import { LayerPanel } from "./components/LayerPanel";
@@ -36,11 +38,16 @@ export function App() {
   const { engine, error: gpuError } = useEngine(canvasRef, engineOptions);
   const { transform, pan, zoom, fitToViewport } = useViewTransform();
   const { activeTool, selectTool } = useTool();
-  const { settings, updateSetting, toolLabel } = useBrushSettings(engine, activeTool);
+  const { settings, updateSetting, applyPreset, toolLabel } = useBrushSettings(engine, activeTool);
   const { colors, setForeground, setBackground, swapColors } =
     useColorState(engine);
   const { layers, activeIndex, canvasColor, canvasVisible, addLayer, removeLayer, selectLayer, setLayerOpacity, setLayerBlendMode, renameLayer, moveLayer, toggleLayerVisible, setCanvasColor, toggleCanvasVisible } =
     useLayerManager(engine);
+  const { groups: presetGroups, activePresetId, selectPreset, importAbr } = useBrushPresets({
+    storage: docManager.storage,
+    activeTool,
+    onApplyPreset: applyPreset,
+  });
   const [undoState, setUndoState] = useState({ canUndo: false, canRedo: false });
 
   // Poll undo/redo state (cheap WASM call) to keep buttons in sync
@@ -164,6 +171,7 @@ export function App() {
 
         {/* Right panel */}
         <div className="flex flex-col w-56 bg-graphite-900 border-l border-graphite-850 overflow-y-auto">
+          <BrushPicker groups={presetGroups} activePresetId={activePresetId} onSelect={selectPreset} onImportAbr={importAbr} />
           <BrushSettingsPanel settings={settings} toolLabel={toolLabel} onUpdate={updateSetting} />
           <ColorDisplay
             foreground={colors.foreground}

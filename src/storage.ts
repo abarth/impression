@@ -1,5 +1,8 @@
+import type { BrushPreset, StoredBrushTip } from "./brushPresets";
+import { DEFAULT_PRESETS } from "./brushPresets";
+
 const DB_NAME = "impression";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 export interface DocumentMeta {
   id: string;
@@ -38,6 +41,17 @@ export class Storage {
             keyPath: ["document_id", "chunk_index"],
           });
           chunks.createIndex("by_document", "document_id", { unique: false });
+        }
+        if (!db.objectStoreNames.contains("brush_presets")) {
+          const presets = db.createObjectStore("brush_presets", { keyPath: "id" });
+          presets.createIndex("by_group", "group", { unique: false });
+          // Seed default presets
+          for (const preset of DEFAULT_PRESETS) {
+            presets.put(preset);
+          }
+        }
+        if (!db.objectStoreNames.contains("brush_tips")) {
+          db.createObjectStore("brush_tips", { keyPath: "id" });
         }
       };
 
@@ -157,6 +171,42 @@ export class Storage {
       request.onsuccess = () => resolve(request.result as T[]);
       request.onerror = () => reject(request.error);
     });
+  }
+
+  // -- Brush Presets --
+
+  async listPresets(): Promise<BrushPreset[]> {
+    return this.getAll("brush_presets");
+  }
+
+  async getPreset(id: string): Promise<BrushPreset | undefined> {
+    return this.get("brush_presets", id);
+  }
+
+  async savePreset(preset: BrushPreset): Promise<void> {
+    return this.put("brush_presets", preset);
+  }
+
+  async deletePreset(id: string): Promise<void> {
+    return this.delete("brush_presets", id);
+  }
+
+  // -- Brush Tips --
+
+  async listTips(): Promise<StoredBrushTip[]> {
+    return this.getAll("brush_tips");
+  }
+
+  async getTip(id: string): Promise<StoredBrushTip | undefined> {
+    return this.get("brush_tips", id);
+  }
+
+  async saveTip(tip: StoredBrushTip): Promise<void> {
+    return this.put("brush_tips", tip);
+  }
+
+  async deleteTip(id: string): Promise<void> {
+    return this.delete("brush_tips", id);
   }
 
   close(): void {

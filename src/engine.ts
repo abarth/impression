@@ -170,6 +170,30 @@ export class Engine {
     this.canvas.set_brush_blend_mode(mode);
   }
 
+  setBrushHardness(hardness: number): void {
+    this.canvas.set_brush_hardness(hardness);
+  }
+
+  setBrushRoundness(roundness: number): void {
+    this.canvas.set_brush_roundness(roundness);
+  }
+
+  setBrushAngle(angle: number): void {
+    this.canvas.set_brush_angle(angle);
+  }
+
+  registerBrushTip(id: string, pixels: Uint8Array, width: number, height: number): void {
+    this.canvas.register_brush_tip(id, pixels, width, height);
+  }
+
+  setBrushTip(id: string): void {
+    this.canvas.set_brush_tip(id);
+  }
+
+  clearBrushTip(): void {
+    this.canvas.clear_brush_tip();
+  }
+
   setBackgroundColor(r: number, g: number, b: number): void {
     this.canvas.set_background_color(r, g, b);
   }

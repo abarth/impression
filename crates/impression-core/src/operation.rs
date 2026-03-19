@@ -58,6 +58,10 @@ pub enum Operation {
     SetBrushOpacity(f32),
     SetBrushFlow(f32),
     SetBrushBlendMode(BlendMode),
+    SetBrushHardness(f32),
+    SetBrushRoundness(f32),
+    SetBrushAngle(f32),
+    SetBrushTip(Option<String>),
     /// Add a new layer with the given globally unique ID.
     AddLayer {
         id: LayerId,

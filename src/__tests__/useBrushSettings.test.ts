@@ -15,6 +15,9 @@ function createMockEngine(): Engine {
     setBrushSpacing: () => {},
     setBrushFlow: () => {},
     setBrushOpacity: () => {},
+    setBrushHardness: () => {},
+    setBrushRoundness: () => {},
+    setBrushAngle: () => {},
     setBrushBlendMode: () => {},
   } as unknown as Engine;
 }

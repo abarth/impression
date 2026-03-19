@@ -1,4 +1,4 @@
-use crate::brush::{BrushSettings, StrokeState};
+use crate::brush::{BrushSettings, BrushTip, StrokeState};
 use crate::operation::LayerId;
 use crate::selection::SelectionMask;
 
@@ -13,6 +13,10 @@ pub struct SiteState {
     pub lasso_points: Vec<(f32, f32)>,
     /// The layer currently being stroked (used during replay).
     pub stroke_layer: LayerId,
+    /// Active brush tip ID (references Canvas::tip_registry).
+    pub active_tip_id: Option<String>,
+    /// Cloned tip data for the active brush tip (set when active_tip_id changes).
+    pub active_tip: Option<BrushTip>,
 }
 
 impl Default for SiteState {
@@ -23,6 +27,8 @@ impl Default for SiteState {
             selection: None,
             lasso_points: Vec::new(),
             stroke_layer: 0,
+            active_tip_id: None,
+            active_tip: None,
         }
     }
 }

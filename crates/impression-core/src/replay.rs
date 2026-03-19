@@ -129,10 +129,11 @@ impl Canvas {
                 let site_state = self.sites.get(&site).unwrap();
                 let sel_data: Option<Vec<u8>> = site_state.selection.as_ref().map(|s| s.data.clone());
                 let brush = site_state.brush.clone();
+                let tip = site_state.active_tip.clone();
                 let sel_ref = sel_data.as_deref();
                 if let Some(l) = self.layers.iter_mut().find(|l| l.id == layer) {
                     let stroke_state = &mut self.sites.get_mut(&site).unwrap().stroke_state;
-                    brush::stroke_begin(l, stroke_state, &brush, x, y, pressure, sel_ref);
+                    brush::stroke_begin(l, stroke_state, &brush, x, y, pressure, tip.as_ref(), sel_ref);
                 }
             }
             Operation::StrokeMove { x, y, pressure } => {
@@ -140,10 +141,11 @@ impl Canvas {
                 let stroke_layer = site_state.stroke_layer;
                 let sel_data: Option<Vec<u8>> = site_state.selection.as_ref().map(|s| s.data.clone());
                 let brush = site_state.brush.clone();
+                let tip = site_state.active_tip.clone();
                 let sel_ref = sel_data.as_deref();
                 if let Some(l) = self.layers.iter_mut().find(|l| l.id == stroke_layer) {
                     let stroke_state = &mut self.sites.get_mut(&site).unwrap().stroke_state;
-                    brush::stroke_move(l, stroke_state, &brush, x, y, pressure, sel_ref);
+                    brush::stroke_move(l, stroke_state, &brush, x, y, pressure, tip.as_ref(), sel_ref);
                 }
             }
             Operation::StrokeEnd => {
@@ -155,6 +157,15 @@ impl Canvas {
             Operation::SetBrushOpacity(opacity) => self.site_for_mut(site).brush.opacity = opacity,
             Operation::SetBrushFlow(flow) => self.site_for_mut(site).brush.flow = flow,
             Operation::SetBrushBlendMode(mode) => self.site_for_mut(site).brush.blend_mode = mode,
+            Operation::SetBrushHardness(hardness) => self.site_for_mut(site).brush.hardness = hardness,
+            Operation::SetBrushRoundness(roundness) => self.site_for_mut(site).brush.roundness = roundness,
+            Operation::SetBrushAngle(angle) => self.site_for_mut(site).brush.angle = angle,
+            Operation::SetBrushTip(ref tip_id) => {
+                let cloned_tip = tip_id.as_ref().and_then(|id| self.tip_registry.get(id).cloned());
+                let site_state = self.site_for_mut(site);
+                site_state.active_tip_id = tip_id.clone();
+                site_state.active_tip = cloned_tip;
+            }
             Operation::AddLayer { id } => {
                 let mut layer = crate::layer::Layer::new(id, self.width, self.height);
                 layer.name = format!("Layer {}", self.layers.len() + 1);
