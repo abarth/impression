@@ -7,6 +7,7 @@ mod layer;
 pub mod operation;
 pub mod oplog;
 mod replay;
+mod sampling;
 mod selection;
 mod site;
 

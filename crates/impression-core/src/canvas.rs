@@ -223,39 +223,7 @@ impl Canvas {
     /// Sample the composited color at (x, y) across all visible layers,
     /// over the background color. Applies each layer's blend mode.
     pub fn sample_color(&self, x: u32, y: u32) -> [u8; 3] {
-        let mut dr = self.background_color.r as f32 / 255.0;
-        let mut dg = self.background_color.g as f32 / 255.0;
-        let mut db = self.background_color.b as f32 / 255.0;
-        let mut da: f32 = 1.0;
-
-        for layer in &self.layers {
-            if !layer.visible {
-                continue;
-            }
-            if let Some(px) = layer.pixel(x, y) {
-                let src_a = (px[3] as f32 / 255.0) * layer.opacity;
-                if src_a <= 0.0 {
-                    continue;
-                }
-                let sr = px[0] as f32 / 255.0;
-                let sg = px[1] as f32 / 255.0;
-                let sb = px[2] as f32 / 255.0;
-
-                let (br, bg, bb) =
-                    crate::color::apply_blend(sr, sg, sb, dr, dg, db, layer.blend_mode);
-
-                dr = src_a * br + (1.0 - src_a) * dr;
-                dg = src_a * bg + (1.0 - src_a) * dg;
-                db = src_a * bb + (1.0 - src_a) * db;
-                da = src_a + da * (1.0 - src_a);
-            }
-        }
-
-        [
-            (dr * 255.0 + 0.5).min(255.0) as u8,
-            (dg * 255.0 + 0.5).min(255.0) as u8,
-            (db * 255.0 + 0.5).min(255.0) as u8,
-        ]
+        crate::sampling::sample_color(&self.layers, &self.background_color, x, y)
     }
 
     // -- Strokes --
@@ -473,86 +441,6 @@ mod tests {
 
         assert!(!canvas.remove_layer(99));
         assert_eq!(canvas.layers.len(), 2);
-    }
-
-    #[test]
-    fn test_sample_color_background_only() {
-        let canvas = Canvas::new(10, 10);
-        let c = canvas.sample_color(5, 5);
-        assert_eq!(c, [255, 255, 255]);
-    }
-
-    #[test]
-    fn test_sample_color_with_opaque_layer() {
-        let mut canvas = Canvas::new(10, 10);
-        canvas.add_layer();
-        {
-            let layer = canvas.layer_mut(0).unwrap();
-            let px = layer.pixel_mut(3, 3).unwrap();
-            *px = [255, 0, 0, 255];
-        }
-        let c = canvas.sample_color(3, 3);
-        assert_eq!(c, [255, 0, 0]);
-
-        let c2 = canvas.sample_color(0, 0);
-        assert_eq!(c2, [255, 255, 255]);
-    }
-
-    #[test]
-    fn test_sample_color_invisible_layer_ignored() {
-        let mut canvas = Canvas::new(10, 10);
-        canvas.add_layer();
-        {
-            let layer = canvas.layer_mut(0).unwrap();
-            let px = layer.pixel_mut(3, 3).unwrap();
-            *px = [255, 0, 0, 255];
-            layer.visible = false;
-        }
-        let c = canvas.sample_color(3, 3);
-        assert_eq!(c, [255, 255, 255]);
-    }
-
-    #[test]
-    fn test_sample_color_with_multiply_blend() {
-        let mut canvas = Canvas::new(10, 10);
-        canvas.add_layer();
-        {
-            let layer = canvas.layer_mut(0).unwrap();
-            let px = layer.pixel_mut(3, 3).unwrap();
-            *px = [128, 128, 128, 255];
-            layer.blend_mode = BlendMode::Multiply;
-        }
-        let c = canvas.sample_color(3, 3);
-        assert!((c[0] as i32 - 128).abs() <= 1);
-    }
-
-    #[test]
-    fn test_sample_color_with_screen_blend() {
-        let mut canvas = Canvas::new(10, 10);
-        canvas.background_color = Color::new(128, 128, 128);
-        canvas.add_layer();
-        {
-            let layer = canvas.layer_mut(0).unwrap();
-            let px = layer.pixel_mut(3, 3).unwrap();
-            *px = [128, 128, 128, 255];
-            layer.blend_mode = BlendMode::Screen;
-        }
-        let c = canvas.sample_color(3, 3);
-        assert!((c[0] as i32 - 192).abs() <= 2);
-    }
-
-    #[test]
-    fn test_sample_color_normal_blend_matches_alpha_over() {
-        let mut canvas = Canvas::new(10, 10);
-        canvas.add_layer();
-        {
-            let layer = canvas.layer_mut(0).unwrap();
-            let px = layer.pixel_mut(3, 3).unwrap();
-            *px = [255, 0, 0, 255];
-            layer.blend_mode = BlendMode::Normal;
-        }
-        let c = canvas.sample_color(3, 3);
-        assert_eq!(c, [255, 0, 0]);
     }
 
     #[test]
