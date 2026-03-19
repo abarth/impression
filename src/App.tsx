@@ -162,6 +162,7 @@ export function App() {
           engine={engine}
           activeTool={activeTool}
           brushSize={settings.size}
+          smoothing={settings.smoothing}
           transform={transform}
           pan={pan}
           zoom={zoom}

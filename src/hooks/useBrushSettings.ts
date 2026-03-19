@@ -10,6 +10,7 @@ export interface BrushSettings {
   hardness: number;
   roundness: number;
   angle: number;
+  smoothing: number;
 }
 
 /** Blend mode constants matching Rust BlendMode enum values. */
@@ -24,6 +25,7 @@ const DEFAULT_BRUSH: BrushSettings = {
   hardness: 1.0,
   roundness: 1.0,
   angle: 0,
+  smoothing: 0,
 };
 
 const DEFAULT_ERASER: BrushSettings = {
@@ -34,6 +36,7 @@ const DEFAULT_ERASER: BrushSettings = {
   hardness: 1.0,
   roundness: 1.0,
   angle: 0,
+  smoothing: 0,
 };
 
 /** Tools that have their own brush settings. */

@@ -2,6 +2,7 @@ import { useRef, useState, useEffect, useCallback, useMemo, type RefObject } fro
 import type { Engine } from "../engine";
 import type { Tool } from "../hooks/useTool";
 import type { ViewTransform } from "../hooks/useViewTransform";
+import { StrokeSmoother } from "../strokeSmoothing";
 
 /** Selection combine mode based on modifier keys (matches Photoshop). */
 function getCombineMode(e: PointerEvent): number {
@@ -16,6 +17,7 @@ interface CanvasViewportProps {
   engine: Engine | null;
   activeTool: Tool;
   brushSize: number;
+  smoothing: number;
   transform: ViewTransform;
   pan: (dx: number, dy: number) => void;
   zoom: (delta: number, cx: number, cy: number) => void;
@@ -59,6 +61,7 @@ export function CanvasViewport({
   engine,
   activeTool,
   brushSize,
+  smoothing,
   transform,
   pan,
   zoom,
@@ -85,6 +88,9 @@ export function CanvasViewport({
   const lassoPreviewPoints = useRef<{ x: number; y: number }[]>([]);
   const toolRef = useRef(activeTool);
   toolRef.current = activeTool;
+  const smootherRef = useRef(new StrokeSmoother());
+  const smoothingRef = useRef(smoothing);
+  smoothingRef.current = smoothing;
 
   /** Update the SVG selection preview overlay. */
   const updateOverlay = useCallback(
@@ -173,11 +179,12 @@ export function CanvasViewport({
         viewport.setPointerCapture(e.pointerId);
         const { x, y } = screenToCanvas(e.clientX, e.clientY);
         const pressure = e.pointerType === "pen" ? e.pressure : 1.0;
+        const pt = smootherRef.current.begin(x, y, pressure, smoothingRef.current);
         engine.strokeBegin(
           engine.getActiveLayer(),
-          x,
-          y,
-          pressure,
+          pt.x,
+          pt.y,
+          pt.pressure,
         );
       } else if (tool === "pan" || tool === "zoom") {
         viewport.setPointerCapture(e.pointerId);
@@ -214,11 +221,12 @@ export function CanvasViewport({
         for (const ce of events) {
           const { x, y } = screenToCanvas(ce.clientX, ce.clientY);
           const pressure = ce.pointerType === "pen" ? ce.pressure : 1.0;
+          const pt = smootherRef.current.move(x, y, pressure);
           engine.strokeMove(
             engine.getActiveLayer(),
-            x,
-            y,
-            pressure,
+            pt.x,
+            pt.y,
+            pt.pressure,
           );
         }
       } else if (tool === "pan" && dragStart.current) {
@@ -261,6 +269,17 @@ export function CanvasViewport({
         lassoPreviewPoints.current = [];
         updateOverlay("clear");
       } else if ((tool === "brush" || tool === "eraser") && engine) {
+        const { x, y } = screenToCanvas(e.clientX, e.clientY);
+        const pressure = e.pointerType === "pen" ? e.pressure : 1.0;
+        const catchUp = smootherRef.current.end(x, y, pressure);
+        if (catchUp) {
+          engine.strokeMove(
+            engine.getActiveLayer(),
+            catchUp.x,
+            catchUp.y,
+            catchUp.pressure,
+          );
+        }
         engine.strokeEnd();
       }
       dragStart.current = null;

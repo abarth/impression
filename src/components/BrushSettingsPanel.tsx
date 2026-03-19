@@ -84,6 +84,15 @@ export function BrushSettingsPanel({
           displayValue={`${Math.round(settings.opacity * 100)}%`}
           onChange={(v) => onUpdate("opacity", v)}
         />
+        <SliderControl
+          label="Smoothing"
+          value={settings.smoothing}
+          min={0}
+          max={1.0}
+          step={0.01}
+          displayValue={`${Math.round(settings.smoothing * 100)}%`}
+          onChange={(v) => onUpdate("smoothing", v)}
+        />
       </div>
     </div>
   );
