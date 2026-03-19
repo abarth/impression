@@ -13,7 +13,7 @@ export interface DocumentSize {
 export interface EngineInitOptions {
   documentSize: DocumentSize;
   chunks?: Uint8Array[];
-  storage?: Storage | null;
+  storage: Storage | null;
   documentMeta?: DocumentMeta | null;
 }
 
