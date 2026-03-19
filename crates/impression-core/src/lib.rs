@@ -6,7 +6,9 @@ pub mod document;
 mod layer;
 pub mod operation;
 pub mod oplog;
+mod replay;
 mod selection;
+mod site;
 
 use wasm_bindgen::prelude::*;
 
