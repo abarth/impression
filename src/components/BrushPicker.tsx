@@ -19,11 +19,10 @@ function PresetThumbnail({
 }) {
   return (
     <button
-      className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-150 ease-out ${
-        isActive
-          ? "bg-graphite-700 ring-1 ring-cream-muted"
-          : "bg-graphite-850 hover:bg-graphite-800"
-      }`}
+      className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-150 ease-out ${isActive
+        ? "bg-graphite-700 ring-1 ring-cream-muted"
+        : "bg-graphite-850 hover:bg-graphite-800"
+        }`}
       onClick={onSelect}
       title={preset.name}
     >
@@ -58,9 +57,9 @@ export function BrushPicker({
   if (groupNames.length === 0 && !onImportAbr) return null;
 
   return (
-    <div className="flex flex-col gap-3 px-4 pt-4 pb-3">
+    <div className="flex flex-col gap-3 px-4 pt-4 pb-3 border-t border-graphite-850">
       <h3 className="text-[11px] font-medium text-cream-muted tracking-wide uppercase">
-        Brush Presets
+        Brush Picker
       </h3>
       {groupNames.map((group) => (
         <div key={group} className="flex flex-col gap-1.5">
