@@ -12,6 +12,7 @@ import { CanvasViewport } from "./components/CanvasViewport";
 import { MenuBar } from "./components/MenuBar";
 import { ToolPicker } from "./components/ToolPicker";
 import { BrushPicker } from "./components/BrushPicker";
+import { ToolSettingsPanel } from "./components/ToolSettingsPanel";
 import { BrushSettingsPanel } from "./components/BrushSettingsPanel";
 import { ColorDisplay } from "./components/ColorDisplay";
 import { LayerPanel } from "./components/LayerPanel";
@@ -172,8 +173,9 @@ export function App() {
 
         {/* Right panel */}
         <div className="flex flex-col w-56 bg-graphite-900 border-l border-graphite-850 overflow-y-auto">
+          <ToolSettingsPanel settings={settings} toolLabel={toolLabel} onUpdate={updateSetting} />
           <BrushPicker groups={presetGroups} activePresetId={activePresetId} onSelect={selectPreset} onImportAbr={importAbr} />
-          <BrushSettingsPanel settings={settings} toolLabel={toolLabel} onUpdate={updateSetting} />
+          <BrushSettingsPanel settings={settings} onUpdate={updateSetting} />
           <ColorDisplay
             foreground={colors.foreground}
             background={colors.background}
