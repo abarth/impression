@@ -59,6 +59,7 @@ function createMockCanvas() {
     layer_dirty_width: vi.fn().mockReturnValue(100),
     layer_dirty_height: vi.fn().mockReturnValue(100),
     load_chunk: vi.fn().mockReturnValue(true),
+    move_layer: vi.fn(),
   };
 }
 
@@ -206,6 +207,16 @@ describe("Engine", () => {
 
     engine.removeLayer(2);
     expect(engine.getActiveLayer()).toBeLessThanOrEqual(1);
+  });
+
+  it("should move layer via WASM and sync all layers", () => {
+    engine.addLayer();
+    engine.addLayer();
+    mockCanvas.move_layer = vi.fn();
+
+    engine.moveLayer(0, 1);
+
+    expect(mockCanvas.move_layer).toHaveBeenCalledWith(0, 1);
   });
 
   it("should get and set layer blend mode", () => {

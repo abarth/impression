@@ -290,6 +290,38 @@ impl Canvas {
         }
     }
 
+    /// Move a layer to a new position. `to_index` is the target index in the
+    /// layer stack. The layer at `from_index` is removed and re-inserted so
+    /// that it ends up at `to_index`.
+    pub fn move_layer(&mut self, from_index: u32, to_index: u32) {
+        if from_index == to_index {
+            return;
+        }
+        let from = from_index as usize;
+        if from >= self.layers.len() {
+            return;
+        }
+        let layer_id = self.layers[from].id;
+        // Determine the `before` LayerId: the layer currently at to_index
+        // after the source is conceptually removed.
+        let before = if (to_index as usize) >= self.layers.len() {
+            None
+        } else {
+            // Build the list without the source to find what's at to_index
+            let without_src: Vec<LayerId> = self.layers.iter()
+                .filter(|l| l.id != layer_id)
+                .map(|l| l.id)
+                .collect();
+            let ti = to_index as usize;
+            if ti < without_src.len() {
+                Some(without_src[ti])
+            } else {
+                None
+            }
+        };
+        self.apply(Operation::MoveLayer { layer: layer_id, before });
+    }
+
     // -- Undo/Redo (per-site) --
 
     pub fn undo(&mut self) -> bool {
@@ -344,6 +376,7 @@ impl Canvas {
                 | Operation::Deselect
                 | Operation::ClearLayer { .. }
                 | Operation::RenameLayer { .. }
+                | Operation::MoveLayer { .. }
                 | Operation::CreateCanvas { .. } => {
                     self.oplog.begin_undo_group(site_op.site);
                 }
@@ -1028,6 +1061,98 @@ mod tests {
         canvas.add_layer();
         canvas.rename_layer(0, "Background".to_string());
         assert_eq!(canvas.layer(0).unwrap().name, "Background");
+    }
+
+    #[test]
+    fn test_move_layer_forward() {
+        let mut canvas = Canvas::new(10, 10);
+        canvas.add_layer(); // index 0
+        canvas.add_layer(); // index 1
+        canvas.add_layer(); // index 2
+        let id0 = canvas.layers[0].id;
+        let id1 = canvas.layers[1].id;
+        let id2 = canvas.layers[2].id;
+
+        // Move layer 0 to index 2 (end)
+        canvas.move_layer(0, 2);
+        assert_eq!(canvas.layers[0].id, id1);
+        assert_eq!(canvas.layers[1].id, id2);
+        assert_eq!(canvas.layers[2].id, id0);
+    }
+
+    #[test]
+    fn test_move_layer_backward() {
+        let mut canvas = Canvas::new(10, 10);
+        canvas.add_layer(); // index 0
+        canvas.add_layer(); // index 1
+        canvas.add_layer(); // index 2
+        let id0 = canvas.layers[0].id;
+        let id1 = canvas.layers[1].id;
+        let id2 = canvas.layers[2].id;
+
+        // Move layer 2 to index 0
+        canvas.move_layer(2, 0);
+        assert_eq!(canvas.layers[0].id, id2);
+        assert_eq!(canvas.layers[1].id, id0);
+        assert_eq!(canvas.layers[2].id, id1);
+    }
+
+    #[test]
+    fn test_move_layer_same_index_noop() {
+        let mut canvas = Canvas::new(10, 10);
+        canvas.add_layer();
+        canvas.add_layer();
+        let id0 = canvas.layers[0].id;
+        let id1 = canvas.layers[1].id;
+
+        canvas.move_layer(1, 1);
+        assert_eq!(canvas.layers[0].id, id0);
+        assert_eq!(canvas.layers[1].id, id1);
+    }
+
+    #[test]
+    fn test_move_layer_is_undoable() {
+        let mut canvas = Canvas::new(10, 10);
+        canvas.add_layer();
+        canvas.add_layer();
+        canvas.add_layer();
+        let id0 = canvas.layers[0].id;
+        let id1 = canvas.layers[1].id;
+        let id2 = canvas.layers[2].id;
+
+        canvas.move_layer(0, 2);
+        assert_eq!(canvas.layers[0].id, id1);
+
+        canvas.undo();
+        assert_eq!(canvas.layers[0].id, id0);
+        assert_eq!(canvas.layers[1].id, id1);
+        assert_eq!(canvas.layers[2].id, id2);
+
+        canvas.redo();
+        assert_eq!(canvas.layers[0].id, id1);
+        assert_eq!(canvas.layers[1].id, id2);
+        assert_eq!(canvas.layers[2].id, id0);
+    }
+
+    #[test]
+    fn test_move_layer_persists_through_load_chunk() {
+        let mut canvas1 = Canvas::new(10, 10);
+        canvas1.add_layer();
+        canvas1.add_layer();
+        canvas1.add_layer();
+        let id0 = canvas1.layers[0].id;
+        let id1 = canvas1.layers[1].id;
+        let id2 = canvas1.layers[2].id;
+
+        canvas1.move_layer(0, 2);
+        let data = canvas1.flush_pending_operations().unwrap();
+
+        let mut canvas2 = Canvas::new(10, 10);
+        canvas2.load_chunk(&data).unwrap();
+
+        assert_eq!(canvas2.layers[0].id, id1);
+        assert_eq!(canvas2.layers[1].id, id2);
+        assert_eq!(canvas2.layers[2].id, id0);
     }
 
     #[test]

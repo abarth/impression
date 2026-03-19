@@ -149,6 +149,38 @@ export function useLayerManager(engine: Engine | null) {
     [],
   );
 
+  const moveLayer = useCallback(
+    (fromIndex: number, toIndex: number) => {
+      const eng = engineRef.current;
+      if (!eng) return;
+      const prev = layersRef.current;
+      if (fromIndex === toIndex) return;
+      if (fromIndex < 0 || fromIndex >= prev.length) return;
+      if (toIndex < 0 || toIndex >= prev.length) return;
+      eng.moveLayer(fromIndex, toIndex);
+      const nextLayers = [...prev];
+      const [moved] = nextLayers.splice(fromIndex, 1);
+      nextLayers.splice(toIndex, 0, moved);
+      layersRef.current = nextLayers;
+      setLayers(nextLayers);
+      // Update active index to follow the moved layer or adjust for shift
+      const prevActive = activeIndexRef.current;
+      let nextActive: number;
+      if (prevActive === fromIndex) {
+        nextActive = toIndex;
+      } else if (fromIndex < prevActive && toIndex >= prevActive) {
+        nextActive = prevActive - 1;
+      } else if (fromIndex > prevActive && toIndex <= prevActive) {
+        nextActive = prevActive + 1;
+      } else {
+        nextActive = prevActive;
+      }
+      activeIndexRef.current = nextActive;
+      setActiveIndex(nextActive);
+    },
+    [],
+  );
+
   const toggleCanvasVisible = useCallback(() => {
     const next = !canvasVisibleRef.current;
     canvasVisibleRef.current = next;
@@ -157,5 +189,5 @@ export function useLayerManager(engine: Engine | null) {
     if (eng) eng.setCanvasVisible(next);
   }, []);
 
-  return { layers, activeIndex, canvasColor, canvasVisible, addLayer, removeLayer, selectLayer, setLayerOpacity, setLayerBlendMode, renameLayer, toggleLayerVisible, setCanvasColor, toggleCanvasVisible };
+  return { layers, activeIndex, canvasColor, canvasVisible, addLayer, removeLayer, selectLayer, setLayerOpacity, setLayerBlendMode, renameLayer, moveLayer, toggleLayerVisible, setCanvasColor, toggleCanvasVisible };
 }

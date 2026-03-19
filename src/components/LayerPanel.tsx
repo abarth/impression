@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Plus, Trash2, Eye, EyeOff } from "lucide-react";
+import { useState, useRef, useCallback } from "react";
+import { Plus, Trash2, Eye, EyeOff, GripVertical } from "lucide-react";
 import * as Popover from "@radix-ui/react-popover";
 import { OklchColorPicker } from "./OklchColorPicker";
 import type { LayerInfo } from "../hooks/useLayerManager";
@@ -16,6 +16,7 @@ interface LayerPanelProps {
   onOpacityChange: (index: number, opacity: number) => void;
   onBlendModeChange: (index: number, mode: number) => void;
   onRename: (index: number, name: string) => void;
+  onMoveLayer: (fromIndex: number, toIndex: number) => void;
   onToggleLayerVisible: (index: number) => void;
   onCanvasColorChange: (hex: string) => void;
   onToggleCanvasVisible: () => void;
@@ -32,6 +33,7 @@ export function LayerPanel({
   onOpacityChange,
   onBlendModeChange,
   onRename,
+  onMoveLayer,
   onToggleLayerVisible,
   onCanvasColorChange,
   onToggleCanvasVisible,
@@ -39,6 +41,56 @@ export function LayerPanel({
   const activeLayer = layers[activeIndex];
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editName, setEditName] = useState("");
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [dropTarget, setDropTarget] = useState<number | null>(null);
+  const dragNodeRef = useRef<HTMLDivElement | null>(null);
+
+  const handleDragStart = useCallback(
+    (e: React.DragEvent<HTMLDivElement>, index: number) => {
+      setDragIndex(index);
+      dragNodeRef.current = e.currentTarget;
+      e.dataTransfer.effectAllowed = "move";
+      // Use a timeout so the drag image captures the element before we add styling
+      requestAnimationFrame(() => {
+        if (dragNodeRef.current) {
+          dragNodeRef.current.style.opacity = "0.4";
+        }
+      });
+    },
+    [],
+  );
+
+  const handleDragEnd = useCallback(() => {
+    if (dragNodeRef.current) {
+      dragNodeRef.current.style.opacity = "";
+    }
+    setDragIndex(null);
+    setDropTarget(null);
+    dragNodeRef.current = null;
+  }, []);
+
+  const handleDragOver = useCallback(
+    (e: React.DragEvent<HTMLDivElement>, index: number) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      if (dragIndex !== null && index !== dragIndex) {
+        setDropTarget(index);
+      }
+    },
+    [dragIndex],
+  );
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent<HTMLDivElement>, index: number) => {
+      e.preventDefault();
+      if (dragIndex !== null && dragIndex !== index) {
+        onMoveLayer(dragIndex, index);
+      }
+      setDragIndex(null);
+      setDropTarget(null);
+    },
+    [dragIndex, onMoveLayer],
+  );
   return (
     <div className="flex flex-col gap-2 px-4 py-4 flex-1 border-t border-graphite-850">
       <div className="flex items-center justify-between">
@@ -114,15 +166,24 @@ export function LayerPanel({
           return (
             <div
               key={layer.id}
+              draggable
+              onDragStart={(e) => handleDragStart(e, index)}
+              onDragEnd={handleDragEnd}
+              onDragOver={(e) => handleDragOver(e, index)}
+              onDrop={(e) => handleDrop(e, index)}
               onClick={() => onSelect(index)}
-              className={`flex items-center gap-2.5 px-2.5 py-2 rounded-lg
+              className={`flex items-center gap-1.5 px-1 py-2 rounded-lg
                 text-left text-[12px] transition-all duration-150 cursor-pointer
                 ${
                   isActive
                     ? "bg-graphite-800 text-cream shadow-soft"
                     : "text-cream-dim hover:bg-graphite-850"
-                }`}
+                }
+                ${dropTarget === index && dragIndex !== null ? "ring-1 ring-cream-muted" : ""}`}
             >
+              <span className="text-graphite-600 cursor-grab active:cursor-grabbing shrink-0">
+                <GripVertical size={12} strokeWidth={1.5} />
+              </span>
               <span
                 className={`cursor-pointer hover:text-cream-muted transition-all duration-150 ${
                   isActive ? "text-cream-muted" : "text-graphite-600"

@@ -104,6 +104,12 @@ pub enum Operation {
         layer: LayerId,
         name: String,
     },
+    /// Move a layer to a new position. `before` is the LayerId of the layer
+    /// it should be placed before, or `None` to move to the end.
+    MoveLayer {
+        layer: LayerId,
+        before: Option<LayerId>,
+    },
 }
 
 /// Magic byte prefix indicating a versioned format.
@@ -263,6 +269,18 @@ mod tests {
         round_trip(Operation::RenameLayer {
             layer: 1,
             name: "Background".to_string(),
+        });
+    }
+
+    #[test]
+    fn test_round_trip_move_layer() {
+        round_trip(Operation::MoveLayer {
+            layer: 5,
+            before: Some(2),
+        });
+        round_trip(Operation::MoveLayer {
+            layer: 3,
+            before: None,
         });
     }
 

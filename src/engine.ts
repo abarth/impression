@@ -207,6 +207,11 @@ export class Engine {
     this.needsRender = true;
   }
 
+  moveLayer(fromIndex: number, toIndex: number): void {
+    this.canvas.move_layer(fromIndex, toIndex);
+    this.syncAllLayers();
+  }
+
   // Selection methods
 
   selectionRect(x: number, y: number, w: number, h: number, mode: number): void {

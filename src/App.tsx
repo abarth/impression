@@ -39,7 +39,7 @@ export function App() {
   const { settings, updateSetting, toolLabel } = useBrushSettings(engine, activeTool);
   const { colors, setForeground, setBackground, swapColors } =
     useColorState(engine);
-  const { layers, activeIndex, canvasColor, canvasVisible, addLayer, removeLayer, selectLayer, setLayerOpacity, setLayerBlendMode, renameLayer, toggleLayerVisible, setCanvasColor, toggleCanvasVisible } =
+  const { layers, activeIndex, canvasColor, canvasVisible, addLayer, removeLayer, selectLayer, setLayerOpacity, setLayerBlendMode, renameLayer, moveLayer, toggleLayerVisible, setCanvasColor, toggleCanvasVisible } =
     useLayerManager(engine);
   const [undoState, setUndoState] = useState({ canUndo: false, canRedo: false });
 
@@ -183,6 +183,7 @@ export function App() {
             onOpacityChange={setLayerOpacity}
             onBlendModeChange={setLayerBlendMode}
             onRename={renameLayer}
+            onMoveLayer={moveLayer}
             onToggleLayerVisible={toggleLayerVisible}
             onCanvasColorChange={setCanvasColor}
             onToggleCanvasVisible={toggleCanvasVisible}

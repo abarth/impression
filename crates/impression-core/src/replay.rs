@@ -250,6 +250,16 @@ impl Canvas {
                     l.name = name;
                 }
             }
+            Operation::MoveLayer { layer, before } => {
+                if let Some(from_idx) = self.layer_index_by_id(layer) {
+                    let moved = self.layers.remove(from_idx);
+                    let insert_at = match before {
+                        Some(before_id) => self.layer_index_by_id(before_id).unwrap_or(self.layers.len()),
+                        None => self.layers.len(),
+                    };
+                    self.layers.insert(insert_at, moved);
+                }
+            }
         }
     }
 }

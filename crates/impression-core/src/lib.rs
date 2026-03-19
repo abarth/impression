@@ -234,6 +234,11 @@ impl ImpressionCanvas {
         self.inner.rename_layer(layer, name.to_string());
     }
 
+    /// Move a layer from one position to another.
+    pub fn move_layer(&mut self, from_index: u32, to_index: u32) {
+        self.inner.move_layer(from_index, to_index);
+    }
+
     /// Returns true if the active site has a selection mask.
     pub fn has_selection(&self) -> bool {
         self.inner.sites.get(&self.inner.active_site)
