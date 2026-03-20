@@ -7,6 +7,7 @@ import type { BrushPreset } from "../brushPresets";
 
 function createMockEngine(): Engine {
   return {
+    resetBrush: vi.fn(),
     setBrushSize: vi.fn(),
     setBrushSpacing: vi.fn(),
     setBrushFlow: vi.fn(),

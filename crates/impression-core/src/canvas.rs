@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::blend_mode::BlendMode;
-use crate::brush::{BrushTip, DualBrushSettings, ScatterSettings, TextureSettings};
+use crate::brush::{BrushSettings, BrushTip, DualBrushSettings, ScatterSettings, TextureSettings};
 use crate::color::Color;
 use crate::dynamics::{ShapeDynamics, TransferDynamics};
 use crate::layer::Layer;
@@ -176,6 +176,18 @@ impl Canvas {
     }
 
     // -- Brush settings (per-site) --
+
+    /// Reset brush settings to defaults, preserving color (which is managed
+    /// separately via set_brush_color). This is called by the frontend before
+    /// applying a new set of brush properties, ensuring no stale state leaks
+    /// between brush presets. Not recorded in the oplog — the subsequent
+    /// individual set_brush_* calls provide the authoritative state.
+    pub fn reset_brush(&mut self) {
+        let site = self.site_for_mut(self.active_site);
+        let color = site.brush.color;
+        site.brush = BrushSettings::default();
+        site.brush.color = color;
+    }
 
     pub fn set_brush_size(&mut self, size: f32) {
         self.apply(Operation::SetBrushSize(size));

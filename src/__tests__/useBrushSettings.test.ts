@@ -11,6 +11,7 @@ function fireKeyDown(key: string, options: Partial<KeyboardEventInit> = {}) {
 
 function createMockEngine(): Engine {
   return {
+    resetBrush: vi.fn(),
     setBrushSize: vi.fn(),
     setBrushSpacing: vi.fn(),
     setBrushFlow: vi.fn(),
@@ -335,6 +336,102 @@ describe("useBrushSettings applyPreset with dynamics", () => {
     const lastSdCall = sdCalls[sdCalls.length - 1];
     expect(lastSdCall[0]).toBe(0.9); // size jitter
     expect(lastSdCall[1]).toBe(1);   // size control (PenPressure)
+  });
+
+  it("should reset brush preset properties when switching presets", () => {
+    const engine = createMockEngine();
+    const { result } = renderHook(() => useBrushSettings(engine, "brush"));
+
+    // Apply a preset with scatter and dynamics
+    act(() => {
+      result.current.applyPreset({
+        size: 50,
+        scatterSettings: { scatter: 2.5, bothAxes: true, count: 3, countJitter: 0.5 },
+        shapeDynamics: {
+          size: { jitter: 0.8, control: 1, minimum: 0.25 },
+          angle: { jitter: 0, control: 0, minimum: 0 },
+          roundness: { jitter: 0, control: 0, minimum: 0 },
+        },
+      });
+    });
+
+    expect(result.current.settings.scatterSettings.scatter).toBe(2.5);
+    expect(result.current.settings.shapeDynamics.size.jitter).toBe(0.8);
+
+    // Apply a different preset that doesn't specify scatter or dynamics
+    act(() => {
+      result.current.applyPreset({
+        size: 20,
+        spacing: 0.15,
+        hardness: 1.0,
+      });
+    });
+
+    // Scatter should be reset to defaults, not carried over
+    expect(result.current.settings.scatterSettings.scatter).toBe(0);
+    expect(result.current.settings.scatterSettings.bothAxes).toBe(false);
+
+    // Dynamics should be reset to defaults
+    expect(result.current.settings.shapeDynamics.size.jitter).toBe(0);
+    expect(result.current.settings.shapeDynamics.size.control).toBe(0);
+  });
+
+  it("should preserve tool options (opacity, flow) across preset changes", () => {
+    const engine = createMockEngine();
+    const { result } = renderHook(() => useBrushSettings(engine, "brush"));
+
+    // Set opacity and flow manually
+    act(() => result.current.updateSetting("opacity", 0.7));
+    act(() => result.current.updateSetting("flow", 0.3));
+
+    // Apply a preset that doesn't specify opacity or flow
+    act(() => {
+      result.current.applyPreset({
+        spacing: 0.1,
+        hardness: 0.5,
+      });
+    });
+
+    // Tool options should be preserved
+    expect(result.current.settings.opacity).toBe(0.7);
+    expect(result.current.settings.flow).toBe(0.3);
+  });
+
+  it("should allow presets to override tool options when specified", () => {
+    const engine = createMockEngine();
+    const { result } = renderHook(() => useBrushSettings(engine, "brush"));
+
+    // Apply a preset that explicitly sets opacity and flow (e.g., ABR import)
+    act(() => {
+      result.current.applyPreset({
+        size: 175,
+        opacity: 0.8,
+        flow: 0.1,
+      });
+    });
+
+    // Preset-specified tool options should be applied
+    expect(result.current.settings.size).toBe(175);
+    expect(result.current.settings.opacity).toBe(0.8);
+    expect(result.current.settings.flow).toBe(0.1);
+  });
+
+  it("should call resetBrush before syncing to engine", () => {
+    const engine = createMockEngine();
+    const { result } = renderHook(() => useBrushSettings(engine, "brush"));
+
+    const resetBrush = engine.resetBrush as ReturnType<typeof vi.fn>;
+    resetBrush.mockClear();
+
+    act(() => {
+      result.current.applyPreset({ size: 30 });
+    });
+
+    // resetBrush should be called before setBrushSize
+    expect(resetBrush).toHaveBeenCalled();
+    const resetOrder = resetBrush.mock.invocationCallOrder[0];
+    const sizeOrder = (engine.setBrushSize as ReturnType<typeof vi.fn>).mock.invocationCallOrder.pop()!;
+    expect(resetOrder).toBeLessThan(sizeOrder);
   });
 });
 

@@ -129,6 +129,12 @@ impl ImpressionCanvas {
 
     // -- Brush settings --
 
+    /// Reset brush settings to defaults (preserving color). Called by the
+    /// frontend before applying new brush properties via individual setters.
+    pub fn reset_brush(&mut self) {
+        self.inner.reset_brush();
+    }
+
     pub fn set_brush_size(&mut self, size: f32) {
         self.inner.set_brush_size(size);
     }

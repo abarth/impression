@@ -146,6 +146,13 @@ export class Engine {
   }
 
   // Brush settings
+
+  /** Reset brush settings to defaults (preserving color). Called before
+   *  applying new settings to avoid stale state from previous presets. */
+  resetBrush(): void {
+    this.canvas.reset_brush();
+  }
+
   setBrushSize(size: number): void {
     this.canvas.set_brush_size(size);
   }

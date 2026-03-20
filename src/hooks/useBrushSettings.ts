@@ -44,15 +44,29 @@ export interface TextureSettings {
   textureEachTip: boolean;
 }
 
+/**
+ * Complete brush engine state. Combines tool options and brush preset properties.
+ *
+ * In Photoshop, these are managed at two levels:
+ * - **Tool options** (persist across preset changes): size, opacity, flow, smoothing
+ * - **Brush preset** (replaced entirely when selecting a preset): everything else
+ *
+ * Our `applyPreset` follows this model: tool options are preserved unless the
+ * preset explicitly overrides them, while brush preset properties reset to
+ * defaults before applying the preset's values.
+ */
 export interface BrushSettings {
+  // -- Tool options (persist across preset changes) --
   size: number;
-  spacing: number;
-  flow: number;
   opacity: number;
+  flow: number;
+  smoothing: number; // Frontend-only (not synced to Rust engine)
+
+  // -- Brush preset properties (reset when selecting a new preset) --
+  spacing: number;
   hardness: number;
   roundness: number;
   angle: number;
-  smoothing: number;
   flipX: boolean;
   flipY: boolean;
   shapeDynamics: ShapeDynamics;
@@ -101,15 +115,12 @@ const DEFAULT_TEXTURE: TextureSettings = {
   textureEachTip: false,
 };
 
-const DEFAULT_BRUSH: BrushSettings = {
-  size: 20,
-  spacing: 0.15,
-  flow: 0.8,
-  opacity: 1.0,
+/** Default values for brush preset properties (reset on preset change). */
+const DEFAULT_PRESET_PROPERTIES: Omit<BrushSettings, "size" | "opacity" | "flow" | "smoothing"> = {
+  spacing: 0.25,
   hardness: 1.0,
   roundness: 1.0,
   angle: 0,
-  smoothing: 0,
   flipX: false,
   flipY: false,
   shapeDynamics: DEFAULT_SHAPE_DYNAMICS,
@@ -119,22 +130,22 @@ const DEFAULT_BRUSH: BrushSettings = {
   texture: DEFAULT_TEXTURE,
 };
 
+const DEFAULT_BRUSH: BrushSettings = {
+  size: 20,
+  opacity: 1.0,
+  flow: 0.8,
+  smoothing: 0,
+  ...DEFAULT_PRESET_PROPERTIES,
+  spacing: 0.15,
+};
+
 const DEFAULT_ERASER: BrushSettings = {
   size: 30,
-  spacing: 0.15,
-  flow: 1.0,
   opacity: 1.0,
-  hardness: 1.0,
-  roundness: 1.0,
-  angle: 0,
+  flow: 1.0,
   smoothing: 0,
-  flipX: false,
-  flipY: false,
-  shapeDynamics: DEFAULT_SHAPE_DYNAMICS,
-  transferDynamics: DEFAULT_TRANSFER_DYNAMICS,
-  scatterSettings: DEFAULT_SCATTER,
-  dualBrush: DEFAULT_DUAL_BRUSH,
-  texture: DEFAULT_TEXTURE,
+  ...DEFAULT_PRESET_PROPERTIES,
+  spacing: 0.15,
 };
 
 /** Tools that have their own brush settings. */
@@ -159,19 +170,30 @@ export function useBrushSettings(engine: Engine | null, activeTool: Tool) {
   engineRef.current = engine;
   const activeToolRef = useRef(activeTool);
 
+  /** Push all brush settings to the Rust engine. Resets to defaults first
+   *  to ensure no stale state leaks between brush presets. */
   const syncToEngine = useCallback((s: BrushSettings, tool: ToolWithSettings) => {
     const eng = engineRef.current;
     if (!eng) return;
+
+    // Reset engine brush state to known defaults before applying new values.
+    // This prevents stale settings (e.g., scatter, dual brush, texture) from
+    // leaking across preset changes.
+    eng.resetBrush();
+
+    // Tool options
     eng.setBrushSize(s.size);
-    eng.setBrushSpacing(s.spacing);
-    eng.setBrushFlow(s.flow);
     eng.setBrushOpacity(s.opacity);
+    eng.setBrushFlow(s.flow);
+    eng.setBrushBlendMode(TOOL_BLEND_MODES[tool]);
+
+    // Brush preset properties
+    eng.setBrushSpacing(s.spacing);
     eng.setBrushHardness(s.hardness);
     eng.setBrushRoundness(s.roundness);
     eng.setBrushAngle(s.angle);
     eng.setBrushFlipX(s.flipX);
     eng.setBrushFlipY(s.flipY);
-    eng.setBrushBlendMode(TOOL_BLEND_MODES[tool]);
     const sd = s.shapeDynamics;
     eng.setShapeDynamics(
       sd.size.jitter, sd.size.control, sd.size.minimum,
@@ -275,11 +297,28 @@ export function useBrushSettings(engine: Engine | null, activeTool: Tool) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [syncToEngine]);
 
+  /** Apply a brush preset. Follows Photoshop semantics:
+   *  - Tool options (size, opacity, flow, smoothing) are preserved unless
+   *    the preset explicitly overrides them
+   *  - Brush preset properties (spacing, hardness, dynamics, etc.) reset to
+   *    defaults, then the preset's values are applied on top */
   const applyPreset = useCallback(
     (partial: Partial<BrushSettings>) => {
       const tool = isToolWithSettings(activeToolRef.current) ? activeToolRef.current : "brush";
       const prev = perToolRef.current;
-      const next = { ...prev, [tool]: { ...prev[tool], ...partial } };
+      const prevSettings = prev[tool];
+      const merged: BrushSettings = {
+        // Preserve current tool options
+        size: prevSettings.size,
+        opacity: prevSettings.opacity,
+        flow: prevSettings.flow,
+        smoothing: prevSettings.smoothing,
+        // Reset brush preset properties to defaults
+        ...DEFAULT_PRESET_PROPERTIES,
+        // Apply preset overrides (may include tool options like size for ABR imports)
+        ...partial,
+      };
+      const next = { ...prev, [tool]: merged };
       perToolRef.current = next;
       setPerTool(next);
       syncToEngine(next[tool], tool);
