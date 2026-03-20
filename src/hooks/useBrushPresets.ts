@@ -177,17 +177,21 @@ export function useBrushPresets({
 
         const presetId = crypto.randomUUID();
         maxOrder += 1;
-        await s.savePreset({
+        const p = brush.params;
+        const preset: BrushPreset = {
           id: presetId,
           name: brush.name,
           group: groupName,
           tip: { type: "image", tipId },
-          size: Math.max(brush.width, brush.height),
-          spacing: 0.25,
-          roundness: 1.0,
-          angle: 0,
+          size: p?.diameter ?? Math.max(brush.width, brush.height),
+          spacing: p?.spacing ?? 0.25,
+          roundness: p?.roundness ?? 1.0,
+          angle: p?.angle ?? 0,
           sort_order: maxOrder,
-        });
+        };
+        if (p?.opacity !== undefined) preset.opacity = p.opacity;
+        if (p?.flow !== undefined) preset.flow = p.flow;
+        await s.savePreset(preset);
       }
 
       const list = await s.listPresets();

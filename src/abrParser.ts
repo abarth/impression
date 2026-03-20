@@ -10,11 +10,26 @@
  * - https://github.com/jlai/brush-viewer (TypeScript)
  */
 
+/** Parsed brush parameters from ABR descriptor. */
+export interface AbrBrushParams {
+  diameter?: number;
+  hardness?: number;
+  spacing?: number;
+  angle?: number;
+  roundness?: number;
+  opacity?: number;
+  flow?: number;
+  flipX?: boolean;
+  flipY?: boolean;
+}
+
 export interface ParsedAbrBrush {
   name: string;
   imageData: Uint8Array;
   width: number;
   height: number;
+  /** Brush parameters extracted from ABR descriptor section. */
+  params?: AbrBrushParams;
 }
 
 class DataViewReader {
@@ -57,6 +72,18 @@ class DataViewReader {
   readU32(): number {
     const v = this.view.getUint32(this.offset, false);
     this.offset += 4;
+    return v;
+  }
+
+  readI32(): number {
+    const v = this.view.getInt32(this.offset, false);
+    this.offset += 4;
+    return v;
+  }
+
+  readF64(): number {
+    const v = this.view.getFloat64(this.offset, false);
+    this.offset += 8;
     return v;
   }
 
@@ -229,14 +256,171 @@ function parseSampSection(
   return brushes;
 }
 
+/** Read a ClassID: 4-byte length, then either 4-char tag (if len=0) or full string. */
+function readClassId(reader: DataViewReader): string {
+  const len = reader.readU32();
+  if (len === 0) {
+    return reader.readTag();
+  }
+  const bytes = reader.readBytes(len);
+  return new TextDecoder("ascii").decode(bytes);
+}
+
+/** Read a key (same format as ClassID). */
+function readKey(reader: DataViewReader): string {
+  return readClassId(reader);
+}
+
+type DescriptorValue =
+  | { type: "long"; value: number }
+  | { type: "doub"; value: number }
+  | { type: "UntF"; unit: string; value: number }
+  | { type: "bool"; value: boolean }
+  | { type: "enum"; enumType: string; value: string }
+  | { type: "TEXT"; value: string }
+  | { type: "Objc"; classId: string; items: Map<string, DescriptorValue> }
+  | { type: "tdta"; data: Uint8Array }
+  | { type: "unknown" };
+
+/** Parse a single descriptor value based on its type tag. */
+function readDescriptorValue(reader: DataViewReader, endPos: number): DescriptorValue {
+  const typeTag = reader.readTag();
+  switch (typeTag) {
+    case "long":
+      return { type: "long", value: reader.readI32() };
+    case "doub":
+      return { type: "doub", value: reader.readF64() };
+    case "UntF": {
+      const unit = reader.readTag();
+      const value = reader.readF64();
+      return { type: "UntF", unit, value };
+    }
+    case "bool":
+      return { type: "bool", value: reader.readU8() !== 0 };
+    case "enum": {
+      const enumType = readClassId(reader);
+      const value = readClassId(reader);
+      return { type: "enum", enumType, value };
+    }
+    case "TEXT":
+      return { type: "TEXT", value: reader.readUnicodeString() };
+    case "Objc": {
+      // Nested descriptor
+      const result = readDescriptor(reader, endPos);
+      return { type: "Objc", classId: result.classId, items: result.items };
+    }
+    case "tdta": {
+      const len = reader.readU32();
+      const data = new Uint8Array(reader.readBytes(len));
+      return { type: "tdta", data };
+    }
+    case "VlLs": {
+      // List — skip it
+      const count = reader.readU32();
+      for (let i = 0; i < count && reader.position < endPos; i++) {
+        readDescriptorValue(reader, endPos);
+      }
+      return { type: "unknown" };
+    }
+    default:
+      // Unknown type — can't safely skip without knowing size
+      return { type: "unknown" };
+  }
+}
+
+interface ParsedDescriptor {
+  name: string;
+  classId: string;
+  items: Map<string, DescriptorValue>;
+}
+
+/** Parse a Photoshop descriptor object. */
+function readDescriptor(reader: DataViewReader, endPos: number): ParsedDescriptor {
+  const name = reader.readUnicodeString();
+  const classId = readClassId(reader);
+  const itemCount = reader.readU32();
+  const items = new Map<string, DescriptorValue>();
+
+  for (let i = 0; i < itemCount && reader.position < endPos; i++) {
+    const key = readKey(reader);
+    const value = readDescriptorValue(reader, endPos);
+    if (value.type !== "unknown") {
+      items.set(key, value);
+    } else {
+      // Can't continue parsing after unknown type
+      break;
+    }
+  }
+
+  return { name, classId, items };
+}
+
+/** Get a numeric value from a descriptor item (handles UntF, doub, long). */
+function getNumber(items: Map<string, DescriptorValue>, key: string): number | undefined {
+  const v = items.get(key);
+  if (!v) return undefined;
+  if (v.type === "UntF") return v.value;
+  if (v.type === "doub") return v.value;
+  if (v.type === "long") return v.value;
+  return undefined;
+}
+
+/** Get a boolean value from a descriptor item. */
+function getBool(items: Map<string, DescriptorValue>, key: string): boolean | undefined {
+  const v = items.get(key);
+  if (!v || v.type !== "bool") return undefined;
+  return v.value;
+}
+
+/** Extract brush parameters from a parsed descriptor. */
+function extractBrushParams(items: Map<string, DescriptorValue>): AbrBrushParams {
+  const params: AbrBrushParams = {};
+
+  const diameter = getNumber(items, "Dmtr");
+  if (diameter !== undefined) params.diameter = diameter;
+
+  const hardness = getNumber(items, "Hrdn");
+  if (hardness !== undefined) params.hardness = hardness / 100; // Convert from %
+
+  const spacing = getNumber(items, "Spcn");
+  if (spacing !== undefined) params.spacing = spacing / 100; // Convert from %
+
+  const angle = getNumber(items, "Angl");
+  if (angle !== undefined) params.angle = angle;
+
+  const roundness = getNumber(items, "Rndn");
+  if (roundness !== undefined) params.roundness = roundness / 100; // Convert from %
+
+  const opacity = getNumber(items, "Opct");
+  if (opacity !== undefined) params.opacity = opacity / 100; // Convert from %
+
+  // Flow key has a trailing space in Photoshop descriptors
+  const flow = getNumber(items, "Fl  ");
+  if (flow !== undefined) params.flow = flow / 100; // Convert from %
+
+  const flipX = getBool(items, "flipX");
+  if (flipX !== undefined) params.flipX = flipX;
+
+  const flipY = getBool(items, "flipY");
+  if (flipY !== undefined) params.flipY = flipY;
+
+  return params;
+}
+
+interface ParsedDescSection {
+  names: string[];
+  params: AbrBrushParams[];
+}
+
 /**
- * Parse a `desc` section to extract brush names.
+ * Parse a `desc` section to extract brush names and parameters.
  */
-function parseDescNames(
+function parseDescSection(
   reader: DataViewReader,
   endPos: number,
-): string[] {
+): ParsedDescSection {
   const names: string[] = [];
+  const params: AbrBrushParams[] = [];
 
   while (reader.position + 4 < endPos) {
     const tag = reader.readTag();
@@ -245,11 +429,9 @@ function parseDescNames(
 
     if (tag === "desc" && size > 0) {
       try {
-        // Descriptor: class name unicode string, then classID
-        const descriptorName = reader.readUnicodeString();
-        if (descriptorName.length > 0) {
-          names.push(descriptorName);
-        }
+        const descriptor = readDescriptor(reader, sectionEnd);
+        names.push(descriptor.name || `Brush ${names.length + 1}`);
+        params.push(extractBrushParams(descriptor.items));
       } catch {
         // Skip on parse error
       }
@@ -258,7 +440,7 @@ function parseDescNames(
     reader.seek(sectionEnd);
   }
 
-  return names;
+  return { names, params };
 }
 
 /**
@@ -280,6 +462,7 @@ export function parseAbrFile(buffer: ArrayBuffer): ParsedAbrBrush[] {
   // Look for 8BIM resource sections
   const brushes: ParsedAbrBrush[] = [];
   const names: string[] = [];
+  const allParams: AbrBrushParams[] = [];
 
   while (reader.remaining >= 8) {
     const tag = reader.readTag();
@@ -300,16 +483,20 @@ export function parseAbrFile(buffer: ArrayBuffer): ParsedAbrBrush[] {
       const parsed = parseSampSection(reader, sectionEnd);
       brushes.push(...parsed);
     } else if (sectionTag === "desc") {
-      const parsedNames = parseDescNames(reader, sectionEnd);
+      const { names: parsedNames, params } = parseDescSection(reader, sectionEnd);
       names.push(...parsedNames);
+      allParams.push(...params);
     }
 
     reader.seek(sectionEnd);
   }
 
-  // Apply names to brushes
+  // Apply names and parameters to brushes
   for (let i = 0; i < brushes.length && i < names.length; i++) {
     brushes[i].name = names[i];
+  }
+  for (let i = 0; i < brushes.length && i < allParams.length; i++) {
+    brushes[i].params = allParams[i];
   }
 
   return brushes;
