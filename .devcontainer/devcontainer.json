@@ -1,0 +1,17 @@
+{
+	"name": "Impression Dev Container",
+	"build": {
+		"dockerfile": "../Dockerfile",
+		"context": ".."
+	},
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"rust-lang.rust-analyzer",
+				"dbaeumer.vscode-eslint"
+			]
+		}
+	},
+	"forwardPorts": [5173],
+	"workspaceFolder": "/workspace"
+}

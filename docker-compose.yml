@@ -1,0 +1,14 @@
+services:
+  dev:
+    build: .
+    volumes:
+      - .:/workspace
+      # Map SSH keys and Git config to the container (read-only)
+      - ~/.ssh:/root/.ssh:ro
+      - ~/.gitconfig:/root/.gitconfig:ro
+      # Map Claude Code's authentication token and state
+      - ~/.claude.json:/root/.claude.json
+    ports:
+      - "5173:5173"  # Vite default port
+    # The container will stay awake so you can 'docker-compose exec dev bash'
+    # and run your coding agents or the development server inside it.

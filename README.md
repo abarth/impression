@@ -20,6 +20,35 @@ Impression uses the **Soft Graphite** design language — a warm, muted dark the
 
 ## Getting Started
 
+### Container-Based Development (Recommended)
+
+This project includes a Docker Compose and VS Code Devcontainer setup for isolated development. This environment is pre-configured with Node, Rust, and Claude Code.
+
+**1. Using Docker Compose:**
+Build and start the container, then open a shell inside it:
+```bash
+docker-compose up -d --build
+docker-compose exec dev bash
+```
+
+Once inside the container, install dependencies and start the development server:
+```bash
+npm install
+npm run dev -- --host 0.0.0.0
+```
+Open `http://localhost:5173` on your host machine to view the app. 
+
+*Note: Your `~/.ssh`, `~/.gitconfig`, and `~/.claude.json` credentials are automatically mapped to the container so Git and Claude Code will work transparently.*
+
+**2. Using VS Code Devcontainers:**
+Open the project in VS Code and click "Reopen in Container" when prompted. It automatically manages port forwarding and installs required extensions (like rust-analyzer).
+
+---
+
+### Native Development
+
+If you prefer developing directly on your host machine:
+
 **Prerequisites:**
 - Node.js 22+
 - Rust toolchain with `wasm32-unknown-unknown` target (`rustup target add wasm32-unknown-unknown`)
