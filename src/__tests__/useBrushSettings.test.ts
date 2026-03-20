@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { useBrushSettings } from "../hooks/useBrushSettings";
 import type { Engine } from "../engine";
@@ -11,16 +11,16 @@ function fireKeyDown(key: string, options: Partial<KeyboardEventInit> = {}) {
 
 function createMockEngine(): Engine {
   return {
-    setBrushSize: () => {},
-    setBrushSpacing: () => {},
-    setBrushFlow: () => {},
-    setBrushOpacity: () => {},
-    setBrushHardness: () => {},
-    setBrushRoundness: () => {},
-    setBrushAngle: () => {},
-    setBrushBlendMode: () => {},
-    setShapeDynamics: () => {},
-    setTransferDynamics: () => {},
+    setBrushSize: vi.fn(),
+    setBrushSpacing: vi.fn(),
+    setBrushFlow: vi.fn(),
+    setBrushOpacity: vi.fn(),
+    setBrushHardness: vi.fn(),
+    setBrushRoundness: vi.fn(),
+    setBrushAngle: vi.fn(),
+    setBrushBlendMode: vi.fn(),
+    setShapeDynamics: vi.fn(),
+    setTransferDynamics: vi.fn(),
   } as unknown as Engine;
 }
 
@@ -160,5 +160,171 @@ describe("useBrushSettings opacity number keys", () => {
 
     act(() => fireKeyDown("0", { shiftKey: true }));
     expect(result.current.settings.flow).toBeCloseTo(1.0);
+  });
+});
+
+describe("useBrushSettings shape dynamics", () => {
+  it("should default to all dynamics off", () => {
+    const engine = createMockEngine();
+    const { result } = renderHook(() => useBrushSettings(engine, "brush"));
+
+    const sd = result.current.settings.shapeDynamics;
+    expect(sd.size.control).toBe(0);
+    expect(sd.angle.control).toBe(0);
+    expect(sd.roundness.control).toBe(0);
+  });
+
+  it("should update shape dynamics and sync to engine", () => {
+    const engine = createMockEngine();
+    const { result } = renderHook(() => useBrushSettings(engine, "brush"));
+
+    act(() => {
+      result.current.updateSetting("shapeDynamics", {
+        size: { jitter: 0.8, control: 1, minimum: 0.25 },
+        angle: { jitter: 1.0, control: 2, minimum: 0 },
+        roundness: { jitter: 0, control: 0, minimum: 0 },
+      });
+    });
+
+    // State updated
+    const sd = result.current.settings.shapeDynamics;
+    expect(sd.size.jitter).toBe(0.8);
+    expect(sd.size.control).toBe(1);
+    expect(sd.size.minimum).toBe(0.25);
+    expect(sd.angle.jitter).toBe(1.0);
+    expect(sd.angle.control).toBe(2);
+
+    // Engine synced with correct args
+    const calls = (engine.setShapeDynamics as ReturnType<typeof vi.fn>).mock.calls;
+    const lastCall = calls[calls.length - 1];
+    expect(lastCall).toEqual([
+      0.8, 1, 0.25,  // size: jitter, control, minimum
+      1.0, 2,        // angle: jitter, control
+      0, 0, 0,       // roundness: jitter, control, minimum
+    ]);
+  });
+
+  it("should keep shape dynamics independent per tool", () => {
+    const engine = createMockEngine();
+    const { result, rerender } = renderHook(
+      ({ tool }) => useBrushSettings(engine, tool),
+      { initialProps: { tool: "brush" as const } },
+    );
+
+    // Set pressure-driven size on brush
+    act(() => {
+      result.current.updateSetting("shapeDynamics", {
+        size: { jitter: 1.0, control: 1, minimum: 0 },
+        angle: { jitter: 0, control: 0, minimum: 0 },
+        roundness: { jitter: 0, control: 0, minimum: 0 },
+      });
+    });
+
+    // Switch to eraser — dynamics should be default (off)
+    rerender({ tool: "eraser" });
+    expect(result.current.settings.shapeDynamics.size.control).toBe(0);
+
+    // Switch back to brush — dynamics should be preserved
+    rerender({ tool: "brush" });
+    expect(result.current.settings.shapeDynamics.size.jitter).toBe(1.0);
+    expect(result.current.settings.shapeDynamics.size.control).toBe(1);
+  });
+});
+
+describe("useBrushSettings transfer dynamics", () => {
+  it("should default to all transfer dynamics off", () => {
+    const engine = createMockEngine();
+    const { result } = renderHook(() => useBrushSettings(engine, "brush"));
+
+    const td = result.current.settings.transferDynamics;
+    expect(td.opacity.control).toBe(0);
+    expect(td.flow.control).toBe(0);
+  });
+
+  it("should update transfer dynamics and sync to engine", () => {
+    const engine = createMockEngine();
+    const { result } = renderHook(() => useBrushSettings(engine, "brush"));
+
+    act(() => {
+      result.current.updateSetting("transferDynamics", {
+        opacity: { jitter: 0.5, control: 1, minimum: 0.1 },
+        flow: { jitter: 0.7, control: 2, minimum: 0.2 },
+      });
+    });
+
+    // State updated
+    const td = result.current.settings.transferDynamics;
+    expect(td.opacity.jitter).toBe(0.5);
+    expect(td.opacity.control).toBe(1);
+    expect(td.opacity.minimum).toBe(0.1);
+    expect(td.flow.jitter).toBe(0.7);
+    expect(td.flow.control).toBe(2);
+    expect(td.flow.minimum).toBe(0.2);
+
+    // Engine synced with correct args
+    const calls = (engine.setTransferDynamics as ReturnType<typeof vi.fn>).mock.calls;
+    const lastCall = calls[calls.length - 1];
+    expect(lastCall).toEqual([
+      0.5, 1, 0.1,  // opacity: jitter, control, minimum
+      0.7, 2, 0.2,  // flow: jitter, control, minimum
+    ]);
+  });
+
+  it("should keep transfer dynamics independent per tool", () => {
+    const engine = createMockEngine();
+    const { result, rerender } = renderHook(
+      ({ tool }) => useBrushSettings(engine, tool),
+      { initialProps: { tool: "brush" as const } },
+    );
+
+    // Set pressure-driven opacity on brush
+    act(() => {
+      result.current.updateSetting("transferDynamics", {
+        opacity: { jitter: 1.0, control: 1, minimum: 0.3 },
+        flow: { jitter: 0, control: 0, minimum: 0 },
+      });
+    });
+
+    // Switch to eraser — dynamics should be default (off)
+    rerender({ tool: "eraser" });
+    expect(result.current.settings.transferDynamics.opacity.control).toBe(0);
+
+    // Switch back to brush — dynamics should be preserved
+    rerender({ tool: "brush" });
+    expect(result.current.settings.transferDynamics.opacity.jitter).toBe(1.0);
+    expect(result.current.settings.transferDynamics.opacity.minimum).toBe(0.3);
+  });
+});
+
+describe("useBrushSettings applyPreset with dynamics", () => {
+  it("should apply preset with shape and transfer dynamics", () => {
+    const engine = createMockEngine();
+    const { result } = renderHook(() => useBrushSettings(engine, "brush"));
+
+    act(() => {
+      result.current.applyPreset({
+        size: 45,
+        shapeDynamics: {
+          size: { jitter: 0.9, control: 1, minimum: 0.1 },
+          angle: { jitter: 1.0, control: 2, minimum: 0 },
+          roundness: { jitter: 0, control: 0, minimum: 0 },
+        },
+        transferDynamics: {
+          opacity: { jitter: 0.6, control: 1, minimum: 0.2 },
+          flow: { jitter: 0, control: 0, minimum: 0 },
+        },
+      });
+    });
+
+    expect(result.current.settings.size).toBe(45);
+    expect(result.current.settings.shapeDynamics.size.jitter).toBe(0.9);
+    expect(result.current.settings.shapeDynamics.angle.control).toBe(2);
+    expect(result.current.settings.transferDynamics.opacity.jitter).toBe(0.6);
+
+    // Verify engine was synced
+    const sdCalls = (engine.setShapeDynamics as ReturnType<typeof vi.fn>).mock.calls;
+    const lastSdCall = sdCalls[sdCalls.length - 1];
+    expect(lastSdCall[0]).toBe(0.9); // size jitter
+    expect(lastSdCall[1]).toBe(1);   // size control (PenPressure)
   });
 });
