@@ -197,10 +197,14 @@ export function useBrushPresets({
     [],
   );
 
+  const activePreset = activePresetId ? presets.find((p) => p.id === activePresetId) : undefined;
+  const isImageTip = activePreset?.tip.type === "image";
+
   return {
     presets,
     groups,
     activePresetId,
+    isImageTip,
     selectPreset,
     savePreset,
     deletePreset,

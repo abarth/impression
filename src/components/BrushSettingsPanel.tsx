@@ -7,6 +7,7 @@ import type { BrushSettings, DynamicParam, DynamicControl } from "../hooks/useBr
 interface BrushSettingsPanelProps {
   settings: BrushSettings;
   toolLabel?: string;
+  isImageTip?: boolean;
   onUpdate: <K extends keyof BrushSettings>(
     key: K,
     value: BrushSettings[K],
@@ -84,18 +85,20 @@ const CATEGORIES: { id: Category; label: string }[] = [
   { id: "transfer", label: "Transfer" },
 ];
 
-function BrushTipPane({ settings, onUpdate }: BrushSettingsPanelProps) {
+function BrushTipPane({ settings, isImageTip, onUpdate }: BrushSettingsPanelProps) {
   return (
     <div className="flex flex-col gap-3.5">
-      <SliderControl
-        label="Hardness"
-        value={settings.hardness}
-        min={0}
-        max={1.0}
-        step={0.01}
-        displayValue={`${Math.round(settings.hardness * 100)}%`}
-        onChange={(v) => onUpdate("hardness", v)}
-      />
+      {!isImageTip && (
+        <SliderControl
+          label="Hardness"
+          value={settings.hardness}
+          min={0}
+          max={1.0}
+          step={0.01}
+          displayValue={`${Math.round(settings.hardness * 100)}%`}
+          onChange={(v) => onUpdate("hardness", v)}
+        />
+      )}
       <SliderControl
         label="Spacing"
         value={settings.spacing}
@@ -192,6 +195,7 @@ function TransferPane({ settings, onUpdate }: BrushSettingsPanelProps) {
  */
 export function BrushSettingsPanel({
   settings,
+  isImageTip,
   onUpdate,
 }: BrushSettingsPanelProps) {
   const [activeCategory, setActiveCategory] = useState<Category>("tip");
@@ -240,7 +244,7 @@ export function BrushSettingsPanel({
                 {CATEGORIES.find((c) => c.id === activeCategory)?.label}
               </h4>
               {activeCategory === "tip" && (
-                <BrushTipPane settings={settings} onUpdate={onUpdate} />
+                <BrushTipPane settings={settings} isImageTip={isImageTip} onUpdate={onUpdate} />
               )}
               {activeCategory === "shapeDynamics" && (
                 <ShapeDynamicsPane settings={settings} onUpdate={onUpdate} />

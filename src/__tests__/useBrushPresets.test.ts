@@ -66,6 +66,58 @@ function createMockStorage(presets: BrushPreset[] = []): Storage {
   } as unknown as Storage;
 }
 
+describe("useBrushPresets isImageTip", () => {
+  it("should be false when no preset is selected", async () => {
+    const engine = createMockEngine();
+    const storage = createMockStorage([COMPUTED_PRESET]);
+    const onApplyPreset = vi.fn();
+
+    const { result } = renderHook(() =>
+      useBrushPresets({ engine, storage, activeTool: "brush", onApplyPreset }),
+    );
+
+    await vi.waitFor(() => {
+      expect(result.current.presets.length).toBe(1);
+    });
+
+    expect(result.current.isImageTip).toBe(false);
+  });
+
+  it("should be false when a computed preset is selected", async () => {
+    const engine = createMockEngine();
+    const storage = createMockStorage([COMPUTED_PRESET]);
+    const onApplyPreset = vi.fn();
+
+    const { result } = renderHook(() =>
+      useBrushPresets({ engine, storage, activeTool: "brush", onApplyPreset }),
+    );
+
+    await vi.waitFor(() => {
+      expect(result.current.presets.length).toBe(1);
+    });
+
+    act(() => result.current.selectPreset("preset-computed"));
+    expect(result.current.isImageTip).toBe(false);
+  });
+
+  it("should be true when an image preset is selected", async () => {
+    const engine = createMockEngine();
+    const storage = createMockStorage([IMAGE_PRESET]);
+    const onApplyPreset = vi.fn();
+
+    const { result } = renderHook(() =>
+      useBrushPresets({ engine, storage, activeTool: "brush", onApplyPreset }),
+    );
+
+    await vi.waitFor(() => {
+      expect(result.current.presets.length).toBe(1);
+    });
+
+    act(() => result.current.selectPreset("preset-image"));
+    expect(result.current.isImageTip).toBe(true);
+  });
+});
+
 describe("useBrushPresets tip lifecycle", () => {
   it("should call clearBrushTip when selecting a computed preset", async () => {
     const engine = createMockEngine();
