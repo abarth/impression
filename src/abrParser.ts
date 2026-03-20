@@ -10,6 +10,8 @@
  * - https://github.com/jlai/brush-viewer (TypeScript)
  */
 
+import type { ShapeDynamics, TransferDynamics, DynamicParam, DynamicControl } from "./hooks/useBrushSettings";
+
 /** Parsed brush parameters from ABR descriptor. */
 export interface AbrBrushParams {
   diameter?: number;
@@ -21,13 +23,18 @@ export interface AbrBrushParams {
   flow?: number;
   flipX?: boolean;
   flipY?: boolean;
+  shapeDynamics?: ShapeDynamics;
+  transferDynamics?: TransferDynamics;
 }
 
 export interface ParsedAbrBrush {
   name: string;
-  imageData: Uint8Array;
-  width: number;
-  height: number;
+  /** Image data for sampled brush tips. Undefined for computed (circle) tips. */
+  imageData?: Uint8Array;
+  /** Width of the tip image (only set for sampled tips). */
+  width?: number;
+  /** Height of the tip image (only set for sampled tips). */
+  height?: number;
   /** Brush parameters extracted from ABR descriptor section. */
   params?: AbrBrushParams;
 }
@@ -173,20 +180,29 @@ function decodeRLE(
   return output;
 }
 
+/** A sampled brush tip image keyed by its UUID (from the samp entry header). */
+interface SampEntry {
+  uuid: string;
+  imageData: Uint8Array;
+  width: number;
+  height: number;
+}
+
 /**
- * Parse a `samp` section to extract brush tip images.
+ * Parse a `samp` section to extract brush tip images keyed by UUID.
  *
  * Each entry has a 4-byte length prefix, then an opaque header blob
  * (47 bytes for sub-version 1, 301 bytes for sub-version 2),
  * followed by bounds, depth, compression, and pixel data.
- * Matching the GIMP and abrupng reference implementations.
+ * For sub-version 2, the first bytes of the header are a Pascal string
+ * containing the tip UUID used for mapping to desc preset entries.
  */
 function parseSampSection(
   reader: DataViewReader,
   endPos: number,
   subVersion: number,
-): ParsedAbrBrush[] {
-  const brushes: ParsedAbrBrush[] = [];
+): SampEntry[] {
+  const entries: SampEntry[] = [];
   const skipBytes = subVersion >= 2 ? 301 : 47;
 
   while (reader.position + 4 < endPos) {
@@ -206,7 +222,14 @@ function parseSampSection(
       reader.seek(nextEntry);
       continue;
     }
-    reader.skip(skipBytes);
+
+    // For sub-version 2, read the UUID from the Pascal string at the header start
+    const headerStart = reader.position;
+    let uuid = `samp-${entries.length}`;
+    if (subVersion >= 2) {
+      uuid = reader.readPascalString();
+    }
+    reader.seek(headerStart + skipBytes);
 
     // Read bounds: top, left, bottom, right (each 4 bytes, big-endian i32)
     const boundsTop = reader.readI32();
@@ -250,17 +273,11 @@ function parseSampSection(
       continue;
     }
 
-    brushes.push({
-      name: `Brush ${brushes.length + 1}`,
-      imageData,
-      width,
-      height,
-    });
-
+    entries.push({ uuid, imageData, width, height });
     reader.seek(nextEntry);
   }
 
-  return brushes;
+  return entries;
 }
 
 /** Read a ClassID: 4-byte length, then either 4-char tag (if len=0) or full string. */
@@ -382,7 +399,21 @@ function getBool(items: Map<string, DescriptorValue>, key: string): boolean | un
   return v.value;
 }
 
-/** Extract brush parameters from a parsed descriptor. */
+/** Get a nested descriptor's items from a parent descriptor. */
+function getObjc(items: Map<string, DescriptorValue>, key: string): Map<string, DescriptorValue> | undefined {
+  const v = items.get(key);
+  if (!v || v.type !== "Objc") return undefined;
+  return v.items;
+}
+
+/** Get a string value from a descriptor item. */
+function getText(items: Map<string, DescriptorValue>, key: string): string | undefined {
+  const v = items.get(key);
+  if (!v || v.type !== "TEXT") return undefined;
+  return v.value;
+}
+
+/** Extract brush parameters from a "Brsh" sub-descriptor (computedBrush or sampledBrush). */
 function extractBrushParams(items: Map<string, DescriptorValue>): AbrBrushParams {
   const params: AbrBrushParams = {};
 
@@ -401,13 +432,6 @@ function extractBrushParams(items: Map<string, DescriptorValue>): AbrBrushParams
   const roundness = getNumber(items, "Rndn");
   if (roundness !== undefined) params.roundness = roundness / 100; // Convert from %
 
-  const opacity = getNumber(items, "Opct");
-  if (opacity !== undefined) params.opacity = opacity / 100; // Convert from %
-
-  // Flow key has a trailing space in Photoshop descriptors
-  const flow = getNumber(items, "Fl  ");
-  if (flow !== undefined) params.flow = flow / 100; // Convert from %
-
   const flipX = getBool(items, "flipX");
   if (flipX !== undefined) params.flipX = flipX;
 
@@ -417,46 +441,75 @@ function extractBrushParams(items: Map<string, DescriptorValue>): AbrBrushParams
   return params;
 }
 
+/**
+ * Convert a Photoshop brush variation descriptor (brVr) to our DynamicParam.
+ *
+ * PS bVTy values: 0=Off, 2=PenPressure, 5=Direction, 6=InitialDirection.
+ * We map: 2→PenPressure(1). Off with jitter>0→Random(2). Unsupported→Off(0).
+ */
+function mapDynamicParam(items: Map<string, DescriptorValue> | undefined): DynamicParam {
+  if (!items) return { jitter: 0, control: 0, minimum: 0 };
+  const bVTy = getNumber(items, "bVTy") ?? 0;
+  const jitter = (getNumber(items, "jitter") ?? 0) / 100;
+  const minimum = (getNumber(items, "Mnm ") ?? 0) / 100;
+
+  let control: DynamicControl = 0;
+  if (bVTy === 2) {
+    control = 1; // Pen Pressure
+  } else if (jitter > 0) {
+    control = 2; // Random (PS uses bVTy=0 with jitter for random variation)
+  }
+
+  return { jitter, control, minimum };
+}
+
+/** Parsed info for a single preset from the desc section. */
 interface ParsedPresetInfo {
   name: string;
   params: AbrBrushParams;
-  isSampled: boolean;
+  /** UUID of the sampled tip, or undefined for computed tips. */
+  tipUuid?: string;
 }
 
 interface ParsedDescSection {
   presets: ParsedPresetInfo[];
 }
 
-/** Get a nested descriptor's items from a parent descriptor. */
-function getObjc(items: Map<string, DescriptorValue>, key: string): Map<string, DescriptorValue> | undefined {
-  const v = items.get(key);
-  if (!v || v.type !== "Objc") return undefined;
-  return v.items;
-}
-
-/** Get a string value from a descriptor item. */
-function getText(items: Map<string, DescriptorValue>, key: string): string | undefined {
-  const v = items.get(key);
-  if (!v || v.type !== "TEXT") return undefined;
-  return v.value;
-}
-
 /**
- * Extract brush parameters from a brushPreset descriptor.
- * Parameters come from the nested "Brsh" object and "toolOptions" object.
+ * Extract full brush parameters from a brushPreset descriptor.
+ * Includes brush tip params, dynamics, and tool options.
  */
 function extractPresetParams(presetItems: Map<string, DescriptorValue>): AbrBrushParams {
   // Get params from nested "Brsh" descriptor (computedBrush or sampledBrush)
   const brushItems = getObjc(presetItems, "Brsh");
   const params = brushItems ? extractBrushParams(brushItems) : {};
 
-  // Opacity and flow live in "toolOptions" as integer percentages
+  // Opacity and flow from "toolOptions" (integer percentages)
   const toolOpts = getObjc(presetItems, "toolOptions");
   if (toolOpts) {
     const opct = getNumber(toolOpts, "Opct");
     if (opct !== undefined) params.opacity = opct / 100;
     const flow = getNumber(toolOpts, "flow");
     if (flow !== undefined) params.flow = flow / 100;
+  }
+
+  // Shape dynamics
+  const useTipDyn = getBool(presetItems, "useTipDynamics");
+  if (useTipDyn) {
+    params.shapeDynamics = {
+      size: mapDynamicParam(getObjc(presetItems, "szVr")),
+      angle: mapDynamicParam(getObjc(presetItems, "angleDynamics")),
+      roundness: mapDynamicParam(getObjc(presetItems, "roundnessDynamics")),
+    };
+  }
+
+  // Transfer dynamics
+  const usePaintDyn = getBool(presetItems, "usePaintDynamics");
+  if (usePaintDyn) {
+    params.transferDynamics = {
+      opacity: mapDynamicParam(getObjc(presetItems, "opVr")),
+      flow: mapDynamicParam(getObjc(presetItems, "prVr")),
+    };
   }
 
   return params;
@@ -488,11 +541,11 @@ function parseDescSection(
         if (item.type !== "Objc") continue;
         const name = getText(item.items, "Nm  ") || `Brush ${presets.length + 1}`;
         const brsh = getObjc(item.items, "Brsh");
-        const isSampled = brsh ? getText(brsh, "sampledData") !== undefined : false;
+        const tipUuid = brsh ? getText(brsh, "sampledData") : undefined;
         presets.push({
           name,
           params: extractPresetParams(item.items),
-          isSampled,
+          tipUuid,
         });
       }
     }
@@ -504,7 +557,7 @@ function parseDescSection(
 }
 
 /**
- * Parse an ABR file and extract brush tip images.
+ * Parse an ABR file and extract brush presets with tip images.
  */
 export function parseAbrFile(buffer: ArrayBuffer): ParsedAbrBrush[] {
   const reader = new DataViewReader(buffer);
@@ -517,7 +570,7 @@ export function parseAbrFile(buffer: ArrayBuffer): ParsedAbrBrush[] {
   // We only support version 6+ (Photoshop 7+)
   if (version < 6) return [];
 
-  const brushes: ParsedAbrBrush[] = [];
+  let sampEntries: SampEntry[] = [];
   let descPresets: ParsedPresetInfo[] = [];
 
   while (reader.remaining >= 8) {
@@ -536,8 +589,7 @@ export function parseAbrFile(buffer: ArrayBuffer): ParsedAbrBrush[] {
     if (sectionEnd > reader.position + reader.remaining) break;
 
     if (sectionTag === "samp") {
-      const parsed = parseSampSection(reader, sectionEnd, subVersion);
-      brushes.push(...parsed);
+      sampEntries = parseSampSection(reader, sectionEnd, subVersion);
     } else if (sectionTag === "desc") {
       const { presets } = parseDescSection(reader, sectionEnd);
       descPresets = presets;
@@ -546,16 +598,38 @@ export function parseAbrFile(buffer: ArrayBuffer): ParsedAbrBrush[] {
     reader.seek(sectionEnd);
   }
 
-  // Map sampled preset names/params to samp entries (in order).
-  // Computed presets have no samp entry so we skip them.
-  let sampIdx = 0;
-  for (const preset of descPresets) {
-    if (preset.isSampled && sampIdx < brushes.length) {
-      brushes[sampIdx].name = preset.name;
-      brushes[sampIdx].params = preset.params;
-      sampIdx++;
-    }
+  // Build UUID → samp entry lookup
+  const sampByUuid = new Map<string, SampEntry>();
+  for (const entry of sampEntries) {
+    sampByUuid.set(entry.uuid, entry);
   }
 
-  return brushes;
+  // If we have desc presets, use them for proper name/param/tip mapping.
+  if (descPresets.length > 0) {
+    const brushes: ParsedAbrBrush[] = [];
+    for (const preset of descPresets) {
+      const brush: ParsedAbrBrush = {
+        name: preset.name,
+        params: preset.params,
+      };
+      if (preset.tipUuid) {
+        const samp = sampByUuid.get(preset.tipUuid);
+        if (samp) {
+          brush.imageData = samp.imageData;
+          brush.width = samp.width;
+          brush.height = samp.height;
+        }
+      }
+      brushes.push(brush);
+    }
+    return brushes;
+  }
+
+  // Fallback: no desc section — return samp entries with default names
+  return sampEntries.map((entry, i) => ({
+    name: `Brush ${i + 1}`,
+    imageData: entry.imageData,
+    width: entry.width,
+    height: entry.height,
+  }));
 }

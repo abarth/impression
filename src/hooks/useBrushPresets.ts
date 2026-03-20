@@ -170,23 +170,30 @@ export function useBrushPresets({
       );
 
       for (const brush of parsed) {
-        const tipId = crypto.randomUUID();
-        await s.saveTip({
-          id: tipId,
-          pixels: brush.imageData,
-          width: brush.width,
-          height: brush.height,
-        });
-
         const presetId = crypto.randomUUID();
         maxOrder += 1;
         const p = brush.params;
+
+        let tip: BrushPreset["tip"];
+        if (brush.imageData && brush.width && brush.height) {
+          const tipId = crypto.randomUUID();
+          await s.saveTip({
+            id: tipId,
+            pixels: brush.imageData,
+            width: brush.width,
+            height: brush.height,
+          });
+          tip = { type: "image", tipId };
+        } else {
+          tip = { type: "computed", hardness: p?.hardness ?? 1.0 };
+        }
+
         const preset: BrushPreset = {
           id: presetId,
           name: brush.name,
           group: groupName,
-          tip: { type: "image", tipId },
-          size: p?.diameter ?? Math.max(brush.width, brush.height),
+          tip,
+          size: p?.diameter ?? (brush.width && brush.height ? Math.max(brush.width, brush.height) : 20),
           spacing: p?.spacing ?? 0.25,
           roundness: p?.roundness ?? 1.0,
           angle: p?.angle ?? 0,
@@ -194,6 +201,8 @@ export function useBrushPresets({
         };
         if (p?.opacity !== undefined) preset.opacity = p.opacity;
         if (p?.flow !== undefined) preset.flow = p.flow;
+        if (p?.shapeDynamics) preset.shapeDynamics = p.shapeDynamics;
+        if (p?.transferDynamics) preset.transferDynamics = p.transferDynamics;
         await s.savePreset(preset);
       }
 
