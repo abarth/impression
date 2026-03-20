@@ -2,7 +2,7 @@ import { useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { Settings2 } from "lucide-react";
 import { SliderControl } from "./SliderControl";
-import type { BrushSettings, DynamicParam, DynamicControl, ScatterSettings } from "../hooks/useBrushSettings";
+import type { BrushSettings, DynamicParam, DynamicControl, ScatterSettings, DualBrushSettings } from "../hooks/useBrushSettings";
 
 interface BrushSettingsPanelProps {
   settings: BrushSettings;
@@ -77,13 +77,14 @@ function DynamicParamControl({
 
 // -- Brush Settings Popover (Photoshop-style F5 panel) --
 
-type Category = "tip" | "shapeDynamics" | "transfer" | "scattering";
+type Category = "tip" | "shapeDynamics" | "transfer" | "scattering" | "dualBrush";
 
 const CATEGORIES: { id: Category; label: string }[] = [
   { id: "tip", label: "Brush Tip Shape" },
   { id: "shapeDynamics", label: "Shape Dynamics" },
   { id: "transfer", label: "Transfer" },
   { id: "scattering", label: "Scattering" },
+  { id: "dualBrush", label: "Dual Brush" },
 ];
 
 function BrushTipPane({ settings, isImageTip, onUpdate }: BrushSettingsPanelProps) {
@@ -261,6 +262,57 @@ function ScatteringPane({ settings, onUpdate }: BrushSettingsPanelProps) {
   );
 }
 
+function DualBrushPane({ settings, onUpdate }: BrushSettingsPanelProps) {
+  const db = settings.dualBrush;
+  const update = (partial: Partial<DualBrushSettings>) =>
+    onUpdate("dualBrush", { ...db, ...partial });
+  return (
+    <div className="flex flex-col gap-3.5">
+      <button
+        onClick={() => update({ enabled: !db.enabled })}
+        className={`px-2 py-1.5 text-[11px] rounded border transition-colors duration-150
+          ${db.enabled
+            ? "bg-graphite-800 border-graphite-700 text-cream"
+            : "bg-graphite-850 border-graphite-800 text-cream-muted hover:bg-graphite-800"
+          }`}
+      >
+        {db.enabled ? "Dual Brush On" : "Dual Brush Off"}
+      </button>
+      {db.enabled && (
+        <>
+          <SliderControl
+            label="Size"
+            value={db.size}
+            min={1}
+            max={100}
+            step={1}
+            displayValue={`${Math.round(db.size)}px`}
+            onChange={(v) => update({ size: v })}
+          />
+          <SliderControl
+            label="Spacing"
+            value={db.spacing}
+            min={0.01}
+            max={2.0}
+            step={0.01}
+            displayValue={`${Math.round(db.spacing * 100)}%`}
+            onChange={(v) => update({ spacing: v })}
+          />
+          <SliderControl
+            label="Hardness"
+            value={db.hardness}
+            min={0}
+            max={1.0}
+            step={0.01}
+            displayValue={`${Math.round(db.hardness * 100)}%`}
+            onChange={(v) => update({ hardness: v })}
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
 /**
  * Brush properties popover — Photoshop-style brush settings panel.
  * Left sidebar with category navigation, right pane with controls.
@@ -326,6 +378,9 @@ export function BrushSettingsPanel({
               )}
               {activeCategory === "scattering" && (
                 <ScatteringPane settings={settings} onUpdate={onUpdate} />
+              )}
+              {activeCategory === "dualBrush" && (
+                <DualBrushPane settings={settings} onUpdate={onUpdate} />
               )}
             </div>
 

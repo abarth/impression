@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::blend_mode::BlendMode;
-use crate::brush::ScatterSettings;
+use crate::brush::{DualBrushSettings, ScatterSettings};
 use crate::dynamics::{ShapeDynamics, TransferDynamics};
 use crate::selection::CombineMode;
 
@@ -121,6 +121,8 @@ pub enum Operation {
     SetBrushFlipX(bool),
     SetBrushFlipY(bool),
     SetScatter(ScatterSettings),
+    SetDualBrush(DualBrushSettings),
+    SetSecondaryBrushTip(Option<String>),
 }
 
 /// Magic byte prefix indicating a versioned format.
@@ -293,6 +295,24 @@ mod tests {
             layer: 3,
             before: None,
         });
+    }
+
+    #[test]
+    fn test_round_trip_dual_brush() {
+        use crate::brush::DualBrushSettings;
+        round_trip(Operation::SetDualBrush(DualBrushSettings {
+            enabled: true,
+            use_computed: false,
+            hardness: 0.5,
+            size: 30.0,
+            spacing: 0.15,
+        }));
+    }
+
+    #[test]
+    fn test_round_trip_secondary_brush_tip() {
+        round_trip(Operation::SetSecondaryBrushTip(Some("tip-123".to_string())));
+        round_trip(Operation::SetSecondaryBrushTip(None));
     }
 
     #[test]

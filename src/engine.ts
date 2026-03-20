@@ -197,6 +197,21 @@ export class Engine {
     this.canvas.set_scatter(scatter, bothAxes, count, countJitter);
   }
 
+  setDualBrush(
+    enabled: boolean, useComputed: boolean,
+    hardness: number, size: number, spacing: number,
+  ): void {
+    this.canvas.set_dual_brush(enabled, useComputed, hardness, size, spacing);
+  }
+
+  setSecondaryBrushTip(id: string): void {
+    this.canvas.set_secondary_brush_tip(id);
+  }
+
+  clearSecondaryBrushTip(): void {
+    this.canvas.clear_secondary_brush_tip();
+  }
+
   setShapeDynamics(
     sizeJitter: number, sizeControl: number, sizeMin: number,
     angleJitter: number, angleControl: number,

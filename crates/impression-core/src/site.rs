@@ -17,6 +17,10 @@ pub struct SiteState {
     pub active_tip_id: Option<String>,
     /// Cloned tip data for the active brush tip (set when active_tip_id changes).
     pub active_tip: Option<BrushTip>,
+    /// Secondary (dual brush) tip ID.
+    pub secondary_tip_id: Option<String>,
+    /// Cloned tip data for the secondary brush tip.
+    pub secondary_tip: Option<BrushTip>,
 }
 
 impl Default for SiteState {
@@ -29,6 +33,8 @@ impl Default for SiteState {
             stroke_layer: 0,
             active_tip_id: None,
             active_tip: None,
+            secondary_tip_id: None,
+            secondary_tip: None,
         }
     }
 }

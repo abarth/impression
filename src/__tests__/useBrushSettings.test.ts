@@ -24,6 +24,9 @@ function createMockEngine(): Engine {
     setBrushFlipX: vi.fn(),
     setBrushFlipY: vi.fn(),
     setScatter: vi.fn(),
+    setDualBrush: vi.fn(),
+    setSecondaryBrushTip: vi.fn(),
+    clearSecondaryBrushTip: vi.fn(),
   } as unknown as Engine;
 }
 

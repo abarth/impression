@@ -29,6 +29,14 @@ export interface ScatterSettings {
   countJitter: number;
 }
 
+export interface DualBrushSettings {
+  enabled: boolean;
+  useComputed: boolean;
+  hardness: number;
+  size: number;
+  spacing: number;
+}
+
 export interface BrushSettings {
   size: number;
   spacing: number;
@@ -43,6 +51,7 @@ export interface BrushSettings {
   shapeDynamics: ShapeDynamics;
   transferDynamics: TransferDynamics;
   scatterSettings: ScatterSettings;
+  dualBrush: DualBrushSettings;
 }
 
 /** Blend mode constants matching Rust BlendMode enum values. */
@@ -69,6 +78,14 @@ const DEFAULT_SCATTER: ScatterSettings = {
   countJitter: 0,
 };
 
+const DEFAULT_DUAL_BRUSH: DualBrushSettings = {
+  enabled: false,
+  useComputed: true,
+  hardness: 1.0,
+  size: 20,
+  spacing: 0.25,
+};
+
 const DEFAULT_BRUSH: BrushSettings = {
   size: 20,
   spacing: 0.15,
@@ -83,6 +100,7 @@ const DEFAULT_BRUSH: BrushSettings = {
   shapeDynamics: DEFAULT_SHAPE_DYNAMICS,
   transferDynamics: DEFAULT_TRANSFER_DYNAMICS,
   scatterSettings: DEFAULT_SCATTER,
+  dualBrush: DEFAULT_DUAL_BRUSH,
 };
 
 const DEFAULT_ERASER: BrushSettings = {
@@ -99,6 +117,7 @@ const DEFAULT_ERASER: BrushSettings = {
   shapeDynamics: DEFAULT_SHAPE_DYNAMICS,
   transferDynamics: DEFAULT_TRANSFER_DYNAMICS,
   scatterSettings: DEFAULT_SCATTER,
+  dualBrush: DEFAULT_DUAL_BRUSH,
 };
 
 /** Tools that have their own brush settings. */
@@ -149,6 +168,8 @@ export function useBrushSettings(engine: Engine | null, activeTool: Tool) {
     );
     const sc = s.scatterSettings;
     eng.setScatter(sc.scatter, sc.bothAxes, sc.count, sc.countJitter);
+    const db = s.dualBrush;
+    eng.setDualBrush(db.enabled, db.useComputed, db.hardness, db.size, db.spacing);
   }, []);
 
   // Sync when engine becomes available

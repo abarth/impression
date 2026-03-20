@@ -174,6 +174,34 @@ impl ImpressionCanvas {
         self.inner.set_brush_flip_y(flip);
     }
 
+    /// Set dual brush parameters.
+    pub fn set_dual_brush(
+        &mut self,
+        enabled: bool,
+        use_computed: bool,
+        hardness: f32,
+        size: f32,
+        spacing: f32,
+    ) {
+        self.inner.set_dual_brush(brush::DualBrushSettings {
+            enabled,
+            use_computed,
+            hardness,
+            size,
+            spacing,
+        });
+    }
+
+    /// Set the secondary (dual brush) tip by ID.
+    pub fn set_secondary_brush_tip(&mut self, id: &str) {
+        self.inner.set_secondary_brush_tip(id);
+    }
+
+    /// Clear the secondary brush tip (revert to computed circle).
+    pub fn clear_secondary_brush_tip(&mut self) {
+        self.inner.clear_secondary_brush_tip();
+    }
+
     /// Set scattering parameters.
     pub fn set_scatter(
         &mut self,

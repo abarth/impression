@@ -6,7 +6,7 @@ export interface StoredBrushTip {
   height: number;
 }
 
-import type { ShapeDynamics, TransferDynamics, ScatterSettings } from "./hooks/useBrushSettings";
+import type { ShapeDynamics, TransferDynamics, ScatterSettings, DualBrushSettings } from "./hooks/useBrushSettings";
 
 /** Stored in brush_presets IndexedDB store. */
 export interface BrushPreset {
@@ -25,6 +25,7 @@ export interface BrushPreset {
   shapeDynamics?: ShapeDynamics;
   transferDynamics?: TransferDynamics;
   scatterSettings?: ScatterSettings;
+  dualBrush?: DualBrushSettings;
   sort_order: number;
 }
 
