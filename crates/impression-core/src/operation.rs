@@ -125,6 +125,9 @@ pub enum Operation {
     SetSecondaryBrushTip(Option<String>),
     SetTexture(TextureSettings),
     SetTextureTip(Option<String>),
+    /// Reset brush settings to defaults, preserving color. Ensures replay
+    /// matches live execution even if the frontend omits some properties.
+    ResetBrush,
 }
 
 /// Magic byte prefix indicating a versioned format.
@@ -343,6 +346,11 @@ mod tests {
     fn test_round_trip_texture_tip() {
         round_trip(Operation::SetTextureTip(Some("pattern-abc".to_string())));
         round_trip(Operation::SetTextureTip(None));
+    }
+
+    #[test]
+    fn test_round_trip_reset_brush() {
+        round_trip(Operation::ResetBrush);
     }
 
     #[test]

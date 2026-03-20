@@ -164,10 +164,19 @@ impl Canvas {
             Operation::SetBrushHardness(hardness) => self.site_for_mut(site).brush.hardness = hardness,
             Operation::SetBrushRoundness(roundness) => self.site_for_mut(site).brush.roundness = roundness,
             Operation::SetBrushAngle(angle) => self.site_for_mut(site).brush.angle = angle,
+            Operation::ResetBrush => {
+                let site_state = self.site_for_mut(site);
+                let color = site_state.brush.color;
+                site_state.brush = crate::brush::BrushSettings::default();
+                site_state.brush.color = color;
+                site_state.active_tip = None;
+                site_state.secondary_tip = None;
+                site_state.texture_tip = None;
+            }
             Operation::SetBrushTip(ref tip_id) => {
                 let cloned_tip = tip_id.as_ref().and_then(|id| self.tip_registry.get(id).cloned());
                 let site_state = self.site_for_mut(site);
-                site_state.active_tip_id = tip_id.clone();
+                site_state.brush.active_tip_id = tip_id.clone();
                 site_state.active_tip = cloned_tip;
             }
             Operation::AddLayer { id } => {
@@ -296,7 +305,7 @@ impl Canvas {
             Operation::SetSecondaryBrushTip(ref tip_id) => {
                 let cloned_tip = tip_id.as_ref().and_then(|id| self.tip_registry.get(id).cloned());
                 let site_state = self.site_for_mut(site);
-                site_state.secondary_tip_id = tip_id.clone();
+                site_state.brush.secondary_tip_id = tip_id.clone();
                 site_state.secondary_tip = cloned_tip;
             }
             Operation::SetTexture(settings) => {
@@ -305,7 +314,7 @@ impl Canvas {
             Operation::SetTextureTip(ref tip_id) => {
                 let cloned_tip = tip_id.as_ref().and_then(|id| self.tip_registry.get(id).cloned());
                 let site_state = self.site_for_mut(site);
-                site_state.texture_tip_id = tip_id.clone();
+                site_state.brush.texture_tip_id = tip_id.clone();
                 site_state.texture_tip = cloned_tip;
             }
         }

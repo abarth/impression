@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::blend_mode::BlendMode;
-use crate::brush::{BrushSettings, BrushTip, DualBrushSettings, ScatterSettings, TextureSettings};
+use crate::brush::{BrushTip, DualBrushSettings, ScatterSettings, TextureSettings};
 use crate::color::Color;
 use crate::dynamics::{ShapeDynamics, TransferDynamics};
 use crate::layer::Layer;
@@ -178,15 +178,10 @@ impl Canvas {
     // -- Brush settings (per-site) --
 
     /// Reset brush settings to defaults, preserving color (which is managed
-    /// separately via set_brush_color). This is called by the frontend before
-    /// applying a new set of brush properties, ensuring no stale state leaks
-    /// between brush presets. Not recorded in the oplog — the subsequent
-    /// individual set_brush_* calls provide the authoritative state.
+    /// separately via set_brush_color). Recorded in the oplog so that replay
+    /// matches live execution even if the frontend omits some properties.
     pub fn reset_brush(&mut self) {
-        let site = self.site_for_mut(self.active_site);
-        let color = site.brush.color;
-        site.brush = BrushSettings::default();
-        site.brush.color = color;
+        self.apply(Operation::ResetBrush);
     }
 
     pub fn set_brush_size(&mut self, size: f32) {
@@ -444,6 +439,7 @@ impl Canvas {
                 | Operation::SetSecondaryBrushTip(_)
                 | Operation::SetTexture(_)
                 | Operation::SetTextureTip(_)
+                | Operation::ResetBrush
                 | Operation::CreateCanvas { .. } => {
                     self.oplog.begin_undo_group(site_op.site);
                 }
@@ -1154,5 +1150,74 @@ mod tests {
 
         canvas.redo();
         assert_eq!(canvas.layer(0).unwrap().name, "My Layer");
+    }
+
+    #[test]
+    fn test_reset_brush_is_recorded_in_oplog() {
+        let mut canvas = Canvas::new(10, 10);
+        canvas.set_brush_size(42.0);
+        canvas.reset_brush();
+
+        let ops = canvas.oplog.active_operations();
+        assert!(matches!(ops.last().unwrap().op, Operation::ResetBrush));
+    }
+
+    #[test]
+    fn test_reset_brush_clears_tip_ids() {
+        let mut canvas = Canvas::new(10, 10);
+        // Register a tip and set it active
+        canvas.register_brush_tip("tip-1".to_string(), vec![255, 128], 1, 2);
+        canvas.set_brush_tip("tip-1");
+        canvas.set_secondary_brush_tip("tip-1");
+        canvas.set_texture_tip("tip-1");
+
+        let site = canvas.site_for_mut(0);
+        assert!(site.brush.active_tip_id.is_some());
+        assert!(site.active_tip.is_some());
+
+        canvas.reset_brush();
+
+        let site = canvas.site_for_mut(0);
+        assert!(site.brush.active_tip_id.is_none(), "reset should clear active tip ID");
+        assert!(site.brush.secondary_tip_id.is_none(), "reset should clear secondary tip ID");
+        assert!(site.brush.texture_tip_id.is_none(), "reset should clear texture tip ID");
+        assert!(site.active_tip.is_none(), "reset should clear cached active tip");
+        assert!(site.secondary_tip.is_none(), "reset should clear cached secondary tip");
+        assert!(site.texture_tip.is_none(), "reset should clear cached texture tip");
+    }
+
+    #[test]
+    fn test_reset_brush_preserves_color() {
+        let mut canvas = Canvas::new(10, 10);
+        canvas.set_brush_color(255, 0, 128);
+        canvas.reset_brush();
+
+        let site = canvas.site_for_mut(0);
+        assert_eq!(site.brush.color.r, 255);
+        assert_eq!(site.brush.color.g, 0);
+        assert_eq!(site.brush.color.b, 128);
+    }
+
+    #[test]
+    fn test_reset_brush_replay_matches_live() {
+        // Live: set brush size, reset, then draw
+        let mut canvas1 = Canvas::new(20, 20);
+        canvas1.add_layer();
+        canvas1.set_brush_size(50.0);
+        canvas1.reset_brush();
+        // Don't re-set size — should be default (10.0) after reset
+        canvas1.stroke_begin(0, 10.0, 10.0, 1.0);
+        canvas1.stroke_end();
+
+        // Serialize and replay
+        let data = canvas1.flush_pending_operations().unwrap();
+        let mut canvas2 = Canvas::new(20, 20);
+        assert!(canvas2.load_chunk(&data).is_ok());
+
+        // Both should have the same brush size (default after reset)
+        let site1 = canvas1.site_for_mut(0);
+        let site2 = canvas2.site_for_mut(0);
+        assert!((site1.brush.size - site2.brush.size).abs() < 0.01,
+            "Replay brush size ({}) should match live ({})", site2.brush.size, site1.brush.size);
     }
 }

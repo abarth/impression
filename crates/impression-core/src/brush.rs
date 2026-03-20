@@ -126,6 +126,12 @@ pub struct BrushSettings {
     pub dual_brush: DualBrushSettings,
     /// Texture overlay settings.
     pub texture: TextureSettings,
+    /// Active brush tip ID (references Canvas::tip_registry). None = computed circle.
+    pub active_tip_id: Option<String>,
+    /// Secondary (dual brush) tip ID.
+    pub secondary_tip_id: Option<String>,
+    /// Texture pattern tip ID.
+    pub texture_tip_id: Option<String>,
 }
 
 impl Default for BrushSettings {
@@ -147,6 +153,9 @@ impl Default for BrushSettings {
             scatter: ScatterSettings::default(),
             dual_brush: DualBrushSettings::default(),
             texture: TextureSettings::default(),
+            active_tip_id: None,
+            secondary_tip_id: None,
+            texture_tip_id: None,
         }
     }
 }
