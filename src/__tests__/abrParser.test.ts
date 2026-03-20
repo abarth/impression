@@ -45,6 +45,11 @@ class BinaryBuilder {
   /** Append raw bytes from another builder. */
   append(other: BinaryBuilder): this { this.parts.push(...other.parts); return this; }
   bytes(data: number[]): this { this.parts.push(...data); return this; }
+  /** Pad with zeros to reach a target length. */
+  padTo(targetLength: number): this {
+    while (this.parts.length < targetLength) this.parts.push(0);
+    return this;
+  }
 
   toArray(): number[] { return this.parts; }
   get length(): number { return this.parts.length; }
@@ -60,14 +65,14 @@ function boolItem(key: string, value: boolean): BinaryBuilder {
   return new BinaryBuilder().key(key).tag("bool").u8(value ? 1 : 0);
 }
 
-/** Build a minimal samp section with one 2x2 brush. */
+/**
+ * Build a minimal samp section with one 2x2 brush.
+ * Sub-version 1 skips 47 bytes, then reads bounds/depth/compression/pixels.
+ */
 function buildSampSection(): BinaryBuilder {
   const sampleData = new BinaryBuilder()
-    .u32(0) // misc
-    .u32(0) // spacing
-    .u8(0)  // antialiasing
-    .u32(0).u32(0).u32(2).u32(2) // bounds: top, left, bottom, right
-    .u16(0) // feature data
+    .padTo(47) // 47-byte opaque header blob (sub-version 1)
+    .i32(0).i32(0).i32(2).i32(2) // bounds: top, left, bottom, right
     .u16(8) // depth
     .u8(0)  // compression = raw
     .bytes([255, 255, 255, 255]); // 2x2 pixels
@@ -82,27 +87,64 @@ function buildSampSection(): BinaryBuilder {
     .append(sampleBlock);
 }
 
-/** Build a desc section containing one descriptor with the given items. */
-function buildDescSection(name: string, items: BinaryBuilder[]): BinaryBuilder {
-  // Build the descriptor body
-  const descriptorBody = new BinaryBuilder()
-    .unicodeString(name)
-    .classId("null") // classId
-    .u32(items.length); // item count
-  for (const item of items) {
-    descriptorBody.append(item);
+/**
+ * Build a desc section with a VlLs of brushPreset descriptors.
+ * Each preset has a name and brush params in a nested "Brsh" object.
+ * Format: 4-byte version + single descriptor with "Brsh" VlLs.
+ */
+function buildDescSection(presets: { name: string; isSampled: boolean; items: BinaryBuilder[] }[]): BinaryBuilder {
+  // Build each preset as an Objc descriptor
+  const presetObjcs: BinaryBuilder[] = [];
+  for (const preset of presets) {
+    // Build the "Brsh" sub-descriptor (computedBrush or sampledBrush)
+    const brshClassName = preset.isSampled ? "sampledBrush" : "computedBrush";
+    const brshItems = [...preset.items];
+    if (preset.isSampled) {
+      // Add sampledData TEXT to mark it as sampled
+      brshItems.push(
+        new BinaryBuilder().key("sampledData").tag("TEXT").unicodeString("fake-uuid-1234"),
+      );
+    }
+
+    const brshDesc = new BinaryBuilder()
+      .unicodeString("")
+      .classId(brshClassName)
+      .u32(brshItems.length);
+    for (const item of brshItems) brshDesc.append(item);
+
+    // Build the preset descriptor items: Nm (name) + Brsh (nested descriptor)
+    const presetDesc = new BinaryBuilder()
+      .unicodeString("")
+      .classId("brushPreset")
+      .u32(2) // 2 items: Nm + Brsh
+      .key("Nm  ").tag("TEXT").unicodeString(preset.name)
+      .key("Brsh").tag("Objc").append(brshDesc);
+
+    presetObjcs.push(presetDesc);
   }
 
-  // Wrap in desc tag + size
-  const descBlock = new BinaryBuilder()
-    .tag("desc")
-    .u32(descriptorBody.length)
-    .append(descriptorBody);
+  // Build VlLs of presets
+  const vlls = new BinaryBuilder().u32(presetObjcs.length);
+  for (const obj of presetObjcs) {
+    vlls.tag("Objc").append(obj);
+  }
+
+  // Build top-level descriptor: single item "Brsh" → VlLs
+  const topDescriptor = new BinaryBuilder()
+    .unicodeString("")
+    .classId("null")
+    .u32(1) // 1 item
+    .key("Brsh").tag("VlLs").append(vlls);
+
+  // desc section = 4-byte version + descriptor
+  const descContent = new BinaryBuilder()
+    .u32(16) // version
+    .append(topDescriptor);
 
   return new BinaryBuilder()
     .tag("8BIM").tag("desc")
-    .u32(descBlock.length)
-    .append(descBlock);
+    .u32(descContent.length)
+    .append(descContent);
 }
 
 describe("abrParser", () => {
@@ -135,68 +177,11 @@ describe("abrParser", () => {
   });
 
   it("parses a minimal version 6 ABR with a samp section", () => {
-    // Build a minimal ABR v6 file with one 2x2 uncompressed brush tip
-    const parts: number[] = [];
+    const header = new BinaryBuilder().u16(6).u16(1);
+    const samp = buildSampSection();
 
-    // Header: version=6, sub-version=1
-    parts.push(0, 6, 0, 1);
-
-    // 8BIM tag
-    parts.push(0x38, 0x42, 0x49, 0x4d); // "8BIM"
-
-    // Section tag: "samp"
-    parts.push(0x73, 0x61, 0x6d, 0x70);
-
-    // Section size (calculated below)
-    // We'll fill this in after building the sample data
-
-    // Build sample data
-    const sampleData: number[] = [];
-
-    // misc (4 bytes)
-    sampleData.push(0, 0, 0, 0);
-    // spacing (4 bytes)
-    sampleData.push(0, 0, 0, 0);
-    // antialiasing (1 byte)
-    sampleData.push(0);
-    // bounds: top=0, left=0, bottom=2, right=2
-    sampleData.push(0, 0, 0, 0); // top
-    sampleData.push(0, 0, 0, 0); // left
-    sampleData.push(0, 0, 0, 2); // bottom
-    sampleData.push(0, 0, 0, 2); // right
-    // feature data (2 bytes)
-    sampleData.push(0, 0);
-    // depth = 8
-    sampleData.push(0, 8);
-    // compression = 0 (raw)
-    sampleData.push(0);
-    // Pixel data: 2x2 = 4 bytes, all white
-    sampleData.push(255, 255, 255, 255);
-
-    // Sample length (4 bytes big-endian)
-    const sampleLength = sampleData.length;
-    const sampleLenBytes = [
-      (sampleLength >> 24) & 0xff,
-      (sampleLength >> 16) & 0xff,
-      (sampleLength >> 8) & 0xff,
-      sampleLength & 0xff,
-    ];
-
-    // Full sample block = sample length prefix + sample data
-    const fullSample = [...sampleLenBytes, ...sampleData];
-
-    // Section size = full sample block length
-    const sectionSize = fullSample.length;
-    parts.push(
-      (sectionSize >> 24) & 0xff,
-      (sectionSize >> 16) & 0xff,
-      (sectionSize >> 8) & 0xff,
-      sectionSize & 0xff,
-    );
-
-    parts.push(...fullSample);
-
-    const buf = new Uint8Array(parts).buffer;
+    const data = new BinaryBuilder().append(header).append(samp);
+    const buf = new Uint8Array(data.toArray()).buffer;
     const result = parseAbrFile(buf);
 
     expect(result.length).toBe(1);
@@ -207,23 +192,24 @@ describe("abrParser", () => {
   });
 
   it("extracts brush parameters from desc section", () => {
-    // Build an ABR file: header + desc section (with params) + samp section
     const header = new BinaryBuilder().u16(6).u16(1);
-    const desc = buildDescSection("Test Brush", [
-      untfItem("Dmtr", "#Pxl", 45.0),   // diameter 45px
-      untfItem("Hrdn", "#Prc", 75.0),   // hardness 75%
-      untfItem("Spcn", "#Prc", 30.0),   // spacing 30%
-      untfItem("Angl", "#Ang", 15.0),   // angle 15°
-      untfItem("Rndn", "#Prc", 80.0),   // roundness 80%
-      boolItem("flipX", true),
-      boolItem("flipY", false),
-    ]);
+    const desc = buildDescSection([{
+      name: "Test Brush",
+      isSampled: true,
+      items: [
+        untfItem("Dmtr", "#Pxl", 45.0),
+        untfItem("Hrdn", "#Prc", 75.0),
+        untfItem("Spcn", "#Prc", 30.0),
+        untfItem("Angl", "#Ang", 15.0),
+        untfItem("Rndn", "#Prc", 80.0),
+        boolItem("flipX", true),
+        boolItem("flipY", false),
+      ],
+    }]);
     const samp = buildSampSection();
 
     const data = new BinaryBuilder()
-      .append(header)
-      .append(desc)
-      .append(samp);
+      .append(header).append(desc).append(samp);
 
     const buf = new Uint8Array(data.toArray()).buffer;
     const result = parseAbrFile(buf);
@@ -240,16 +226,44 @@ describe("abrParser", () => {
     expect(result[0].params!.flipY).toBe(false);
   });
 
-  it("handles desc section with opacity and flow", () => {
-    const header = new BinaryBuilder().u16(6).u16(1);
-    const desc = buildDescSection("Soft Brush", [
-      untfItem("Opct", "#Prc", 60.0),  // opacity 60%
-      untfItem("Fl  ", "#Prc", 40.0),  // flow 40%
-    ]);
-    const samp = buildSampSection();
+  it("handles desc section with opacity and flow in toolOptions", () => {
+    // Build a preset with opacity/flow in a nested toolOptions descriptor
+    const toolOptsDesc = new BinaryBuilder()
+      .unicodeString("")
+      .classId("PbTl")
+      .u32(2) // 2 items
+      .key("Opct").tag("long").i32(60)
+      .key("flow").tag("long").i32(40);
 
+    const header = new BinaryBuilder().u16(6).u16(1);
+
+    // Manually build the desc section with toolOptions
+    const presetDesc = new BinaryBuilder()
+      .unicodeString("")
+      .classId("brushPreset")
+      .u32(3) // 3 items: Nm + Brsh + toolOptions
+      .key("Nm  ").tag("TEXT").unicodeString("Soft Brush")
+      .key("Brsh").tag("Objc")
+        .unicodeString("").classId("sampledBrush").u32(1)
+        .key("sampledData").tag("TEXT").unicodeString("fake-uuid")
+      .key("toolOptions").tag("Objc").append(toolOptsDesc);
+
+    const vlls = new BinaryBuilder()
+      .u32(1) // 1 preset
+      .tag("Objc").append(presetDesc);
+
+    const topDescriptor = new BinaryBuilder()
+      .unicodeString("").classId("null")
+      .u32(1).key("Brsh").tag("VlLs").append(vlls);
+
+    const descContent = new BinaryBuilder().u32(16).append(topDescriptor);
+    const descSection = new BinaryBuilder()
+      .tag("8BIM").tag("desc")
+      .u32(descContent.length).append(descContent);
+
+    const samp = buildSampSection();
     const data = new BinaryBuilder()
-      .append(header).append(desc).append(samp);
+      .append(header).append(descSection).append(samp);
 
     const buf = new Uint8Array(data.toArray()).buffer;
     const result = parseAbrFile(buf);
@@ -261,7 +275,11 @@ describe("abrParser", () => {
 
   it("falls back to defaults when desc has no parameters", () => {
     const header = new BinaryBuilder().u16(6).u16(1);
-    const desc = buildDescSection("Empty Brush", []);
+    const desc = buildDescSection([{
+      name: "Empty Brush",
+      isSampled: true,
+      items: [],
+    }]);
     const samp = buildSampSection();
 
     const data = new BinaryBuilder()
@@ -276,5 +294,48 @@ describe("abrParser", () => {
     expect(result[0].params).toBeDefined();
     expect(result[0].params!.diameter).toBeUndefined();
     expect(result[0].params!.spacing).toBeUndefined();
+  });
+
+  it("maps sampled presets to samp entries, skipping computed presets", () => {
+    const header = new BinaryBuilder().u16(6).u16(1);
+
+    // 3 presets in desc: computed, sampled, sampled
+    const desc = buildDescSection([
+      { name: "Hard Round", isSampled: false, items: [untfItem("Hrdn", "#Prc", 100.0)] },
+      { name: "Textured 1", isSampled: true, items: [untfItem("Dmtr", "#Pxl", 30.0)] },
+      { name: "Textured 2", isSampled: true, items: [untfItem("Dmtr", "#Pxl", 50.0)] },
+    ]);
+
+    // 2 samp entries (matching the 2 sampled presets)
+    // Entry data must be padded so that (4 + dataLen) aligns to 4 bytes
+    const samp1 = new BinaryBuilder()
+      .padTo(47).i32(0).i32(0).i32(2).i32(2).u16(8).u8(0)
+      .bytes([100, 100, 100, 100])
+      .padTo(72); // 72 + 4 (length prefix) = 76 bytes, aligned to 4
+    const samp2 = new BinaryBuilder()
+      .padTo(47).i32(0).i32(0).i32(3).i32(3).u16(8).u8(0)
+      .bytes([200, 200, 200, 200, 200, 200, 200, 200, 200]);
+
+    const sampBlock = new BinaryBuilder()
+      .u32(samp1.length).append(samp1)
+      .u32(samp2.length).append(samp2);
+
+    const sampSection = new BinaryBuilder()
+      .tag("8BIM").tag("samp")
+      .u32(sampBlock.length).append(sampBlock);
+
+    const data = new BinaryBuilder()
+      .append(header).append(desc).append(sampSection);
+
+    const buf = new Uint8Array(data.toArray()).buffer;
+    const result = parseAbrFile(buf);
+
+    expect(result.length).toBe(2);
+    expect(result[0].name).toBe("Textured 1");
+    expect(result[0].params!.diameter).toBeCloseTo(30.0);
+    expect(result[0].width).toBe(2);
+    expect(result[1].name).toBe("Textured 2");
+    expect(result[1].params!.diameter).toBeCloseTo(50.0);
+    expect(result[1].width).toBe(3);
   });
 });

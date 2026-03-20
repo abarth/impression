@@ -175,12 +175,19 @@ function decodeRLE(
 
 /**
  * Parse a `samp` section to extract brush tip images.
+ *
+ * Each entry has a 4-byte length prefix, then an opaque header blob
+ * (47 bytes for sub-version 1, 301 bytes for sub-version 2),
+ * followed by bounds, depth, compression, and pixel data.
+ * Matching the GIMP and abrupng reference implementations.
  */
 function parseSampSection(
   reader: DataViewReader,
   endPos: number,
+  subVersion: number,
 ): ParsedAbrBrush[] {
   const brushes: ParsedAbrBrush[] = [];
+  const skipBytes = subVersion >= 2 ? 301 : 47;
 
   while (reader.position + 4 < endPos) {
     if (reader.remaining < 4) break;
@@ -191,30 +198,30 @@ function parseSampSection(
     const sampleEnd = reader.position + sampleLength;
     if (sampleEnd > endPos) break;
 
-    // Skip misc field (4 bytes) and spacing (4 bytes)
-    reader.skip(4); // misc
-    reader.skip(4); // spacing
+    // Align next entry to 4-byte boundary
+    const nextEntry = (sampleEnd + 3) & ~3;
 
-    // Skip antialiasing (unused tag)
-    reader.skip(reader.position + 1 <= sampleEnd ? 1 : 0);
+    // Skip the opaque header blob (misc, spacing, antialiasing, short bounds, etc.)
+    if (sampleLength < skipBytes + 19) {
+      reader.seek(nextEntry);
+      continue;
+    }
+    reader.skip(skipBytes);
 
-    // Read bounds: top, left, bottom, right (each 4 bytes)
-    const _boundsTop = reader.readU32();
-    const _boundsLeft = reader.readU32();
-    const boundsBottom = reader.readU32();
-    const boundsRight = reader.readU32();
-
-    // Skip feature data
-    reader.skip(reader.position + 2 <= sampleEnd ? 2 : 0);
+    // Read bounds: top, left, bottom, right (each 4 bytes, big-endian i32)
+    const boundsTop = reader.readI32();
+    const boundsLeft = reader.readI32();
+    const boundsBottom = reader.readI32();
+    const boundsRight = reader.readI32();
 
     const depth = reader.readU16();
     const compression = reader.readU8();
 
-    const width = boundsRight - _boundsLeft;
-    const height = boundsBottom - _boundsTop;
+    const width = boundsRight - boundsLeft;
+    const height = boundsBottom - boundsTop;
 
-    if (width === 0 || height === 0 || width > 8192 || height > 8192) {
-      reader.seek(sampleEnd);
+    if (width <= 0 || height <= 0 || width > 8192 || height > 8192) {
+      reader.seek(nextEntry);
       continue;
     }
 
@@ -224,7 +231,7 @@ function parseSampSection(
       const bytesPerPixel = depth === 16 ? 2 : 1;
       const rawSize = width * height * bytesPerPixel;
       if (reader.remaining < rawSize) {
-        reader.seek(sampleEnd);
+        reader.seek(nextEntry);
         continue;
       }
       if (depth === 16) {
@@ -239,7 +246,7 @@ function parseSampSection(
       // RLE
       imageData = decodeRLE(reader, width, height, depth);
     } else {
-      reader.seek(sampleEnd);
+      reader.seek(nextEntry);
       continue;
     }
 
@@ -250,7 +257,7 @@ function parseSampSection(
       height,
     });
 
-    reader.seek(sampleEnd);
+    reader.seek(nextEntry);
   }
 
   return brushes;
@@ -279,6 +286,7 @@ type DescriptorValue =
   | { type: "enum"; enumType: string; value: string }
   | { type: "TEXT"; value: string }
   | { type: "Objc"; classId: string; items: Map<string, DescriptorValue> }
+  | { type: "VlLs"; values: DescriptorValue[] }
   | { type: "tdta"; data: Uint8Array }
   | { type: "unknown" };
 
@@ -315,12 +323,14 @@ function readDescriptorValue(reader: DataViewReader, endPos: number): Descriptor
       return { type: "tdta", data };
     }
     case "VlLs": {
-      // List — skip it
       const count = reader.readU32();
+      const values: DescriptorValue[] = [];
       for (let i = 0; i < count && reader.position < endPos; i++) {
-        readDescriptorValue(reader, endPos);
+        const item = readDescriptorValue(reader, endPos);
+        values.push(item);
+        if (item.type === "unknown") break;
       }
-      return { type: "unknown" };
+      return { type: "VlLs", values };
     }
     default:
       // Unknown type — can't safely skip without knowing size
@@ -407,40 +417,90 @@ function extractBrushParams(items: Map<string, DescriptorValue>): AbrBrushParams
   return params;
 }
 
+interface ParsedPresetInfo {
+  name: string;
+  params: AbrBrushParams;
+  isSampled: boolean;
+}
+
 interface ParsedDescSection {
-  names: string[];
-  params: AbrBrushParams[];
+  presets: ParsedPresetInfo[];
+}
+
+/** Get a nested descriptor's items from a parent descriptor. */
+function getObjc(items: Map<string, DescriptorValue>, key: string): Map<string, DescriptorValue> | undefined {
+  const v = items.get(key);
+  if (!v || v.type !== "Objc") return undefined;
+  return v.items;
+}
+
+/** Get a string value from a descriptor item. */
+function getText(items: Map<string, DescriptorValue>, key: string): string | undefined {
+  const v = items.get(key);
+  if (!v || v.type !== "TEXT") return undefined;
+  return v.value;
+}
+
+/**
+ * Extract brush parameters from a brushPreset descriptor.
+ * Parameters come from the nested "Brsh" object and "toolOptions" object.
+ */
+function extractPresetParams(presetItems: Map<string, DescriptorValue>): AbrBrushParams {
+  // Get params from nested "Brsh" descriptor (computedBrush or sampledBrush)
+  const brushItems = getObjc(presetItems, "Brsh");
+  const params = brushItems ? extractBrushParams(brushItems) : {};
+
+  // Opacity and flow live in "toolOptions" as integer percentages
+  const toolOpts = getObjc(presetItems, "toolOptions");
+  if (toolOpts) {
+    const opct = getNumber(toolOpts, "Opct");
+    if (opct !== undefined) params.opacity = opct / 100;
+    const flow = getNumber(toolOpts, "flow");
+    if (flow !== undefined) params.flow = flow / 100;
+  }
+
+  return params;
 }
 
 /**
  * Parse a `desc` section to extract brush names and parameters.
+ *
+ * The section starts with a 4-byte version number, then contains a single
+ * top-level descriptor with a "Brsh" key holding a VlLs (list) of
+ * brushPreset descriptors.
  */
 function parseDescSection(
   reader: DataViewReader,
   endPos: number,
 ): ParsedDescSection {
-  const names: string[] = [];
-  const params: AbrBrushParams[] = [];
+  const presets: ParsedPresetInfo[] = [];
 
-  while (reader.position + 4 < endPos) {
-    const tag = reader.readTag();
-    const size = reader.readU32();
-    const sectionEnd = reader.position + size;
+  try {
+    // Skip 4-byte version prefix
+    reader.skip(4);
 
-    if (tag === "desc" && size > 0) {
-      try {
-        const descriptor = readDescriptor(reader, sectionEnd);
-        names.push(descriptor.name || `Brush ${names.length + 1}`);
-        params.push(extractBrushParams(descriptor.items));
-      } catch {
-        // Skip on parse error
+    const descriptor = readDescriptor(reader, endPos);
+
+    // The top-level descriptor has a "Brsh" key with a list of brush presets
+    const brshList = descriptor.items.get("Brsh");
+    if (brshList && brshList.type === "VlLs") {
+      for (const item of brshList.values) {
+        if (item.type !== "Objc") continue;
+        const name = getText(item.items, "Nm  ") || `Brush ${presets.length + 1}`;
+        const brsh = getObjc(item.items, "Brsh");
+        const isSampled = brsh ? getText(brsh, "sampledData") !== undefined : false;
+        presets.push({
+          name,
+          params: extractPresetParams(item.items),
+          isSampled,
+        });
       }
     }
-
-    reader.seek(sectionEnd);
+  } catch {
+    // Skip on parse error
   }
 
-  return { names, params };
+  return { presets };
 }
 
 /**
@@ -457,12 +517,8 @@ export function parseAbrFile(buffer: ArrayBuffer): ParsedAbrBrush[] {
   // We only support version 6+ (Photoshop 7+)
   if (version < 6) return [];
 
-  // Version 6+ files have tagged sections
-  // Skip the rest of the sub-version header area
-  // Look for 8BIM resource sections
   const brushes: ParsedAbrBrush[] = [];
-  const names: string[] = [];
-  const allParams: AbrBrushParams[] = [];
+  let descPresets: ParsedPresetInfo[] = [];
 
   while (reader.remaining >= 8) {
     const tag = reader.readTag();
@@ -480,23 +536,25 @@ export function parseAbrFile(buffer: ArrayBuffer): ParsedAbrBrush[] {
     if (sectionEnd > reader.position + reader.remaining) break;
 
     if (sectionTag === "samp") {
-      const parsed = parseSampSection(reader, sectionEnd);
+      const parsed = parseSampSection(reader, sectionEnd, subVersion);
       brushes.push(...parsed);
     } else if (sectionTag === "desc") {
-      const { names: parsedNames, params } = parseDescSection(reader, sectionEnd);
-      names.push(...parsedNames);
-      allParams.push(...params);
+      const { presets } = parseDescSection(reader, sectionEnd);
+      descPresets = presets;
     }
 
     reader.seek(sectionEnd);
   }
 
-  // Apply names and parameters to brushes
-  for (let i = 0; i < brushes.length && i < names.length; i++) {
-    brushes[i].name = names[i];
-  }
-  for (let i = 0; i < brushes.length && i < allParams.length; i++) {
-    brushes[i].params = allParams[i];
+  // Map sampled preset names/params to samp entries (in order).
+  // Computed presets have no samp entry so we skip them.
+  let sampIdx = 0;
+  for (const preset of descPresets) {
+    if (preset.isSampled && sampIdx < brushes.length) {
+      brushes[sampIdx].name = preset.name;
+      brushes[sampIdx].params = preset.params;
+      sampIdx++;
+    }
   }
 
   return brushes;
