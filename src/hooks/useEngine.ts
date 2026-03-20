@@ -68,6 +68,15 @@ export function useEngine(
         const eng = new Engine(impressionCanvas, gpu, wasmModule.memory);
 
         if (chunks && chunks.length > 0) {
+          // Pre-register all brush tip images so SetBrushTip operations
+          // find their tips in the registry during replay
+          if (storage) {
+            const tips = await storage.listTips();
+            for (const tip of tips) {
+              eng.registerBrushTip(tip.id, tip.pixels, tip.width, tip.height);
+            }
+          }
+
           // Load saved operations from storage
           for (const chunk of chunks) {
             eng.loadChunk(chunk);

@@ -60,6 +60,9 @@ function createMockCanvas() {
     layer_dirty_height: vi.fn().mockReturnValue(100),
     load_chunk: vi.fn().mockReturnValue(true),
     move_layer: vi.fn(),
+    register_brush_tip: vi.fn(),
+    set_brush_tip: vi.fn(),
+    clear_brush_tip: vi.fn(),
   };
 }
 
@@ -261,6 +264,22 @@ describe("Engine", () => {
   it("should forward pendingOperationCount to WASM", () => {
     mockCanvas.pending_operation_count.mockReturnValue(42);
     expect(engine.pendingOperationCount()).toBe(42);
+  });
+
+  it("should forward registerBrushTip to WASM", () => {
+    const pixels = new Uint8Array([255, 128, 64, 32]);
+    engine.registerBrushTip("tip-1", pixels, 2, 2);
+    expect(mockCanvas.register_brush_tip).toHaveBeenCalledWith("tip-1", pixels, 2, 2);
+  });
+
+  it("should forward setBrushTip to WASM", () => {
+    engine.setBrushTip("tip-1");
+    expect(mockCanvas.set_brush_tip).toHaveBeenCalledWith("tip-1");
+  });
+
+  it("should forward clearBrushTip to WASM", () => {
+    engine.clearBrushTip();
+    expect(mockCanvas.clear_brush_tip).toHaveBeenCalled();
   });
 
   describe("persistence", () => {
