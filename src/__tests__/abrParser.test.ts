@@ -445,8 +445,8 @@ describe("abrParser", () => {
     expect(sd.size.jitter).toBeCloseTo(0);
     expect(sd.size.minimum).toBeCloseTo(0.1);
 
-    // Angle: bVTy=0, jitter=100% → control=2 (Random), jitter=1.0
-    expect(sd.angle.control).toBe(2);
+    // Angle: bVTy=0, jitter=100% → control=0 (Off), jitter=1.0 (random via jitter alone)
+    expect(sd.angle.control).toBe(0);
     expect(sd.angle.jitter).toBeCloseTo(1.0);
 
     // Roundness: bVTy=0, jitter=0% → control=0 (Off)
@@ -480,8 +480,8 @@ describe("abrParser", () => {
     const td = result[0].params!.transferDynamics!;
     expect(td).toBeDefined();
 
-    // Opacity: bVTy=0, jitter=20% → control=2 (Random), jitter=0.2
-    expect(td.opacity.control).toBe(2);
+    // Opacity: bVTy=0, jitter=20% → control=0 (Off), jitter=0.2 (random via jitter alone)
+    expect(td.opacity.control).toBe(0);
     expect(td.opacity.jitter).toBeCloseTo(0.2);
 
     // Flow: bVTy=2 (PenPressure) → control=1, minimum=5%

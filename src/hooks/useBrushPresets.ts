@@ -63,7 +63,11 @@ export function useBrushPresets({
         const s = storageRef.current;
         if (!s) return;
         const tip = await s.getTip(tipId);
-        if (!tip) return;
+        if (!tip) {
+          console.warn(`Brush tip "${preset.name}" not found in storage — using computed circle instead.`);
+          eng.clearBrushTip();
+          return;
+        }
         eng.registerBrushTip(tipId, tip.pixels, tip.width, tip.height);
         registeredTipsRef.current.add(tipId);
       }

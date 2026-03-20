@@ -453,11 +453,11 @@ function mapDynamicParam(items: Map<string, DescriptorValue> | undefined): Dynam
   const jitter = (getNumber(items, "jitter") ?? 0) / 100;
   const minimum = (getNumber(items, "Mnm ") ?? 0) / 100;
 
+  // Map Photoshop bVTy values to our DynamicControl.
+  // bVTy=2 is Pen Pressure. bVTy=0 is Off (jitter still applies as random variation).
   let control: DynamicControl = 0;
   if (bVTy === 2) {
     control = 1; // Pen Pressure
-  } else if (jitter > 0) {
-    control = 2; // Random (PS uses bVTy=0 with jitter for random variation)
   }
 
   return { jitter, control, minimum };
