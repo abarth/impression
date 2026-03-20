@@ -57,3 +57,5 @@ target/
 # Files that might appear in the root of a project
 .DS_Store
 Thumbs.db
+
+data/
