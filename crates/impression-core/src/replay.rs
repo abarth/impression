@@ -277,6 +277,12 @@ impl Canvas {
             Operation::SetTransferDynamics(dynamics) => {
                 self.site_for_mut(site).brush.transfer_dynamics = dynamics;
             }
+            Operation::SetBrushFlipX(flip) => {
+                self.site_for_mut(site).brush.flip_x = flip;
+            }
+            Operation::SetBrushFlipY(flip) => {
+                self.site_for_mut(site).brush.flip_y = flip;
+            }
         }
     }
 }

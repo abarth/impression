@@ -38,6 +38,10 @@ pub struct BrushSettings {
     pub shape_dynamics: ShapeDynamics,
     /// Per-stamp transfer variation (opacity, flow).
     pub transfer_dynamics: TransferDynamics,
+    /// Mirror the brush tip horizontally.
+    pub flip_x: bool,
+    /// Mirror the brush tip vertically.
+    pub flip_y: bool,
 }
 
 impl Default for BrushSettings {
@@ -54,6 +58,8 @@ impl Default for BrushSettings {
             angle: 0.0,
             shape_dynamics: ShapeDynamics::default(),
             transfer_dynamics: TransferDynamics::default(),
+            flip_x: false,
+            flip_y: false,
         }
     }
 }
@@ -201,6 +207,8 @@ pub fn stamp_tip(
     alpha: f32,
     roundness: f32,
     angle_degrees: f32,
+    flip_x: bool,
+    flip_y: bool,
     selection: Option<&[u8]>,
 ) {
     if radius <= 0.0 || alpha <= 0.0 || tip.width == 0 || tip.height == 0 {
@@ -236,8 +244,16 @@ pub fn stamp_tip(
             let ry = (dx * sin_a + dy * cos_a) * inv_roundness;
 
             // Map to tip UV: rx in [-radius, radius] -> [0, tw)
-            let u = (rx + radius) / diameter * tw;
-            let v = (ry + radius) / diameter * th;
+            let u = if flip_x {
+                (radius - rx) / diameter * tw
+            } else {
+                (rx + radius) / diameter * tw
+            };
+            let v = if flip_y {
+                (radius - ry) / diameter * th
+            } else {
+                (ry + radius) / diameter * th
+            };
 
             if u < 0.0 || u >= tw || v < 0.0 || v >= th {
                 continue;
@@ -405,7 +421,7 @@ pub fn interpolate_and_stamp(
             .clamp(0.0, 1.0);
 
         if let Some(tip) = tip {
-            stamp_tip(target, x, y, radius, tip, brush.color, stamp_flow, stamp_roundness, stamp_angle, selection);
+            stamp_tip(target, x, y, radius, tip, brush.color, stamp_flow, stamp_roundness, stamp_angle, brush.flip_x, brush.flip_y, selection);
         } else {
             stamp_ellipse(target, x, y, radius, brush.color, stamp_flow, brush.hardness, stamp_roundness, stamp_angle, selection);
         }
@@ -449,7 +465,7 @@ pub fn stroke_begin(
         .clamp(0.0, 1.0);
 
     if let Some(tip) = tip {
-        stamp_tip(&mut stroke, x, y, radius, tip, brush.color, stamp_flow, stamp_roundness, stamp_angle, selection);
+        stamp_tip(&mut stroke, x, y, radius, tip, brush.color, stamp_flow, stamp_roundness, stamp_angle, brush.flip_x, brush.flip_y, selection);
     } else {
         stamp_ellipse(&mut stroke, x, y, radius, brush.color, stamp_flow, brush.hardness, stamp_roundness, stamp_angle, selection);
     }
@@ -1023,7 +1039,7 @@ mod tests {
             height: 4,
         };
         let mut layer = Layer::new(0, 40, 40);
-        stamp_tip(&mut layer, 20.0, 20.0, 5.0, &tip, Color::black(), 1.0, 1.0, 0.0, None);
+        stamp_tip(&mut layer, 20.0, 20.0, 5.0, &tip, Color::black(), 1.0, 1.0, 0.0, false, false, None);
 
         // Center should be painted
         let center = layer.pixel(20, 20).unwrap()[3];
@@ -1045,7 +1061,7 @@ mod tests {
             height: 4,
         };
         let mut layer = Layer::new(0, 40, 40);
-        stamp_tip(&mut layer, 20.0, 20.0, 5.0, &tip, Color::black(), 1.0, 1.0, 0.0, None);
+        stamp_tip(&mut layer, 20.0, 20.0, 5.0, &tip, Color::black(), 1.0, 1.0, 0.0, false, false, None);
 
         // Left of center should be painted
         let left = layer.pixel(17, 20).unwrap()[3];
@@ -1054,5 +1070,71 @@ mod tests {
         // Right of center should NOT be painted (transparent in tip)
         let right = layer.pixel(23, 20).unwrap()[3];
         assert_eq!(right, 0, "Right side should be transparent, got {right}");
+    }
+
+    #[test]
+    fn test_stamp_tip_flip_x() {
+        // Create a tip that is opaque on left half, transparent on right half
+        let mut pixels = vec![0u8; 16];
+        for row in 0..4u32 {
+            pixels[(row * 4) as usize] = 255;
+            pixels[(row * 4 + 1) as usize] = 255;
+        }
+        let tip = BrushTip {
+            pixels: pixels.clone(),
+            width: 4,
+            height: 4,
+        };
+
+        // Without flip: left side painted, right side transparent
+        let mut layer_no_flip = Layer::new(0, 40, 40);
+        stamp_tip(&mut layer_no_flip, 20.0, 20.0, 5.0, &tip, Color::black(), 1.0, 1.0, 0.0, false, false, None);
+
+        // With flip_x: right side painted, left side transparent
+        let mut layer_flip_x = Layer::new(0, 40, 40);
+        stamp_tip(&mut layer_flip_x, 20.0, 20.0, 5.0, &tip, Color::black(), 1.0, 1.0, 0.0, true, false, None);
+
+        let left_no_flip = layer_no_flip.pixel(17, 20).unwrap()[3];
+        let right_no_flip = layer_no_flip.pixel(23, 20).unwrap()[3];
+        let left_flip = layer_flip_x.pixel(17, 20).unwrap()[3];
+        let right_flip = layer_flip_x.pixel(23, 20).unwrap()[3];
+
+        assert!(left_no_flip > 0, "Without flip, left should be painted");
+        assert_eq!(right_no_flip, 0, "Without flip, right should be transparent");
+        assert_eq!(left_flip, 0, "With flip_x, left should be transparent");
+        assert!(right_flip > 0, "With flip_x, right should be painted");
+    }
+
+    #[test]
+    fn test_stamp_tip_flip_y() {
+        // Create a tip that is opaque on top half, transparent on bottom half
+        let mut pixels = vec![0u8; 16];
+        for col in 0..4u32 {
+            pixels[col as usize] = 255;       // row 0
+            pixels[(4 + col) as usize] = 255;  // row 1
+        }
+        let tip = BrushTip {
+            pixels,
+            width: 4,
+            height: 4,
+        };
+
+        // Without flip: top painted, bottom transparent
+        let mut layer_no_flip = Layer::new(0, 40, 40);
+        stamp_tip(&mut layer_no_flip, 20.0, 20.0, 5.0, &tip, Color::black(), 1.0, 1.0, 0.0, false, false, None);
+
+        // With flip_y: bottom painted, top transparent
+        let mut layer_flip_y = Layer::new(0, 40, 40);
+        stamp_tip(&mut layer_flip_y, 20.0, 20.0, 5.0, &tip, Color::black(), 1.0, 1.0, 0.0, false, true, None);
+
+        let top_no_flip = layer_no_flip.pixel(20, 17).unwrap()[3];
+        let bottom_no_flip = layer_no_flip.pixel(20, 23).unwrap()[3];
+        let top_flip = layer_flip_y.pixel(20, 17).unwrap()[3];
+        let bottom_flip = layer_flip_y.pixel(20, 23).unwrap()[3];
+
+        assert!(top_no_flip > 0, "Without flip, top should be painted");
+        assert_eq!(bottom_no_flip, 0, "Without flip, bottom should be transparent");
+        assert_eq!(top_flip, 0, "With flip_y, top should be transparent");
+        assert!(bottom_flip > 0, "With flip_y, bottom should be painted");
     }
 }

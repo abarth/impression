@@ -63,6 +63,8 @@ function createMockCanvas() {
     register_brush_tip: vi.fn(),
     set_brush_tip: vi.fn(),
     clear_brush_tip: vi.fn(),
+    set_brush_flip_x: vi.fn(),
+    set_brush_flip_y: vi.fn(),
   };
 }
 

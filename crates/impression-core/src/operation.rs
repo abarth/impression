@@ -117,6 +117,8 @@ pub enum Operation {
     },
     SetShapeDynamics(ShapeDynamics),
     SetTransferDynamics(TransferDynamics),
+    SetBrushFlipX(bool),
+    SetBrushFlipY(bool),
 }
 
 /// Magic byte prefix indicating a versioned format.

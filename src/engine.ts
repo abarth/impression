@@ -182,6 +182,14 @@ export class Engine {
     this.canvas.set_brush_angle(angle);
   }
 
+  setBrushFlipX(flip: boolean): void {
+    this.canvas.set_brush_flip_x(flip);
+  }
+
+  setBrushFlipY(flip: boolean): void {
+    this.canvas.set_brush_flip_y(flip);
+  }
+
   setShapeDynamics(
     sizeJitter: number, sizeControl: number, sizeMin: number,
     angleJitter: number, angleControl: number,

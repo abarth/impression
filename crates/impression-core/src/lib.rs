@@ -166,6 +166,14 @@ impl ImpressionCanvas {
         self.inner.set_brush_angle(angle);
     }
 
+    pub fn set_brush_flip_x(&mut self, flip: bool) {
+        self.inner.set_brush_flip_x(flip);
+    }
+
+    pub fn set_brush_flip_y(&mut self, flip: bool) {
+        self.inner.set_brush_flip_y(flip);
+    }
+
     /// Register a custom brush tip image. Called from TypeScript before replay.
     pub fn register_brush_tip(&mut self, id: &str, pixels: &[u8], width: u32, height: u32) {
         self.inner.register_brush_tip(id.to_string(), pixels.to_vec(), width, height);

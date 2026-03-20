@@ -135,6 +135,28 @@ function BrushTipPane({ settings, isImageTip, onUpdate }: BrushSettingsPanelProp
         displayValue={`${Math.round(settings.smoothing * 100)}%`}
         onChange={(v) => onUpdate("smoothing", v)}
       />
+      <div className="flex gap-2">
+        <button
+          onClick={() => onUpdate("flipX", !settings.flipX)}
+          className={`flex-1 px-2 py-1.5 text-[11px] rounded border transition-colors duration-150
+            ${settings.flipX
+              ? "bg-graphite-800 border-graphite-700 text-cream"
+              : "bg-graphite-850 border-graphite-800 text-cream-muted hover:bg-graphite-800"
+            }`}
+        >
+          Flip X
+        </button>
+        <button
+          onClick={() => onUpdate("flipY", !settings.flipY)}
+          className={`flex-1 px-2 py-1.5 text-[11px] rounded border transition-colors duration-150
+            ${settings.flipY
+              ? "bg-graphite-800 border-graphite-700 text-cream"
+              : "bg-graphite-850 border-graphite-800 text-cream-muted hover:bg-graphite-800"
+            }`}
+        >
+          Flip Y
+        </button>
+      </div>
     </div>
   );
 }

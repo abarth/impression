@@ -213,6 +213,14 @@ impl Canvas {
         self.apply(Operation::SetBrushAngle(angle));
     }
 
+    pub fn set_brush_flip_x(&mut self, flip: bool) {
+        self.apply(Operation::SetBrushFlipX(flip));
+    }
+
+    pub fn set_brush_flip_y(&mut self, flip: bool) {
+        self.apply(Operation::SetBrushFlipY(flip));
+    }
+
     pub fn set_brush_tip(&mut self, id: &str) {
         self.apply(Operation::SetBrushTip(Some(id.to_string())));
     }
@@ -389,6 +397,8 @@ impl Canvas {
                 | Operation::MoveLayer { .. }
                 | Operation::SetShapeDynamics(_)
                 | Operation::SetTransferDynamics(_)
+                | Operation::SetBrushFlipX(_)
+                | Operation::SetBrushFlipY(_)
                 | Operation::CreateCanvas { .. } => {
                     self.oplog.begin_undo_group(site_op.site);
                 }

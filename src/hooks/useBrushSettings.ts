@@ -31,6 +31,8 @@ export interface BrushSettings {
   roundness: number;
   angle: number;
   smoothing: number;
+  flipX: boolean;
+  flipY: boolean;
   shapeDynamics: ShapeDynamics;
   transferDynamics: TransferDynamics;
 }
@@ -61,6 +63,8 @@ const DEFAULT_BRUSH: BrushSettings = {
   roundness: 1.0,
   angle: 0,
   smoothing: 0,
+  flipX: false,
+  flipY: false,
   shapeDynamics: DEFAULT_SHAPE_DYNAMICS,
   transferDynamics: DEFAULT_TRANSFER_DYNAMICS,
 };
@@ -74,6 +78,8 @@ const DEFAULT_ERASER: BrushSettings = {
   roundness: 1.0,
   angle: 0,
   smoothing: 0,
+  flipX: false,
+  flipY: false,
   shapeDynamics: DEFAULT_SHAPE_DYNAMICS,
   transferDynamics: DEFAULT_TRANSFER_DYNAMICS,
 };
@@ -110,6 +116,8 @@ export function useBrushSettings(engine: Engine | null, activeTool: Tool) {
     eng.setBrushHardness(s.hardness);
     eng.setBrushRoundness(s.roundness);
     eng.setBrushAngle(s.angle);
+    eng.setBrushFlipX(s.flipX);
+    eng.setBrushFlipY(s.flipY);
     eng.setBrushBlendMode(TOOL_BLEND_MODES[tool]);
     const sd = s.shapeDynamics;
     eng.setShapeDynamics(
