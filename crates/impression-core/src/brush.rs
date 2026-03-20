@@ -13,6 +13,31 @@ pub struct BrushTip {
     pub height: u32,
 }
 
+/// Texture overlay settings: tile a pattern across the brush footprint.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TextureSettings {
+    /// Whether texture overlay is enabled.
+    pub enabled: bool,
+    /// Pattern tile scale as a percentage (100 = original size).
+    pub scale: f32,
+    /// Strength of the texture effect (0.0 = none, 1.0 = full).
+    pub depth: f32,
+    /// When true, pattern coordinates are relative to stamp center;
+    /// when false, they are relative to the canvas origin (screen-aligned).
+    pub texture_each_tip: bool,
+}
+
+impl Default for TextureSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            scale: 100.0,
+            depth: 1.0,
+            texture_each_tip: false,
+        }
+    }
+}
+
 /// Dual brush settings: composite a secondary tip with the primary for texture.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DualBrushSettings {
@@ -99,6 +124,8 @@ pub struct BrushSettings {
     pub scatter: ScatterSettings,
     /// Dual brush settings.
     pub dual_brush: DualBrushSettings,
+    /// Texture overlay settings.
+    pub texture: TextureSettings,
 }
 
 impl Default for BrushSettings {
@@ -119,6 +146,7 @@ impl Default for BrushSettings {
             flip_y: false,
             scatter: ScatterSettings::default(),
             dual_brush: DualBrushSettings::default(),
+            texture: TextureSettings::default(),
         }
     }
 }
@@ -215,6 +243,57 @@ pub(crate) enum SecondaryTipState<'a> {
     Image(&'a BrushTip),
 }
 
+/// Sample a tiled texture pattern at a given position, returning the modulated alpha.
+/// `px`, `py` are the canvas pixel coordinates of the stamp pixel.
+/// `cx`, `cy` are the stamp center coordinates.
+/// When `texture_each_tip` is true, pattern coordinates are relative to the stamp center.
+/// Otherwise they are relative to the canvas origin (screen-aligned tiling).
+fn sample_texture(
+    px: f32, py: f32, cx: f32, cy: f32,
+    texture: &TextureSettings,
+    pattern: &BrushTip,
+) -> f32 {
+    if pattern.width == 0 || pattern.height == 0 {
+        return 1.0;
+    }
+
+    let scale = (texture.scale / 100.0).max(0.01);
+    let tw = pattern.width as f32 * scale;
+    let th = pattern.height as f32 * scale;
+
+    // Choose coordinate origin
+    let (ox, oy) = if texture.texture_each_tip {
+        (px - cx, py - cy)
+    } else {
+        (px, py)
+    };
+
+    // Tile: wrap into [0, tw) x [0, th)
+    let u = ((ox % tw) + tw) % tw / scale;
+    let v = ((oy % th) + th) % th / scale;
+
+    // Bilinear interpolation
+    let u0 = u.floor() as u32 % pattern.width;
+    let v0 = v.floor() as u32 % pattern.height;
+    let u1 = (u0 + 1) % pattern.width;
+    let v1 = (v0 + 1) % pattern.height;
+    let fu = u.fract();
+    let fv = v.fract();
+
+    let s00 = pattern.pixels[(v0 * pattern.width + u0) as usize] as f32 / 255.0;
+    let s10 = pattern.pixels[(v0 * pattern.width + u1) as usize] as f32 / 255.0;
+    let s01 = pattern.pixels[(v1 * pattern.width + u0) as usize] as f32 / 255.0;
+    let s11 = pattern.pixels[(v1 * pattern.width + u1) as usize] as f32 / 255.0;
+
+    let pattern_value = s00 * (1.0 - fu) * (1.0 - fv)
+        + s10 * fu * (1.0 - fv)
+        + s01 * (1.0 - fu) * fv
+        + s11 * fu * fv;
+
+    // Lerp between 1.0 (no effect) and pattern_value based on depth
+    1.0 - texture.depth * (1.0 - pattern_value)
+}
+
 /// Draw a filled circle (stamp) onto the layer at the given center with given radius and alpha.
 /// If a selection mask is provided, the stamp is clipped to the selected region.
 pub fn stamp_circle(
@@ -227,7 +306,7 @@ pub fn stamp_circle(
     hardness: f32,
     selection: Option<&[u8]>,
 ) {
-    stamp_ellipse(layer, cx, cy, radius, color, alpha, hardness, 1.0, 0.0, selection, None);
+    stamp_ellipse(layer, cx, cy, radius, color, alpha, hardness, 1.0, 0.0, selection, None, None);
 }
 
 /// Draw a filled elliptical stamp with hardness, roundness, and angle.
@@ -243,6 +322,7 @@ pub fn stamp_ellipse(
     angle_degrees: f32,
     selection: Option<&[u8]>,
     dual: Option<(&SecondaryTipState, f32)>,
+    texture: Option<(&TextureSettings, &BrushTip)>,
 ) {
     if radius <= 0.0 || alpha <= 0.0 {
         return;
@@ -304,11 +384,17 @@ pub fn stamp_ellipse(
                 ),
                 None => 1.0,
             };
+            let texture_alpha = match &texture {
+                Some((tex, pattern)) => sample_texture(
+                    px as f32 + 0.5, py as f32 + 0.5, cx, cy, tex, pattern,
+                ),
+                None => 1.0,
+            };
             let selection_alpha = match selection {
                 Some(mask) => mask[(py * layer.width + px) as usize] as f32 / 255.0,
                 None => 1.0,
             };
-            let final_alpha = alpha * edge_alpha * dual_alpha * selection_alpha;
+            let final_alpha = alpha * edge_alpha * dual_alpha * texture_alpha * selection_alpha;
             if let Some(pixel) = layer.pixel_mut(px, py) {
                 blend_pixel(pixel, color, final_alpha);
             }
@@ -334,6 +420,7 @@ pub fn stamp_tip(
     flip_y: bool,
     selection: Option<&[u8]>,
     dual: Option<(&SecondaryTipState, f32)>,
+    texture: Option<(&TextureSettings, &BrushTip)>,
 ) {
     if radius <= 0.0 || alpha <= 0.0 || tip.width == 0 || tip.height == 0 {
         return;
@@ -411,11 +498,17 @@ pub fn stamp_tip(
                 ),
                 None => 1.0,
             };
+            let texture_alpha = match &texture {
+                Some((tex, pattern)) => sample_texture(
+                    px as f32 + 0.5, py as f32 + 0.5, cx, cy, tex, pattern,
+                ),
+                None => 1.0,
+            };
             let selection_alpha = match selection {
                 Some(mask) => mask[(py * layer.width + px) as usize] as f32 / 255.0,
                 None => 1.0,
             };
-            let final_alpha = alpha * tip_alpha * dual_alpha * selection_alpha;
+            let final_alpha = alpha * tip_alpha * dual_alpha * texture_alpha * selection_alpha;
             if let Some(pixel) = layer.pixel_mut(px, py) {
                 blend_pixel(pixel, color, final_alpha);
             }
@@ -526,6 +619,7 @@ pub fn interpolate_and_stamp(
     residual: f32,
     tip: Option<&BrushTip>,
     secondary_tip: Option<&BrushTip>,
+    texture_tip: Option<&BrushTip>,
     selection: Option<&[u8]>,
     rng: &mut Rng,
 ) -> f32 {
@@ -602,10 +696,15 @@ pub fn interpolate_and_stamp(
                 None
             };
             let dual_ref = dual.as_ref().map(|(s, r)| (s, *r));
-            if let Some(tip) = tip {
-                stamp_tip(target, sx, sy, radius, tip, brush.color, stamp_flow, stamp_roundness, stamp_angle, brush.flip_x, brush.flip_y, selection, dual_ref);
+            let tex_ref = if brush.texture.enabled {
+                texture_tip.map(|t| (&brush.texture, t))
             } else {
-                stamp_ellipse(target, sx, sy, radius, brush.color, stamp_flow, brush.hardness, stamp_roundness, stamp_angle, selection, dual_ref);
+                None
+            };
+            if let Some(tip) = tip {
+                stamp_tip(target, sx, sy, radius, tip, brush.color, stamp_flow, stamp_roundness, stamp_angle, brush.flip_x, brush.flip_y, selection, dual_ref, tex_ref);
+            } else {
+                stamp_ellipse(target, sx, sy, radius, brush.color, stamp_flow, brush.hardness, stamp_roundness, stamp_angle, selection, dual_ref, tex_ref);
             }
         }
 
@@ -627,6 +726,7 @@ pub fn stroke_begin(
     pressure: f32,
     tip: Option<&BrushTip>,
     secondary_tip: Option<&BrushTip>,
+    texture_tip: Option<&BrushTip>,
     selection: Option<&[u8]>,
 ) {
     state.active = true;
@@ -659,10 +759,15 @@ pub fn stroke_begin(
         None
     };
     let dual_ref = dual.as_ref().map(|(s, r)| (s, *r));
-    if let Some(tip) = tip {
-        stamp_tip(&mut stroke, x, y, radius, tip, brush.color, stamp_flow, stamp_roundness, stamp_angle, brush.flip_x, brush.flip_y, selection, dual_ref);
+    let tex_ref = if brush.texture.enabled {
+        texture_tip.map(|t| (&brush.texture, t))
     } else {
-        stamp_ellipse(&mut stroke, x, y, radius, brush.color, stamp_flow, brush.hardness, stamp_roundness, stamp_angle, selection, dual_ref);
+        None
+    };
+    if let Some(tip) = tip {
+        stamp_tip(&mut stroke, x, y, radius, tip, brush.color, stamp_flow, stamp_roundness, stamp_angle, brush.flip_x, brush.flip_y, selection, dual_ref, tex_ref);
+    } else {
+        stamp_ellipse(&mut stroke, x, y, radius, brush.color, stamp_flow, brush.hardness, stamp_roundness, stamp_angle, selection, dual_ref, tex_ref);
     }
 
     // Apply transfer dynamics to stroke opacity
@@ -687,6 +792,7 @@ pub fn stroke_move(
     pressure: f32,
     tip: Option<&BrushTip>,
     secondary_tip: Option<&BrushTip>,
+    texture_tip: Option<&BrushTip>,
     selection: Option<&[u8]>,
 ) {
     if !state.active {
@@ -716,6 +822,7 @@ pub fn stroke_move(
             state.residual_distance,
             tip,
             secondary_tip,
+            texture_tip,
             selection,
             rng,
         );
@@ -776,7 +883,7 @@ mod tests {
         };
 
         // Draw a horizontal line of 10 pixels
-        let residual = interpolate_and_stamp(&mut layer, 0.0, 5.0, 1.0, 10.0, 5.0, 1.0, &brush, 0.0, None, None, None, &mut Rng::from_coords(0.0, 5.0));
+        let residual = interpolate_and_stamp(&mut layer, 0.0, 5.0, 1.0, 10.0, 5.0, 1.0, &brush, 0.0, None, None, None, None, &mut Rng::from_coords(0.0, 5.0));
         assert!(residual >= 0.0);
         // step=1.0, segment=10.0, stamps at 0,1,...,10 -> next at 11, residual=1.0
         assert!(residual <= 1.01, "residual={residual}");
@@ -793,11 +900,11 @@ mod tests {
         let mut state = StrokeState::new();
         let brush = BrushSettings::default();
 
-        stroke_begin(&mut layer, &mut state, &brush, 10.0, 10.0, 1.0, None, None, None);
+        stroke_begin(&mut layer, &mut state, &brush, 10.0, 10.0, 1.0, None, None, None, None);
         assert!(state.active);
         assert!(layer.dirty);
 
-        stroke_move(&mut layer, &mut state, &brush, 20.0, 10.0, 1.0, None, None, None);
+        stroke_move(&mut layer, &mut state, &brush, 20.0, 10.0, 1.0, None, None, None, None);
         assert!(state.active);
 
         stroke_end(&mut state);
@@ -858,11 +965,11 @@ mod tests {
 
         // First segment: 7 pixels long, step=5, stamps at 0 and 5, next at 10 -> residual=10-7=3
         let mut rng = Rng::from_coords(0.0, 5.0);
-        let residual = interpolate_and_stamp(&mut layer, 0.0, 5.0, 1.0, 7.0, 5.0, 1.0, &brush, 0.0, None, None, None, &mut rng);
+        let residual = interpolate_and_stamp(&mut layer, 0.0, 5.0, 1.0, 7.0, 5.0, 1.0, &brush, 0.0, None, None, None, None, &mut rng);
         assert!((residual - 3.0).abs() < 0.01, "residual should be ~3.0, got {}", residual);
 
         // Second segment: 7 pixels, starting with residual=3, stamp at 3, next at 8 -> residual=8-7=1
-        let residual2 = interpolate_and_stamp(&mut layer, 7.0, 5.0, 1.0, 14.0, 5.0, 1.0, &brush, residual, None, None, None, &mut rng);
+        let residual2 = interpolate_and_stamp(&mut layer, 7.0, 5.0, 1.0, 14.0, 5.0, 1.0, &brush, residual, None, None, None, None, &mut rng);
         assert!((residual2 - 1.0).abs() < 0.01, "residual should be ~1.0, got {}", residual2);
     }
 
@@ -876,9 +983,9 @@ mod tests {
         };
 
         let mut layer_low = Layer::new(0, 200, 20);
-        interpolate_and_stamp(&mut layer_low, 0.0, 10.0, 0.25, 100.0, 10.0, 0.25, &brush, 0.0, None, None, None, &mut Rng::from_coords(0.0, 10.0));
+        interpolate_and_stamp(&mut layer_low, 0.0, 10.0, 0.25, 100.0, 10.0, 0.25, &brush, 0.0, None, None, None, None, &mut Rng::from_coords(0.0, 10.0));
         let mut layer_high = Layer::new(0, 200, 20);
-        interpolate_and_stamp(&mut layer_high, 0.0, 10.0, 1.0, 100.0, 10.0, 1.0, &brush, 0.0, None, None, None, &mut Rng::from_coords(0.0, 10.0));
+        interpolate_and_stamp(&mut layer_high, 0.0, 10.0, 1.0, 100.0, 10.0, 1.0, &brush, 0.0, None, None, None, None, &mut Rng::from_coords(0.0, 10.0));
 
         let cols_drawn = |layer: &Layer| -> usize {
             (0..200)
@@ -908,9 +1015,9 @@ mod tests {
         };
 
         let mut layer_low = Layer::new(0, 200, 20);
-        interpolate_and_stamp(&mut layer_low, 0.0, 10.0, 0.25, 100.0, 10.0, 0.25, &brush, 0.0, None, None, None, &mut Rng::from_coords(0.0, 10.0));
+        interpolate_and_stamp(&mut layer_low, 0.0, 10.0, 0.25, 100.0, 10.0, 0.25, &brush, 0.0, None, None, None, None, &mut Rng::from_coords(0.0, 10.0));
         let mut layer_high = Layer::new(0, 200, 20);
-        interpolate_and_stamp(&mut layer_high, 0.0, 10.0, 1.0, 100.0, 10.0, 1.0, &brush, 0.0, None, None, None, &mut Rng::from_coords(0.0, 10.0));
+        interpolate_and_stamp(&mut layer_high, 0.0, 10.0, 1.0, 100.0, 10.0, 1.0, &brush, 0.0, None, None, None, None, &mut Rng::from_coords(0.0, 10.0));
 
         let cols_drawn = |layer: &Layer| -> usize {
             (0..200)
@@ -935,7 +1042,7 @@ mod tests {
             ..Default::default()
         };
 
-        interpolate_and_stamp(&mut layer, 0.0, 10.0, 1.0, 100.0, 10.0, 1.0, &brush, 0.0, None, None, None, &mut Rng::from_coords(0.0, 10.0));
+        interpolate_and_stamp(&mut layer, 0.0, 10.0, 1.0, 100.0, 10.0, 1.0, &brush, 0.0, None, None, None, None, &mut Rng::from_coords(0.0, 10.0));
 
         let first_quarter_has_stamps = (0..25u32)
             .any(|x| (0..20u32).any(|y| layer.pixel(x, y).unwrap()[3] > 0));
@@ -984,8 +1091,8 @@ mod tests {
         };
 
         // Draw a short stroke to get many overlapping stamps
-        stroke_begin(&mut layer, &mut state, &brush, 25.0, 25.0, 1.0, None, None, None);
-        stroke_move(&mut layer, &mut state, &brush, 30.0, 25.0, 1.0, None, None, None);
+        stroke_begin(&mut layer, &mut state, &brush, 25.0, 25.0, 1.0, None, None, None, None);
+        stroke_move(&mut layer, &mut state, &brush, 30.0, 25.0, 1.0, None, None, None, None);
         stroke_end(&mut state);
 
         // Center pixel alpha should be capped at ~128 (0.5 * 255)
@@ -1012,7 +1119,7 @@ mod tests {
         };
 
         let opacity_before = layer.opacity;
-        stroke_begin(&mut layer, &mut state, &brush, 25.0, 25.0, 1.0, None, None, None);
+        stroke_begin(&mut layer, &mut state, &brush, 25.0, 25.0, 1.0, None, None, None, None);
         stroke_end(&mut state);
 
         // Layer opacity should remain unchanged
@@ -1037,7 +1144,7 @@ mod tests {
             ..Default::default()
         };
 
-        stroke_begin(&mut layer, &mut state, &paint_brush, 25.0, 25.0, 1.0, None, None, None);
+        stroke_begin(&mut layer, &mut state, &paint_brush, 25.0, 25.0, 1.0, None, None, None, None);
         stroke_end(&mut state);
 
         // Verify center pixel is painted
@@ -1058,7 +1165,7 @@ mod tests {
             ..Default::default()
         };
 
-        stroke_begin(&mut layer, &mut state, &erase_brush, 25.0, 25.0, 1.0, None, None, None);
+        stroke_begin(&mut layer, &mut state, &erase_brush, 25.0, 25.0, 1.0, None, None, None, None);
         stroke_end(&mut state);
 
         // Center pixel should be erased (alpha near 0)
@@ -1073,7 +1180,7 @@ mod tests {
         let mut state = StrokeState::new();
         let paint_brush = BrushSettings::default();
 
-        stroke_begin(&mut layer, &mut state, &paint_brush, 25.0, 25.0, 1.0, None, None, None);
+        stroke_begin(&mut layer, &mut state, &paint_brush, 25.0, 25.0, 1.0, None, None, None, None);
         stroke_end(&mut state);
 
         let alpha_before = layer.pixel(25, 25).unwrap()[3];
@@ -1089,7 +1196,7 @@ mod tests {
             ..Default::default()
         };
 
-        stroke_begin(&mut layer, &mut state, &erase_brush, 25.0, 25.0, 1.0, None, None, None);
+        stroke_begin(&mut layer, &mut state, &erase_brush, 25.0, 25.0, 1.0, None, None, None, None);
         stroke_end(&mut state);
 
         let alpha_after = layer.pixel(25, 25).unwrap()[3];
@@ -1109,7 +1216,7 @@ mod tests {
         };
 
         // Begin stroke at (10, 100)
-        stroke_begin(&mut layer, &mut state, &brush, 10.0, 100.0, 1.0, None, None, None);
+        stroke_begin(&mut layer, &mut state, &brush, 10.0, 100.0, 1.0, None, None, None, None);
         let bounds1 = layer.dirty_bounds.unwrap();
 
         // Clear dirty to simulate syncLayer
@@ -1117,14 +1224,14 @@ mod tests {
         assert!(layer.dirty_bounds.is_none());
 
         // Move to (50, 100) — far from start
-        stroke_move(&mut layer, &mut state, &brush, 50.0, 100.0, 1.0, None, None, None);
+        stroke_move(&mut layer, &mut state, &brush, 50.0, 100.0, 1.0, None, None, None, None);
         let bounds2 = layer.dirty_bounds.unwrap();
 
         // Clear dirty again
         layer.clear_dirty();
 
         // Move to (190, 100) — far from previous
-        stroke_move(&mut layer, &mut state, &brush, 190.0, 100.0, 1.0, None, None, None);
+        stroke_move(&mut layer, &mut state, &brush, 190.0, 100.0, 1.0, None, None, None, None);
         let bounds3 = layer.dirty_bounds.unwrap();
 
         // bounds3 should NOT include x=10 (the stroke start)
@@ -1195,7 +1302,7 @@ mod tests {
         // With roundness=0.5, the brush should be taller than wide
         // (squashed along the y-axis after inverse transform)
         let mut layer = Layer::new(0, 40, 40);
-        stamp_ellipse(&mut layer, 20.0, 20.0, 8.0, Color::black(), 1.0, 1.0, 0.5, 0.0, None, None);
+        stamp_ellipse(&mut layer, 20.0, 20.0, 8.0, Color::black(), 1.0, 1.0, 0.5, 0.0, None, None, None);
 
         // Along x-axis (should reach ~8px from center): pixel at (27, 20) should be painted
         let along_x = layer.pixel(27, 20).unwrap()[3];
@@ -1215,7 +1322,7 @@ mod tests {
         // With roundness=0.5 and angle=90, the ellipse rotates:
         // the narrow axis that was along y is now along x
         let mut layer = Layer::new(0, 40, 40);
-        stamp_ellipse(&mut layer, 20.0, 20.0, 8.0, Color::black(), 1.0, 1.0, 0.5, 90.0, None, None);
+        stamp_ellipse(&mut layer, 20.0, 20.0, 8.0, Color::black(), 1.0, 1.0, 0.5, 90.0, None, None, None);
 
         // After 90° rotation, the long axis is now along y, short axis along x
         // Along y-axis (long): pixel at (20, 27) should now be painted
@@ -1236,7 +1343,7 @@ mod tests {
             height: 4,
         };
         let mut layer = Layer::new(0, 40, 40);
-        stamp_tip(&mut layer, 20.0, 20.0, 5.0, &tip, Color::black(), 1.0, 1.0, 0.0, false, false, None, None);
+        stamp_tip(&mut layer, 20.0, 20.0, 5.0, &tip, Color::black(), 1.0, 1.0, 0.0, false, false, None, None, None);
 
         // Center should be painted
         let center = layer.pixel(20, 20).unwrap()[3];
@@ -1258,7 +1365,7 @@ mod tests {
             height: 4,
         };
         let mut layer = Layer::new(0, 40, 40);
-        stamp_tip(&mut layer, 20.0, 20.0, 5.0, &tip, Color::black(), 1.0, 1.0, 0.0, false, false, None, None);
+        stamp_tip(&mut layer, 20.0, 20.0, 5.0, &tip, Color::black(), 1.0, 1.0, 0.0, false, false, None, None, None);
 
         // Left of center should be painted
         let left = layer.pixel(17, 20).unwrap()[3];
@@ -1285,11 +1392,11 @@ mod tests {
 
         // Without flip: left side painted, right side transparent
         let mut layer_no_flip = Layer::new(0, 40, 40);
-        stamp_tip(&mut layer_no_flip, 20.0, 20.0, 5.0, &tip, Color::black(), 1.0, 1.0, 0.0, false, false, None, None);
+        stamp_tip(&mut layer_no_flip, 20.0, 20.0, 5.0, &tip, Color::black(), 1.0, 1.0, 0.0, false, false, None, None, None);
 
         // With flip_x: right side painted, left side transparent
         let mut layer_flip_x = Layer::new(0, 40, 40);
-        stamp_tip(&mut layer_flip_x, 20.0, 20.0, 5.0, &tip, Color::black(), 1.0, 1.0, 0.0, true, false, None, None);
+        stamp_tip(&mut layer_flip_x, 20.0, 20.0, 5.0, &tip, Color::black(), 1.0, 1.0, 0.0, true, false, None, None, None);
 
         let left_no_flip = layer_no_flip.pixel(17, 20).unwrap()[3];
         let right_no_flip = layer_no_flip.pixel(23, 20).unwrap()[3];
@@ -1318,11 +1425,11 @@ mod tests {
 
         // Without flip: top painted, bottom transparent
         let mut layer_no_flip = Layer::new(0, 40, 40);
-        stamp_tip(&mut layer_no_flip, 20.0, 20.0, 5.0, &tip, Color::black(), 1.0, 1.0, 0.0, false, false, None, None);
+        stamp_tip(&mut layer_no_flip, 20.0, 20.0, 5.0, &tip, Color::black(), 1.0, 1.0, 0.0, false, false, None, None, None);
 
         // With flip_y: bottom painted, top transparent
         let mut layer_flip_y = Layer::new(0, 40, 40);
-        stamp_tip(&mut layer_flip_y, 20.0, 20.0, 5.0, &tip, Color::black(), 1.0, 1.0, 0.0, false, true, None, None);
+        stamp_tip(&mut layer_flip_y, 20.0, 20.0, 5.0, &tip, Color::black(), 1.0, 1.0, 0.0, false, true, None, None, None);
 
         let top_no_flip = layer_no_flip.pixel(20, 17).unwrap()[3];
         let bottom_no_flip = layer_no_flip.pixel(20, 23).unwrap()[3];
@@ -1347,8 +1454,8 @@ mod tests {
             ..Default::default()
         };
 
-        stroke_begin(&mut layer_no_scatter, &mut state, &brush, 20.0, 100.0, 1.0, None, None, None);
-        stroke_move(&mut layer_no_scatter, &mut state, &brush, 180.0, 100.0, 1.0, None, None, None);
+        stroke_begin(&mut layer_no_scatter, &mut state, &brush, 20.0, 100.0, 1.0, None, None, None, None);
+        stroke_move(&mut layer_no_scatter, &mut state, &brush, 180.0, 100.0, 1.0, None, None, None, None);
         stroke_end(&mut state);
 
         // Without scatter, pixels far from y=100 should be transparent
@@ -1370,8 +1477,8 @@ mod tests {
             ..Default::default()
         };
 
-        stroke_begin(&mut layer_scatter, &mut state, &scatter_brush, 20.0, 100.0, 1.0, None, None, None);
-        stroke_move(&mut layer_scatter, &mut state, &scatter_brush, 180.0, 100.0, 1.0, None, None, None);
+        stroke_begin(&mut layer_scatter, &mut state, &scatter_brush, 20.0, 100.0, 1.0, None, None, None, None);
+        stroke_move(&mut layer_scatter, &mut state, &scatter_brush, 180.0, 100.0, 1.0, None, None, None, None);
         stroke_end(&mut state);
 
         // With high scatter and count=3, there should be painted pixels away from center
@@ -1394,7 +1501,7 @@ mod tests {
     fn test_dual_brush_modulates_alpha() {
         // Without dual brush, center pixel should be fully opaque
         let mut layer_no_dual = Layer::new(0, 40, 40);
-        stamp_ellipse(&mut layer_no_dual, 20.0, 20.0, 8.0, Color::black(), 1.0, 1.0, 1.0, 0.0, None, None);
+        stamp_ellipse(&mut layer_no_dual, 20.0, 20.0, 8.0, Color::black(), 1.0, 1.0, 1.0, 0.0, None, None, None);
         let center_no_dual = layer_no_dual.pixel(20, 20).unwrap()[3];
         assert_eq!(center_no_dual, 255, "Without dual brush, center should be fully opaque");
 
@@ -1403,7 +1510,7 @@ mod tests {
         let sec = SecondaryTipState::Computed { hardness: 1.0 };
         let mut layer_dual = Layer::new(0, 40, 40);
         // Secondary radius = 3px (much smaller than primary radius = 8px)
-        stamp_ellipse(&mut layer_dual, 20.0, 20.0, 8.0, Color::black(), 1.0, 1.0, 1.0, 0.0, None, Some((&sec, 3.0)));
+        stamp_ellipse(&mut layer_dual, 20.0, 20.0, 8.0, Color::black(), 1.0, 1.0, 1.0, 0.0, None, Some((&sec, 3.0)), None);
         let center_dual = layer_dual.pixel(20, 20).unwrap()[3];
         assert!(center_dual > 200, "With dual brush, center should still be opaque");
 
@@ -1412,5 +1519,92 @@ mod tests {
         let far_no_dual = layer_no_dual.pixel(26, 20).unwrap()[3];
         assert!(far_no_dual > 0, "Without dual, pixel at (26,20) should be painted");
         assert_eq!(far_dual, 0, "With dual, pixel beyond secondary radius should be transparent");
+    }
+
+    #[test]
+    fn test_texture_modulates_alpha() {
+        // Create a checkerboard pattern: alternating 0 and 255
+        let mut pattern_pixels = vec![0u8; 4 * 4];
+        for y in 0..4u32 {
+            for x in 0..4u32 {
+                pattern_pixels[(y * 4 + x) as usize] = if (x + y) % 2 == 0 { 255 } else { 0 };
+            }
+        }
+        let pattern = BrushTip {
+            pixels: pattern_pixels,
+            width: 4,
+            height: 4,
+        };
+
+        let tex_settings = TextureSettings {
+            enabled: true,
+            scale: 100.0,
+            depth: 1.0,
+            texture_each_tip: false,
+        };
+
+        // Stamp without texture
+        let mut layer_no_tex = Layer::new(0, 40, 40);
+        stamp_ellipse(&mut layer_no_tex, 20.0, 20.0, 8.0, Color::black(), 1.0, 1.0, 1.0, 0.0, None, None, None);
+
+        // Stamp with texture
+        let mut layer_tex = Layer::new(0, 40, 40);
+        stamp_ellipse(&mut layer_tex, 20.0, 20.0, 8.0, Color::black(), 1.0, 1.0, 1.0, 0.0, None, None, Some((&tex_settings, &pattern)));
+
+        // Without texture, center should be fully opaque
+        let no_tex_center = layer_no_tex.pixel(20, 20).unwrap()[3];
+        assert_eq!(no_tex_center, 255);
+
+        // With texture, some pixels should have reduced alpha (where pattern is 0)
+        // Count pixels with alpha < 255 within the stamp radius
+        let mut reduced_count = 0u32;
+        let mut total_painted = 0u32;
+        for y in 12..28u32 {
+            for x in 12..28u32 {
+                let a_no_tex = layer_no_tex.pixel(x, y).unwrap()[3];
+                let a_tex = layer_tex.pixel(x, y).unwrap()[3];
+                if a_no_tex > 0 {
+                    total_painted += 1;
+                    if a_tex < a_no_tex {
+                        reduced_count += 1;
+                    }
+                }
+            }
+        }
+        assert!(total_painted > 0, "Should have painted pixels");
+        assert!(reduced_count > 0, "Texture should reduce alpha on some pixels");
+    }
+
+    #[test]
+    fn test_texture_depth_zero_has_no_effect() {
+        let pattern = BrushTip {
+            pixels: vec![0; 4 * 4], // All-black pattern
+            width: 4,
+            height: 4,
+        };
+
+        let tex_settings = TextureSettings {
+            enabled: true,
+            scale: 100.0,
+            depth: 0.0, // No effect
+            texture_each_tip: false,
+        };
+
+        let mut layer_no_tex = Layer::new(0, 40, 40);
+        stamp_ellipse(&mut layer_no_tex, 20.0, 20.0, 8.0, Color::black(), 1.0, 1.0, 1.0, 0.0, None, None, None);
+
+        let mut layer_tex = Layer::new(0, 40, 40);
+        stamp_ellipse(&mut layer_tex, 20.0, 20.0, 8.0, Color::black(), 1.0, 1.0, 1.0, 0.0, None, None, Some((&tex_settings, &pattern)));
+
+        // With depth=0, texture should have no effect
+        for y in 12..28u32 {
+            for x in 12..28u32 {
+                assert_eq!(
+                    layer_no_tex.pixel(x, y).unwrap()[3],
+                    layer_tex.pixel(x, y).unwrap()[3],
+                    "At ({x},{y}) depth=0 should have no effect"
+                );
+            }
+        }
     }
 }

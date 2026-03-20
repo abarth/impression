@@ -131,10 +131,11 @@ impl Canvas {
                 let brush = site_state.brush.clone();
                 let tip = site_state.active_tip.clone();
                 let sec_tip = site_state.secondary_tip.clone();
+                let tex_tip = site_state.texture_tip.clone();
                 let sel_ref = sel_data.as_deref();
                 if let Some(l) = self.layers.iter_mut().find(|l| l.id == layer) {
                     let stroke_state = &mut self.sites.get_mut(&site).unwrap().stroke_state;
-                    brush::stroke_begin(l, stroke_state, &brush, x, y, pressure, tip.as_ref(), sec_tip.as_ref(), sel_ref);
+                    brush::stroke_begin(l, stroke_state, &brush, x, y, pressure, tip.as_ref(), sec_tip.as_ref(), tex_tip.as_ref(), sel_ref);
                 }
             }
             Operation::StrokeMove { x, y, pressure } => {
@@ -144,10 +145,11 @@ impl Canvas {
                 let brush = site_state.brush.clone();
                 let tip = site_state.active_tip.clone();
                 let sec_tip = site_state.secondary_tip.clone();
+                let tex_tip = site_state.texture_tip.clone();
                 let sel_ref = sel_data.as_deref();
                 if let Some(l) = self.layers.iter_mut().find(|l| l.id == stroke_layer) {
                     let stroke_state = &mut self.sites.get_mut(&site).unwrap().stroke_state;
-                    brush::stroke_move(l, stroke_state, &brush, x, y, pressure, tip.as_ref(), sec_tip.as_ref(), sel_ref);
+                    brush::stroke_move(l, stroke_state, &brush, x, y, pressure, tip.as_ref(), sec_tip.as_ref(), tex_tip.as_ref(), sel_ref);
                 }
             }
             Operation::StrokeEnd => {
@@ -296,6 +298,15 @@ impl Canvas {
                 let site_state = self.site_for_mut(site);
                 site_state.secondary_tip_id = tip_id.clone();
                 site_state.secondary_tip = cloned_tip;
+            }
+            Operation::SetTexture(settings) => {
+                self.site_for_mut(site).brush.texture = settings;
+            }
+            Operation::SetTextureTip(ref tip_id) => {
+                let cloned_tip = tip_id.as_ref().and_then(|id| self.tip_registry.get(id).cloned());
+                let site_state = self.site_for_mut(site);
+                site_state.texture_tip_id = tip_id.clone();
+                site_state.texture_tip = cloned_tip;
             }
         }
     }

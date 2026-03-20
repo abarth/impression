@@ -27,6 +27,9 @@ function createMockEngine(): Engine {
     setDualBrush: vi.fn(),
     setSecondaryBrushTip: vi.fn(),
     clearSecondaryBrushTip: vi.fn(),
+    setTexture: vi.fn(),
+    setTextureTip: vi.fn(),
+    clearTextureTip: vi.fn(),
   } as unknown as Engine;
 }
 
@@ -369,5 +372,42 @@ describe("useBrushSettings scatter", () => {
     expect(lastCall[1]).toBe(true);   // bothAxes
     expect(lastCall[2]).toBe(3);      // count
     expect(lastCall[3]).toBe(0.5);    // countJitter
+  });
+});
+
+describe("useBrushSettings texture", () => {
+  it("should default to texture off", () => {
+    const engine = createMockEngine();
+    const { result } = renderHook(() => useBrushSettings(engine, "brush"));
+
+    expect(result.current.settings.texture.enabled).toBe(false);
+    expect(result.current.settings.texture.scale).toBe(100);
+    expect(result.current.settings.texture.depth).toBe(1.0);
+    expect(result.current.settings.texture.textureEachTip).toBe(false);
+  });
+
+  it("should update texture settings and sync to engine", () => {
+    const engine = createMockEngine();
+    const { result } = renderHook(() => useBrushSettings(engine, "brush"));
+
+    act(() => {
+      result.current.updateSetting("texture", {
+        enabled: true,
+        scale: 200,
+        depth: 0.75,
+        textureEachTip: true,
+      });
+    });
+
+    expect(result.current.settings.texture.enabled).toBe(true);
+    expect(result.current.settings.texture.scale).toBe(200);
+    expect(result.current.settings.texture.depth).toBe(0.75);
+
+    const calls = (engine.setTexture as ReturnType<typeof vi.fn>).mock.calls;
+    const lastCall = calls[calls.length - 1];
+    expect(lastCall[0]).toBe(true);    // enabled
+    expect(lastCall[1]).toBe(200);     // scale
+    expect(lastCall[2]).toBe(0.75);    // depth
+    expect(lastCall[3]).toBe(true);    // textureEachTip
   });
 });

@@ -111,6 +111,7 @@ export function useBrushPresets({
       if (preset.transferDynamics) partial.transferDynamics = preset.transferDynamics;
       if (preset.scatterSettings) partial.scatterSettings = preset.scatterSettings;
       if (preset.dualBrush) partial.dualBrush = preset.dualBrush;
+      if (preset.texture) partial.texture = preset.texture;
 
       onApplyPreset(partial);
       activateTip(preset);

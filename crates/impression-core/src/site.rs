@@ -21,6 +21,10 @@ pub struct SiteState {
     pub secondary_tip_id: Option<String>,
     /// Cloned tip data for the secondary brush tip.
     pub secondary_tip: Option<BrushTip>,
+    /// Texture pattern tip ID.
+    pub texture_tip_id: Option<String>,
+    /// Cloned tip data for the texture pattern.
+    pub texture_tip: Option<BrushTip>,
 }
 
 impl Default for SiteState {
@@ -35,6 +39,8 @@ impl Default for SiteState {
             active_tip: None,
             secondary_tip_id: None,
             secondary_tip: None,
+            texture_tip_id: None,
+            texture_tip: None,
         }
     }
 }

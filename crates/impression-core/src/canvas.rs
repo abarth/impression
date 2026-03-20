@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::blend_mode::BlendMode;
-use crate::brush::{BrushTip, DualBrushSettings, ScatterSettings};
+use crate::brush::{BrushTip, DualBrushSettings, ScatterSettings, TextureSettings};
 use crate::color::Color;
 use crate::dynamics::{ShapeDynamics, TransferDynamics};
 use crate::layer::Layer;
@@ -253,6 +253,18 @@ impl Canvas {
         self.apply(Operation::SetSecondaryBrushTip(None));
     }
 
+    pub fn set_texture(&mut self, settings: TextureSettings) {
+        self.apply(Operation::SetTexture(settings));
+    }
+
+    pub fn set_texture_tip(&mut self, id: &str) {
+        self.apply(Operation::SetTextureTip(Some(id.to_string())));
+    }
+
+    pub fn clear_texture_tip(&mut self) {
+        self.apply(Operation::SetTextureTip(None));
+    }
+
     /// Sample the composited color at (x, y) across all visible layers,
     /// over the background color. Applies each layer's blend mode.
     pub fn sample_color(&self, x: u32, y: u32) -> [u8; 3] {
@@ -418,6 +430,8 @@ impl Canvas {
                 | Operation::SetScatter(_)
                 | Operation::SetDualBrush(_)
                 | Operation::SetSecondaryBrushTip(_)
+                | Operation::SetTexture(_)
+                | Operation::SetTextureTip(_)
                 | Operation::CreateCanvas { .. } => {
                     self.oplog.begin_undo_group(site_op.site);
                 }

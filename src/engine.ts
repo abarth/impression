@@ -212,6 +212,21 @@ export class Engine {
     this.canvas.clear_secondary_brush_tip();
   }
 
+  setTexture(
+    enabled: boolean, scale: number,
+    depth: number, textureEachTip: boolean,
+  ): void {
+    this.canvas.set_texture(enabled, scale, depth, textureEachTip);
+  }
+
+  setTextureTip(id: string): void {
+    this.canvas.set_texture_tip(id);
+  }
+
+  clearTextureTip(): void {
+    this.canvas.clear_texture_tip();
+  }
+
   setShapeDynamics(
     sizeJitter: number, sizeControl: number, sizeMin: number,
     angleJitter: number, angleControl: number,

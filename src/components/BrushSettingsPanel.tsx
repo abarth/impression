@@ -2,7 +2,7 @@ import { useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { Settings2 } from "lucide-react";
 import { SliderControl } from "./SliderControl";
-import type { BrushSettings, DynamicParam, DynamicControl, ScatterSettings, DualBrushSettings } from "../hooks/useBrushSettings";
+import type { BrushSettings, DynamicParam, DynamicControl, ScatterSettings, DualBrushSettings, TextureSettings } from "../hooks/useBrushSettings";
 
 interface BrushSettingsPanelProps {
   settings: BrushSettings;
@@ -77,7 +77,7 @@ function DynamicParamControl({
 
 // -- Brush Settings Popover (Photoshop-style F5 panel) --
 
-type Category = "tip" | "shapeDynamics" | "transfer" | "scattering" | "dualBrush";
+type Category = "tip" | "shapeDynamics" | "transfer" | "scattering" | "dualBrush" | "texture";
 
 const CATEGORIES: { id: Category; label: string }[] = [
   { id: "tip", label: "Brush Tip Shape" },
@@ -85,6 +85,7 @@ const CATEGORIES: { id: Category; label: string }[] = [
   { id: "transfer", label: "Transfer" },
   { id: "scattering", label: "Scattering" },
   { id: "dualBrush", label: "Dual Brush" },
+  { id: "texture", label: "Texture" },
 ];
 
 function BrushTipPane({ settings, isImageTip, onUpdate }: BrushSettingsPanelProps) {
@@ -313,6 +314,58 @@ function DualBrushPane({ settings, onUpdate }: BrushSettingsPanelProps) {
   );
 }
 
+function TexturePane({ settings, onUpdate }: BrushSettingsPanelProps) {
+  const tx = settings.texture;
+  const update = (partial: Partial<TextureSettings>) =>
+    onUpdate("texture", { ...tx, ...partial });
+  return (
+    <div className="flex flex-col gap-3.5">
+      <button
+        onClick={() => update({ enabled: !tx.enabled })}
+        className={`px-2 py-1.5 text-[11px] rounded border transition-colors duration-150
+          ${tx.enabled
+            ? "bg-graphite-800 border-graphite-700 text-cream"
+            : "bg-graphite-850 border-graphite-800 text-cream-muted hover:bg-graphite-800"
+          }`}
+      >
+        {tx.enabled ? "Texture On" : "Texture Off"}
+      </button>
+      {tx.enabled && (
+        <>
+          <SliderControl
+            label="Scale"
+            value={tx.scale}
+            min={1}
+            max={1000}
+            step={1}
+            displayValue={`${Math.round(tx.scale)}%`}
+            onChange={(v) => update({ scale: v })}
+          />
+          <SliderControl
+            label="Depth"
+            value={tx.depth}
+            min={0}
+            max={1.0}
+            step={0.01}
+            displayValue={`${Math.round(tx.depth * 100)}%`}
+            onChange={(v) => update({ depth: v })}
+          />
+          <button
+            onClick={() => update({ textureEachTip: !tx.textureEachTip })}
+            className={`px-2 py-1.5 text-[11px] rounded border transition-colors duration-150
+              ${tx.textureEachTip
+                ? "bg-graphite-800 border-graphite-700 text-cream"
+                : "bg-graphite-850 border-graphite-800 text-cream-muted hover:bg-graphite-800"
+              }`}
+          >
+            Texture Each Tip
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
 /**
  * Brush properties popover — Photoshop-style brush settings panel.
  * Left sidebar with category navigation, right pane with controls.
@@ -381,6 +434,9 @@ export function BrushSettingsPanel({
               )}
               {activeCategory === "dualBrush" && (
                 <DualBrushPane settings={settings} onUpdate={onUpdate} />
+              )}
+              {activeCategory === "texture" && (
+                <TexturePane settings={settings} onUpdate={onUpdate} />
               )}
             </div>
 

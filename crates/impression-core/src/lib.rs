@@ -218,6 +218,32 @@ impl ImpressionCanvas {
         });
     }
 
+    /// Set texture overlay parameters.
+    pub fn set_texture(
+        &mut self,
+        enabled: bool,
+        scale: f32,
+        depth: f32,
+        texture_each_tip: bool,
+    ) {
+        self.inner.set_texture(brush::TextureSettings {
+            enabled,
+            scale,
+            depth,
+            texture_each_tip,
+        });
+    }
+
+    /// Set the texture pattern tip by ID.
+    pub fn set_texture_tip(&mut self, id: &str) {
+        self.inner.set_texture_tip(id);
+    }
+
+    /// Clear the texture pattern tip.
+    pub fn clear_texture_tip(&mut self) {
+        self.inner.clear_texture_tip();
+    }
+
     /// Register a custom brush tip image. Called from TypeScript before replay.
     pub fn register_brush_tip(&mut self, id: &str, pixels: &[u8], width: u32, height: u32) {
         self.inner.register_brush_tip(id.to_string(), pixels.to_vec(), width, height);

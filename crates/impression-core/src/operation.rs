@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::blend_mode::BlendMode;
-use crate::brush::{DualBrushSettings, ScatterSettings};
+use crate::brush::{DualBrushSettings, ScatterSettings, TextureSettings};
 use crate::dynamics::{ShapeDynamics, TransferDynamics};
 use crate::selection::CombineMode;
 
@@ -123,6 +123,8 @@ pub enum Operation {
     SetScatter(ScatterSettings),
     SetDualBrush(DualBrushSettings),
     SetSecondaryBrushTip(Option<String>),
+    SetTexture(TextureSettings),
+    SetTextureTip(Option<String>),
 }
 
 /// Magic byte prefix indicating a versioned format.
@@ -324,6 +326,23 @@ mod tests {
             count: 3,
             count_jitter: 0.5,
         }));
+    }
+
+    #[test]
+    fn test_round_trip_texture() {
+        use crate::brush::TextureSettings;
+        round_trip(Operation::SetTexture(TextureSettings {
+            enabled: true,
+            scale: 200.0,
+            depth: 0.75,
+            texture_each_tip: true,
+        }));
+    }
+
+    #[test]
+    fn test_round_trip_texture_tip() {
+        round_trip(Operation::SetTextureTip(Some("pattern-abc".to_string())));
+        round_trip(Operation::SetTextureTip(None));
     }
 
     #[test]
