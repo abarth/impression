@@ -23,6 +23,7 @@ function createMockEngine(): Engine {
     setTransferDynamics: vi.fn(),
     setBrushFlipX: vi.fn(),
     setBrushFlipY: vi.fn(),
+    setScatter: vi.fn(),
   } as unknown as Engine;
 }
 
@@ -328,5 +329,42 @@ describe("useBrushSettings applyPreset with dynamics", () => {
     const lastSdCall = sdCalls[sdCalls.length - 1];
     expect(lastSdCall[0]).toBe(0.9); // size jitter
     expect(lastSdCall[1]).toBe(1);   // size control (PenPressure)
+  });
+});
+
+describe("useBrushSettings scatter", () => {
+  it("should default to scatter off", () => {
+    const engine = createMockEngine();
+    const { result } = renderHook(() => useBrushSettings(engine, "brush"));
+
+    expect(result.current.settings.scatterSettings.scatter).toBe(0);
+    expect(result.current.settings.scatterSettings.bothAxes).toBe(false);
+    expect(result.current.settings.scatterSettings.count).toBe(1);
+    expect(result.current.settings.scatterSettings.countJitter).toBe(0);
+  });
+
+  it("should update scatter settings and sync to engine", () => {
+    const engine = createMockEngine();
+    const { result } = renderHook(() => useBrushSettings(engine, "brush"));
+
+    act(() => {
+      result.current.updateSetting("scatterSettings", {
+        scatter: 2.5,
+        bothAxes: true,
+        count: 3,
+        countJitter: 0.5,
+      });
+    });
+
+    expect(result.current.settings.scatterSettings.scatter).toBe(2.5);
+    expect(result.current.settings.scatterSettings.bothAxes).toBe(true);
+    expect(result.current.settings.scatterSettings.count).toBe(3);
+
+    const calls = (engine.setScatter as ReturnType<typeof vi.fn>).mock.calls;
+    const lastCall = calls[calls.length - 1];
+    expect(lastCall[0]).toBe(2.5);    // scatter
+    expect(lastCall[1]).toBe(true);   // bothAxes
+    expect(lastCall[2]).toBe(3);      // count
+    expect(lastCall[3]).toBe(0.5);    // countJitter
   });
 });

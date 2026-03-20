@@ -1,3 +1,5 @@
+use serde::{Deserialize, Serialize};
+
 use crate::blend_mode::{porter_duff_composite, BlendMode};
 use crate::color::{blend_pixel, Color};
 use crate::dynamics::{self, Rng, ShapeDynamics, TransferDynamics};
@@ -9,6 +11,30 @@ pub struct BrushTip {
     pub pixels: Vec<u8>,
     pub width: u32,
     pub height: u32,
+}
+
+/// Scattering settings: random stamp offset perpendicular to the stroke path.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ScatterSettings {
+    /// Maximum perpendicular offset as a fraction of brush size (0.0 = off, 10.0 = 1000%).
+    pub scatter: f32,
+    /// When true, also scatter along the stroke direction (2D scatter).
+    pub both_axes: bool,
+    /// Number of stamps per spacing interval (1–16).
+    pub count: u32,
+    /// Randomize stamp count per interval (0.0–1.0).
+    pub count_jitter: f32,
+}
+
+impl Default for ScatterSettings {
+    fn default() -> Self {
+        Self {
+            scatter: 0.0,
+            both_axes: false,
+            count: 1,
+            count_jitter: 0.0,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -42,6 +68,8 @@ pub struct BrushSettings {
     pub flip_x: bool,
     /// Mirror the brush tip vertically.
     pub flip_y: bool,
+    /// Scattering settings.
+    pub scatter: ScatterSettings,
 }
 
 impl Default for BrushSettings {
@@ -60,6 +88,7 @@ impl Default for BrushSettings {
             transfer_dynamics: TransferDynamics::default(),
             flip_x: false,
             flip_y: false,
+            scatter: ScatterSettings::default(),
         }
     }
 }
@@ -370,7 +399,11 @@ fn segment_bounds(
     width: u32, height: u32,
 ) -> (u32, u32, u32, u32) {
     let max_radius = brush.size * p0.max(p1) / 2.0;
-    let extent = max_radius / brush.roundness.clamp(0.01, 1.0);
+    let mut extent = max_radius / brush.roundness.clamp(0.01, 1.0);
+    // Account for scatter offset: stamps can land up to scatter * size away
+    if brush.scatter.scatter > 0.0 {
+        extent += brush.scatter.scatter * brush.size;
+    }
     let x_min = (x0.min(x1) - extent - 1.0).floor().max(0.0) as u32;
     let y_min = (y0.min(y1) - extent - 1.0).floor().max(0.0) as u32;
     let x_max = ((x0.max(x1) + extent + 1.0).ceil()).min(width as f32 - 1.0).max(0.0) as u32;
@@ -402,6 +435,15 @@ pub fn interpolate_and_stamp(
         return residual;
     }
 
+    // Precompute perpendicular direction for scattering
+    let inv_len = 1.0 / segment_len;
+    let dir_x = dx * inv_len;
+    let dir_y = dy * inv_len;
+    // Perpendicular: rotate direction 90° counter-clockwise
+    let perp_x = -dir_y;
+    let perp_y = dir_x;
+
+    let scatter = &brush.scatter;
     let mut dist = residual;
 
     while dist <= segment_len {
@@ -420,10 +462,38 @@ pub fn interpolate_and_stamp(
         let stamp_flow = dynamics::apply_dynamic(&brush.transfer_dynamics.flow, brush.flow, pressure, rng)
             .clamp(0.0, 1.0);
 
-        if let Some(tip) = tip {
-            stamp_tip(target, x, y, radius, tip, brush.color, stamp_flow, stamp_roundness, stamp_angle, brush.flip_x, brush.flip_y, selection);
+        // Determine stamp count (with jitter)
+        let stamp_count = if scatter.scatter > 0.0 {
+            let base = scatter.count.max(1) as f32;
+            let jittered = base - base * scatter.count_jitter * rng.next_f32();
+            jittered.round().max(1.0) as u32
         } else {
-            stamp_ellipse(target, x, y, radius, brush.color, stamp_flow, brush.hardness, stamp_roundness, stamp_angle, selection);
+            1
+        };
+
+        for _ in 0..stamp_count {
+            // Apply scatter offset
+            let (sx, sy) = if scatter.scatter > 0.0 {
+                let max_offset = scatter.scatter * effective_size;
+                let perp_offset = (rng.next_f32() * 2.0 - 1.0) * max_offset;
+                let along_offset = if scatter.both_axes {
+                    (rng.next_f32() * 2.0 - 1.0) * max_offset
+                } else {
+                    0.0
+                };
+                (
+                    x + perp_x * perp_offset + dir_x * along_offset,
+                    y + perp_y * perp_offset + dir_y * along_offset,
+                )
+            } else {
+                (x, y)
+            };
+
+            if let Some(tip) = tip {
+                stamp_tip(target, sx, sy, radius, tip, brush.color, stamp_flow, stamp_roundness, stamp_angle, brush.flip_x, brush.flip_y, selection);
+            } else {
+                stamp_ellipse(target, sx, sy, radius, brush.color, stamp_flow, brush.hardness, stamp_roundness, stamp_angle, selection);
+            }
         }
 
         // Spacing is relative to the current circle's effective size
@@ -1136,5 +1206,60 @@ mod tests {
         assert_eq!(bottom_no_flip, 0, "Without flip, bottom should be transparent");
         assert_eq!(top_flip, 0, "With flip_y, top should be transparent");
         assert!(bottom_flip > 0, "With flip_y, bottom should be painted");
+    }
+
+    #[test]
+    fn test_scatter_offsets_stamps_perpendicular_to_stroke() {
+        // Without scatter, a horizontal stroke should only paint near y=100.
+        // With scatter, stamps should appear at varying y positions.
+        let mut layer_no_scatter = Layer::new(0, 200, 200);
+        let mut state = StrokeState::new();
+        let brush = BrushSettings {
+            size: 6.0,
+            spacing: 0.25,
+            ..Default::default()
+        };
+
+        stroke_begin(&mut layer_no_scatter, &mut state, &brush, 20.0, 100.0, 1.0, None, None);
+        stroke_move(&mut layer_no_scatter, &mut state, &brush, 180.0, 100.0, 1.0, None, None);
+        stroke_end(&mut state);
+
+        // Without scatter, pixels far from y=100 should be transparent
+        let far_y_no_scatter = layer_no_scatter.pixel(100, 130).unwrap()[3];
+        assert_eq!(far_y_no_scatter, 0, "Without scatter, y=130 should be empty");
+
+        // With scatter, some stamps should land away from the stroke center
+        let mut layer_scatter = Layer::new(0, 200, 200);
+        let mut state = StrokeState::new();
+        let scatter_brush = BrushSettings {
+            size: 6.0,
+            spacing: 0.25,
+            scatter: ScatterSettings {
+                scatter: 5.0, // large scatter
+                both_axes: false,
+                count: 3,
+                count_jitter: 0.0,
+            },
+            ..Default::default()
+        };
+
+        stroke_begin(&mut layer_scatter, &mut state, &scatter_brush, 20.0, 100.0, 1.0, None, None);
+        stroke_move(&mut layer_scatter, &mut state, &scatter_brush, 180.0, 100.0, 1.0, None, None);
+        stroke_end(&mut state);
+
+        // With high scatter and count=3, there should be painted pixels away from center
+        let mut found_offset = false;
+        for y in 0..200 {
+            if (y as i32 - 100).unsigned_abs() > 10 {
+                for x in (20..180).step_by(5) {
+                    if layer_scatter.pixel(x, y).unwrap()[3] > 0 {
+                        found_offset = true;
+                        break;
+                    }
+                }
+            }
+            if found_offset { break; }
+        }
+        assert!(found_offset, "Scatter should produce stamps offset from the stroke path");
     }
 }

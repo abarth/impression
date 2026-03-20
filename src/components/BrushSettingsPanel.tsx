@@ -2,7 +2,7 @@ import { useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { Settings2 } from "lucide-react";
 import { SliderControl } from "./SliderControl";
-import type { BrushSettings, DynamicParam, DynamicControl } from "../hooks/useBrushSettings";
+import type { BrushSettings, DynamicParam, DynamicControl, ScatterSettings } from "../hooks/useBrushSettings";
 
 interface BrushSettingsPanelProps {
   settings: BrushSettings;
@@ -77,12 +77,13 @@ function DynamicParamControl({
 
 // -- Brush Settings Popover (Photoshop-style F5 panel) --
 
-type Category = "tip" | "shapeDynamics" | "transfer";
+type Category = "tip" | "shapeDynamics" | "transfer" | "scattering";
 
 const CATEGORIES: { id: Category; label: string }[] = [
   { id: "tip", label: "Brush Tip Shape" },
   { id: "shapeDynamics", label: "Shape Dynamics" },
   { id: "transfer", label: "Transfer" },
+  { id: "scattering", label: "Scattering" },
 ];
 
 function BrushTipPane({ settings, isImageTip, onUpdate }: BrushSettingsPanelProps) {
@@ -211,6 +212,55 @@ function TransferPane({ settings, onUpdate }: BrushSettingsPanelProps) {
   );
 }
 
+function ScatteringPane({ settings, onUpdate }: BrushSettingsPanelProps) {
+  const sc = settings.scatterSettings;
+  const update = (partial: Partial<ScatterSettings>) =>
+    onUpdate("scatterSettings", { ...sc, ...partial });
+  return (
+    <div className="flex flex-col gap-3.5">
+      <SliderControl
+        label="Scatter"
+        value={sc.scatter}
+        min={0}
+        max={10.0}
+        step={0.01}
+        displayValue={`${Math.round(sc.scatter * 100)}%`}
+        onChange={(v) => update({ scatter: v })}
+      />
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => update({ bothAxes: !sc.bothAxes })}
+          className={`flex-1 px-2 py-1.5 text-[11px] rounded border transition-colors duration-150
+            ${sc.bothAxes
+              ? "bg-graphite-800 border-graphite-700 text-cream"
+              : "bg-graphite-850 border-graphite-800 text-cream-muted hover:bg-graphite-800"
+            }`}
+        >
+          Both Axes
+        </button>
+      </div>
+      <SliderControl
+        label="Count"
+        value={sc.count}
+        min={1}
+        max={16}
+        step={1}
+        displayValue={`${sc.count}`}
+        onChange={(v) => update({ count: Math.round(v) })}
+      />
+      <SliderControl
+        label="Count Jitter"
+        value={sc.countJitter}
+        min={0}
+        max={1.0}
+        step={0.01}
+        displayValue={`${Math.round(sc.countJitter * 100)}%`}
+        onChange={(v) => update({ countJitter: v })}
+      />
+    </div>
+  );
+}
+
 /**
  * Brush properties popover — Photoshop-style brush settings panel.
  * Left sidebar with category navigation, right pane with controls.
@@ -273,6 +323,9 @@ export function BrushSettingsPanel({
               )}
               {activeCategory === "transfer" && (
                 <TransferPane settings={settings} onUpdate={onUpdate} />
+              )}
+              {activeCategory === "scattering" && (
+                <ScatteringPane settings={settings} onUpdate={onUpdate} />
               )}
             </div>
 

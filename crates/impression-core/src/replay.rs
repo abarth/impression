@@ -283,6 +283,9 @@ impl Canvas {
             Operation::SetBrushFlipY(flip) => {
                 self.site_for_mut(site).brush.flip_y = flip;
             }
+            Operation::SetScatter(scatter) => {
+                self.site_for_mut(site).brush.scatter = scatter;
+            }
         }
     }
 }

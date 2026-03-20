@@ -174,6 +174,22 @@ impl ImpressionCanvas {
         self.inner.set_brush_flip_y(flip);
     }
 
+    /// Set scattering parameters.
+    pub fn set_scatter(
+        &mut self,
+        scatter: f32,
+        both_axes: bool,
+        count: u32,
+        count_jitter: f32,
+    ) {
+        self.inner.set_scatter(brush::ScatterSettings {
+            scatter,
+            both_axes,
+            count,
+            count_jitter,
+        });
+    }
+
     /// Register a custom brush tip image. Called from TypeScript before replay.
     pub fn register_brush_tip(&mut self, id: &str, pixels: &[u8], width: u32, height: u32) {
         self.inner.register_brush_tip(id.to_string(), pixels.to_vec(), width, height);

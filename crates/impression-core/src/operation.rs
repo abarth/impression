@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::blend_mode::BlendMode;
+use crate::brush::ScatterSettings;
 use crate::dynamics::{ShapeDynamics, TransferDynamics};
 use crate::selection::CombineMode;
 
@@ -119,6 +120,7 @@ pub enum Operation {
     SetTransferDynamics(TransferDynamics),
     SetBrushFlipX(bool),
     SetBrushFlipY(bool),
+    SetScatter(ScatterSettings),
 }
 
 /// Magic byte prefix indicating a versioned format.
@@ -291,6 +293,17 @@ mod tests {
             layer: 3,
             before: None,
         });
+    }
+
+    #[test]
+    fn test_round_trip_scatter() {
+        use crate::brush::ScatterSettings;
+        round_trip(Operation::SetScatter(ScatterSettings {
+            scatter: 2.5,
+            both_axes: true,
+            count: 3,
+            count_jitter: 0.5,
+        }));
     }
 
     #[test]

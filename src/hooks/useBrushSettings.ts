@@ -22,6 +22,13 @@ export interface TransferDynamics {
   flow: DynamicParam;
 }
 
+export interface ScatterSettings {
+  scatter: number;
+  bothAxes: boolean;
+  count: number;
+  countJitter: number;
+}
+
 export interface BrushSettings {
   size: number;
   spacing: number;
@@ -35,6 +42,7 @@ export interface BrushSettings {
   flipY: boolean;
   shapeDynamics: ShapeDynamics;
   transferDynamics: TransferDynamics;
+  scatterSettings: ScatterSettings;
 }
 
 /** Blend mode constants matching Rust BlendMode enum values. */
@@ -54,6 +62,13 @@ const DEFAULT_TRANSFER_DYNAMICS: TransferDynamics = {
   flow: { ...DEFAULT_DYNAMIC_PARAM },
 };
 
+const DEFAULT_SCATTER: ScatterSettings = {
+  scatter: 0,
+  bothAxes: false,
+  count: 1,
+  countJitter: 0,
+};
+
 const DEFAULT_BRUSH: BrushSettings = {
   size: 20,
   spacing: 0.15,
@@ -67,6 +82,7 @@ const DEFAULT_BRUSH: BrushSettings = {
   flipY: false,
   shapeDynamics: DEFAULT_SHAPE_DYNAMICS,
   transferDynamics: DEFAULT_TRANSFER_DYNAMICS,
+  scatterSettings: DEFAULT_SCATTER,
 };
 
 const DEFAULT_ERASER: BrushSettings = {
@@ -82,6 +98,7 @@ const DEFAULT_ERASER: BrushSettings = {
   flipY: false,
   shapeDynamics: DEFAULT_SHAPE_DYNAMICS,
   transferDynamics: DEFAULT_TRANSFER_DYNAMICS,
+  scatterSettings: DEFAULT_SCATTER,
 };
 
 /** Tools that have their own brush settings. */
@@ -130,6 +147,8 @@ export function useBrushSettings(engine: Engine | null, activeTool: Tool) {
       td.opacity.jitter, td.opacity.control, td.opacity.minimum,
       td.flow.jitter, td.flow.control, td.flow.minimum,
     );
+    const sc = s.scatterSettings;
+    eng.setScatter(sc.scatter, sc.bothAxes, sc.count, sc.countJitter);
   }, []);
 
   // Sync when engine becomes available

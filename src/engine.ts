@@ -190,6 +190,13 @@ export class Engine {
     this.canvas.set_brush_flip_y(flip);
   }
 
+  setScatter(
+    scatter: number, bothAxes: boolean,
+    count: number, countJitter: number,
+  ): void {
+    this.canvas.set_scatter(scatter, bothAxes, count, countJitter);
+  }
+
   setShapeDynamics(
     sizeJitter: number, sizeControl: number, sizeMin: number,
     angleJitter: number, angleControl: number,

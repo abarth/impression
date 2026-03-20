@@ -109,6 +109,7 @@ export function useBrushPresets({
       if (preset.opacity !== undefined) partial.opacity = preset.opacity;
       if (preset.shapeDynamics) partial.shapeDynamics = preset.shapeDynamics;
       if (preset.transferDynamics) partial.transferDynamics = preset.transferDynamics;
+      if (preset.scatterSettings) partial.scatterSettings = preset.scatterSettings;
 
       onApplyPreset(partial);
       activateTip(preset);
