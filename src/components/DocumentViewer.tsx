@@ -39,6 +39,7 @@ export function DocumentViewer({
     useLayerManager(engine);
   const storage = engineOptions.storage;
   const { groups: presetGroups, activePresetId, selectPreset, importAbr } = useBrushPresets({
+    engine,
     storage,
     activeTool,
     onApplyPreset: applyPreset,

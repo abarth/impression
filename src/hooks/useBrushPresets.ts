@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import type { BrushPreset } from "../brushPresets";
 import type { BrushSettings } from "./useBrushSettings";
+import type { Engine } from "../engine";
 import type { Storage } from "../storage";
 import type { Tool } from "./useTool";
 import { parseAbrFile } from "../abrParser";
@@ -12,12 +13,14 @@ function isToolWithSettings(tool: Tool): tool is ToolWithSettings {
 }
 
 interface UseBrushPresetsOptions {
+  engine: Engine | null;
   storage: Storage | null;
   activeTool: Tool;
   onApplyPreset: (partial: Partial<BrushSettings>) => void;
 }
 
 export function useBrushPresets({
+  engine,
   storage,
   activeTool,
   onApplyPreset,
@@ -29,6 +32,10 @@ export function useBrushPresets({
 
   const storageRef = useRef(storage);
   storageRef.current = storage;
+  const engineRef = useRef(engine);
+  engineRef.current = engine;
+  /** Track which tip IDs have been registered with the engine to avoid redundant loads. */
+  const registeredTipsRef = useRef(new Set<string>());
 
   // Load presets from IndexedDB on mount
   useEffect(() => {
@@ -43,6 +50,43 @@ export function useBrushPresets({
     ? activeTool
     : "brush";
   const activePresetId = activePresetIds[currentTool];
+
+  /** Load and activate a brush tip image for the given preset. */
+  const activateTip = useCallback(async (preset: BrushPreset) => {
+    const eng = engineRef.current;
+    if (!eng) return;
+
+    if (preset.tip.type === "image") {
+      const tipId = preset.tip.tipId;
+      // Register the tip if not already done
+      if (!registeredTipsRef.current.has(tipId)) {
+        const s = storageRef.current;
+        if (!s) return;
+        const tip = await s.getTip(tipId);
+        if (!tip) return;
+        eng.registerBrushTip(tipId, tip.pixels, tip.width, tip.height);
+        registeredTipsRef.current.add(tipId);
+      }
+      eng.setBrushTip(tipId);
+    } else {
+      eng.clearBrushTip();
+    }
+  }, []);
+
+  // Re-activate the current tool's brush tip when switching tools
+  const prevToolRef = useRef(currentTool);
+  useEffect(() => {
+    if (prevToolRef.current === currentTool) return;
+    prevToolRef.current = currentTool;
+    const presetId = activePresetIds[currentTool];
+    if (!presetId) {
+      // No preset selected for this tool — ensure computed tip
+      engineRef.current?.clearBrushTip();
+      return;
+    }
+    const preset = presets.find((p) => p.id === presetId);
+    if (preset) activateTip(preset);
+  }, [currentTool, activePresetIds, presets, activateTip]);
 
   const selectPreset = useCallback(
     (id: string) => {
@@ -67,8 +111,9 @@ export function useBrushPresets({
       if (preset.transferDynamics) partial.transferDynamics = preset.transferDynamics;
 
       onApplyPreset(partial);
+      activateTip(preset);
     },
-    [presets, activeTool, onApplyPreset],
+    [presets, activeTool, onApplyPreset, activateTip],
   );
 
   const savePreset = useCallback(
