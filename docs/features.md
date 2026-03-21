@@ -58,6 +58,19 @@ All tool keys above support spring-loaded mode.
 **Global shortcuts:**
 - `Cmd/Ctrl+A` — Select all
 - `Cmd/Ctrl+D` — Deselect
+- `Cmd/Ctrl+Shift+E` — Export as PNG
+- `Cmd/Ctrl+Shift+N` — New layer
+- `Cmd/Ctrl+Z` — Undo
+- `Cmd/Ctrl+Shift+Z` — Redo
+- `Cmd/Ctrl+0` — Fit on screen
+- `Cmd/Ctrl+=` / `Cmd/Ctrl++` — Zoom in
+- `Cmd/Ctrl+-` — Zoom out
+- `X` — Swap foreground/background colors
+- `D` — Default colors (black/white)
+- `Delete/Backspace` — Clear active layer
+- `[` / `]` — Decrease/increase brush size
+- `1–9, 0` — Set opacity (10%–100%)
+- `Shift+1–9, 0` — Set flow (10%–100%)
 
 ## Brush Behavior
 

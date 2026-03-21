@@ -99,7 +99,47 @@ export function DocumentViewer({
     engine?.clearActiveLayer(activeIndex);
   }, [engine, activeIndex]);
 
-  useSelection(engine, activeIndex, { onExport: handleExport });
+  const handleDefaultColors = useCallback(() => {
+    setForeground("#000000");
+    setBackground("#ffffff");
+  }, [setForeground, setBackground]);
+
+  const handleFitToScreen = useCallback(() => {
+    if (!engine) return;
+    const canvasEl = canvasRef.current;
+    if (!canvasEl) return;
+    const w = engine.width();
+    const h = engine.height();
+    const vw = canvasEl.clientWidth;
+    const vh = canvasEl.clientHeight;
+    fitToViewport(w, h, vw, vh);
+  }, [engine, fitToViewport]);
+
+  const handleZoomIn = useCallback(() => {
+    const canvasEl = canvasRef.current;
+    if (!canvasEl) return;
+    zoom(-1, canvasEl.clientWidth / 2, canvasEl.clientHeight / 2);
+  }, [zoom]);
+
+  const handleZoomOut = useCallback(() => {
+    const canvasEl = canvasRef.current;
+    if (!canvasEl) return;
+    zoom(1, canvasEl.clientWidth / 2, canvasEl.clientHeight / 2);
+  }, [zoom]);
+
+  const handleDeleteLayer = useCallback(() => {
+    if (layers.length > 1) removeLayer(activeIndex);
+  }, [layers.length, activeIndex, removeLayer]);
+
+  useSelection(engine, activeIndex, {
+    onExport: handleExport,
+    onSwapColors: swapColors,
+    onDefaultColors: handleDefaultColors,
+    onFitToScreen: handleFitToScreen,
+    onZoomIn: handleZoomIn,
+    onZoomOut: handleZoomOut,
+    onNewLayer: addLayer,
+  });
 
   // Embed gradient into document resources so the document is self-contained
   const embedGradient = useCallback(
@@ -194,6 +234,14 @@ export function DocumentViewer({
         onSelectAll={handleSelectAll}
         onDeselect={handleDeselect}
         onClear={handleClear}
+        onNewLayer={addLayer}
+        onDeleteLayer={handleDeleteLayer}
+        canDeleteLayer={layers.length > 1}
+        onZoomIn={handleZoomIn}
+        onZoomOut={handleZoomOut}
+        onFitToScreen={handleFitToScreen}
+        onSwapColors={swapColors}
+        onDefaultColors={handleDefaultColors}
       />
 
       <div className="flex flex-1 min-h-0">

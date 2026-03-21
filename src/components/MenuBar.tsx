@@ -10,6 +10,14 @@ interface MenuBarProps {
   onSelectAll?: () => void;
   onDeselect?: () => void;
   onClear?: () => void;
+  onNewLayer?: () => void;
+  onDeleteLayer?: () => void;
+  canDeleteLayer?: boolean;
+  onZoomIn?: () => void;
+  onZoomOut?: () => void;
+  onFitToScreen?: () => void;
+  onSwapColors?: () => void;
+  onDefaultColors?: () => void;
 }
 
 const itemClass =
@@ -45,9 +53,18 @@ export function MenuBar({
   onSelectAll,
   onDeselect,
   onClear,
+  onNewLayer,
+  onDeleteLayer,
+  canDeleteLayer = false,
+  onZoomIn,
+  onZoomOut,
+  onFitToScreen,
+  onSwapColors,
+  onDefaultColors,
 }: MenuBarProps) {
   return (
     <Menubar.Root className="flex items-center h-8 px-1 gap-0.5 bg-graphite-950 border-b border-graphite-850 shrink-0">
+      {/* File */}
       <Menubar.Menu>
         <MenuTrigger label="File" />
         <Menubar.Portal>
@@ -64,6 +81,7 @@ export function MenuBar({
         </Menubar.Portal>
       </Menubar.Menu>
 
+      {/* Edit */}
       <Menubar.Menu>
         <MenuTrigger label="Edit" />
         <Menubar.Portal>
@@ -85,6 +103,23 @@ export function MenuBar({
         </Menubar.Portal>
       </Menubar.Menu>
 
+      {/* Layer */}
+      <Menubar.Menu>
+        <MenuTrigger label="Layer" />
+        <Menubar.Portal>
+          <Menubar.Content className={contentClass} align="start" sideOffset={2}>
+            <Menubar.Item className={itemClass} onSelect={onNewLayer}>
+              New Layer
+              <span className={shortcutClass}>{modLabel}{shiftLabel}N</span>
+            </Menubar.Item>
+            <Menubar.Item className={itemClass} disabled={!canDeleteLayer} onSelect={onDeleteLayer}>
+              Delete Layer
+            </Menubar.Item>
+          </Menubar.Content>
+        </Menubar.Portal>
+      </Menubar.Menu>
+
+      {/* Select */}
       <Menubar.Menu>
         <MenuTrigger label="Select" />
         <Menubar.Portal>
@@ -96,6 +131,36 @@ export function MenuBar({
             <Menubar.Item className={itemClass} onSelect={onDeselect}>
               Deselect
               <span className={shortcutClass}>{modLabel}D</span>
+            </Menubar.Item>
+          </Menubar.Content>
+        </Menubar.Portal>
+      </Menubar.Menu>
+
+      {/* View */}
+      <Menubar.Menu>
+        <MenuTrigger label="View" />
+        <Menubar.Portal>
+          <Menubar.Content className={contentClass} align="start" sideOffset={2}>
+            <Menubar.Item className={itemClass} onSelect={onZoomIn}>
+              Zoom In
+              <span className={shortcutClass}>{modLabel}=</span>
+            </Menubar.Item>
+            <Menubar.Item className={itemClass} onSelect={onZoomOut}>
+              Zoom Out
+              <span className={shortcutClass}>{modLabel}-</span>
+            </Menubar.Item>
+            <Menubar.Item className={itemClass} onSelect={onFitToScreen}>
+              Fit on Screen
+              <span className={shortcutClass}>{modLabel}0</span>
+            </Menubar.Item>
+            <Menubar.Separator className={separatorClass} />
+            <Menubar.Item className={itemClass} onSelect={onSwapColors}>
+              Swap Colors
+              <span className={shortcutClass}>X</span>
+            </Menubar.Item>
+            <Menubar.Item className={itemClass} onSelect={onDefaultColors}>
+              Default Colors
+              <span className={shortcutClass}>D</span>
             </Menubar.Item>
           </Menubar.Content>
         </Menubar.Portal>
