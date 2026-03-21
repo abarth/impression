@@ -540,7 +540,7 @@ describe("abrParser", () => {
 
     const dualItems = [
       boolItem("useDualBrush", true),
-      enumItem("Md  ", "BlnM", "Drkn"),
+      enumItem("BlnM", "BlnM", "Drkn"),
       new BinaryBuilder().key("Brsh").tag("Objc").append(dualBrshDesc),
     ];
     const dualDesc = new BinaryBuilder()

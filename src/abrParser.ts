@@ -555,7 +555,7 @@ function extractPresetParams(presetItems: Map<string, DescriptorValue>): AbrBrus
   if (dualItems) {
     const useDualBrush = getBool(dualItems, "useDualBrush");
     if (useDualBrush) {
-      const mode = mapDualBrushMode(getEnum(dualItems, "Md  "));
+      const mode = mapDualBrushMode(getEnum(dualItems, "BlnM"));
       // Secondary tip shape is inside the nested Brsh descriptor
       const dualBrshItems = getObjc(dualItems, "Brsh");
       const dualDiameter = dualBrshItems ? getNumber(dualBrshItems, "Dmtr") : undefined;
