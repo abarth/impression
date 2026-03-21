@@ -3,7 +3,7 @@ import type { Engine } from "../engine";
 import type { Tool } from "./useTool";
 
 /** Control source for a dynamic brush parameter. */
-export type DynamicControl = 0 | 1 | 2; // 0=Off, 1=PenPressure, 2=Random
+export type DynamicControl = 0 | 1 | 2 | 3 | 4; // 0=Off, 1=PenPressure, 2=Random, 3=Direction, 4=InitialDirection
 
 export interface DynamicParam {
   jitter: number;

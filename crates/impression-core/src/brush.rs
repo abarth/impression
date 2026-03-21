@@ -228,6 +228,8 @@ pub struct StrokeState {
     stroke_layer: Option<Layer>,
     /// Per-stroke PRNG for random dynamics, seeded from stroke start coordinates.
     pub rng: Option<Rng>,
+    /// Direction angle (degrees) captured on the first stroke_move, used by InitialDirection control.
+    pub initial_direction: Option<f32>,
 }
 
 impl StrokeState {
@@ -239,6 +241,7 @@ impl StrokeState {
             snapshot: Vec::new(),
             stroke_layer: None,
             rng: None,
+            initial_direction: None,
         }
     }
 
@@ -249,6 +252,7 @@ impl StrokeState {
         self.snapshot.clear();
         self.stroke_layer = None;
         self.rng = None;
+        self.initial_direction = None;
     }
 }
 
@@ -681,6 +685,9 @@ fn segment_bounds(
 
 /// Interpolate points along a segment and stamp circles into the stroke buffer.
 /// Returns the residual distance for the next segment.
+///
+/// `direction_angle` is the stroke direction in degrees for Direction control.
+/// `initial_direction_angle` is the initial direction for InitialDirection control.
 pub fn interpolate_and_stamp(
     target: &mut Layer,
     x0: f32,
@@ -696,6 +703,7 @@ pub fn interpolate_and_stamp(
     texture_tip: Option<&BrushTip>,
     selection: Option<&[u8]>,
     rng: &mut Rng,
+    initial_direction_angle: f32,
 ) -> f32 {
     let dx = x1 - x0;
     let dy = y1 - y0;
@@ -713,6 +721,20 @@ pub fn interpolate_and_stamp(
     let perp_x = -dir_y;
     let perp_y = dir_x;
 
+    // Compute direction angle in degrees from the segment direction.
+    // atan2(dy, dx) gives angle from positive X axis; negate dy for screen coords (Y-down).
+    let direction_angle = (-dy).atan2(dx).to_degrees();
+
+    // Resolve direction for each dynamic control type:
+    // - Direction uses the current segment direction
+    // - InitialDirection uses the captured initial direction
+    let resolve_direction = |control: &dynamics::DynamicControl| -> f32 {
+        match control {
+            dynamics::DynamicControl::InitialDirection => initial_direction_angle,
+            _ => direction_angle,
+        }
+    };
+
     let scatter = &brush.scatter;
     let mut dist = residual;
 
@@ -722,14 +744,18 @@ pub fn interpolate_and_stamp(
         let y = y0 + dy * t;
         let pressure = p0 + (p1 - p0) * t;
 
-        let effective_size = dynamics::apply_dynamic(&brush.shape_dynamics.size, brush.size, pressure, rng);
+        let size_dir = resolve_direction(&brush.shape_dynamics.size.control);
+        let effective_size = dynamics::apply_dynamic(&brush.shape_dynamics.size, brush.size, pressure, rng, size_dir);
         let radius = effective_size / 2.0;
-        let stamp_roundness = dynamics::apply_dynamic(&brush.shape_dynamics.roundness, brush.roundness, pressure, rng)
+        let roundness_dir = resolve_direction(&brush.shape_dynamics.roundness.control);
+        let stamp_roundness = dynamics::apply_dynamic(&brush.shape_dynamics.roundness, brush.roundness, pressure, rng, roundness_dir)
             .clamp(0.01, 1.0);
-        let stamp_angle = dynamics::apply_angle_dynamic(&brush.shape_dynamics.angle, brush.angle, pressure, rng);
+        let angle_dir = resolve_direction(&brush.shape_dynamics.angle.control);
+        let stamp_angle = dynamics::apply_angle_dynamic(&brush.shape_dynamics.angle, brush.angle, pressure, rng, angle_dir);
 
         // Apply transfer dynamics
-        let stamp_flow = dynamics::apply_dynamic(&brush.transfer_dynamics.flow, brush.flow, pressure, rng)
+        let flow_dir = resolve_direction(&brush.transfer_dynamics.flow.control);
+        let stamp_flow = dynamics::apply_dynamic(&brush.transfer_dynamics.flow, brush.flow, pressure, rng, flow_dir)
             .clamp(0.0, 1.0);
 
         // Determine stamp count (with jitter)
@@ -814,12 +840,14 @@ pub fn stroke_begin(
     state.snapshot = layer.pixels.clone();
     let mut stroke = Layer::new(0, layer.width, layer.height);
 
-    let effective_size = dynamics::apply_dynamic(&brush.shape_dynamics.size, brush.size, pressure, &mut rng);
+    // No direction available for the first stamp
+    let dir_angle = 0.0;
+    let effective_size = dynamics::apply_dynamic(&brush.shape_dynamics.size, brush.size, pressure, &mut rng, dir_angle);
     let radius = effective_size / 2.0;
-    let stamp_roundness = dynamics::apply_dynamic(&brush.shape_dynamics.roundness, brush.roundness, pressure, &mut rng)
+    let stamp_roundness = dynamics::apply_dynamic(&brush.shape_dynamics.roundness, brush.roundness, pressure, &mut rng, dir_angle)
         .clamp(0.01, 1.0);
-    let stamp_angle = dynamics::apply_angle_dynamic(&brush.shape_dynamics.angle, brush.angle, pressure, &mut rng);
-    let stamp_flow = dynamics::apply_dynamic(&brush.transfer_dynamics.flow, brush.flow, pressure, &mut rng)
+    let stamp_angle = dynamics::apply_angle_dynamic(&brush.shape_dynamics.angle, brush.angle, pressure, &mut rng, dir_angle);
+    let stamp_flow = dynamics::apply_dynamic(&brush.transfer_dynamics.flow, brush.flow, pressure, &mut rng, dir_angle)
         .clamp(0.0, 1.0);
 
     let dual = if brush.dual_brush.enabled {
@@ -845,7 +873,7 @@ pub fn stroke_begin(
     }
 
     // Apply transfer dynamics to stroke opacity
-    let stroke_opacity = dynamics::apply_dynamic(&brush.transfer_dynamics.opacity, brush.opacity, pressure, &mut rng)
+    let stroke_opacity = dynamics::apply_dynamic(&brush.transfer_dynamics.opacity, brush.opacity, pressure, &mut rng, dir_angle)
         .clamp(0.0, 1.0);
 
     // Composite stroke buffer over snapshot into layer
@@ -884,6 +912,17 @@ pub fn stroke_move(
     };
 
     if let Some((lx, ly, lp)) = state.last_point {
+        // Capture initial direction on the first move
+        let dx = x - lx;
+        let dy = y - ly;
+        let seg_len = (dx * dx + dy * dy).sqrt();
+        if seg_len > 0.001 && state.initial_direction.is_none() {
+            let angle = (-dy).atan2(dx).to_degrees();
+            state.initial_direction = Some(angle);
+        }
+
+        let initial_dir = state.initial_direction.unwrap_or(0.0);
+
         let residual = interpolate_and_stamp(
             stroke,
             lx,
@@ -899,6 +938,7 @@ pub fn stroke_move(
             texture_tip,
             selection,
             rng,
+            initial_dir,
         );
         state.residual_distance = residual;
 
@@ -957,7 +997,7 @@ mod tests {
         };
 
         // Draw a horizontal line of 10 pixels
-        let residual = interpolate_and_stamp(&mut layer, 0.0, 5.0, 1.0, 10.0, 5.0, 1.0, &brush, 0.0, None, None, None, None, &mut Rng::from_coords(0.0, 5.0));
+        let residual = interpolate_and_stamp(&mut layer, 0.0, 5.0, 1.0, 10.0, 5.0, 1.0, &brush, 0.0, None, None, None, None, &mut Rng::from_coords(0.0, 5.0), 0.0);
         assert!(residual >= 0.0);
         // step=1.0, segment=10.0, stamps at 0,1,...,10 -> next at 11, residual=1.0
         assert!(residual <= 1.01, "residual={residual}");
@@ -1039,11 +1079,11 @@ mod tests {
 
         // First segment: 7 pixels long, step=5, stamps at 0 and 5, next at 10 -> residual=10-7=3
         let mut rng = Rng::from_coords(0.0, 5.0);
-        let residual = interpolate_and_stamp(&mut layer, 0.0, 5.0, 1.0, 7.0, 5.0, 1.0, &brush, 0.0, None, None, None, None, &mut rng);
+        let residual = interpolate_and_stamp(&mut layer, 0.0, 5.0, 1.0, 7.0, 5.0, 1.0, &brush, 0.0, None, None, None, None, &mut rng, 0.0);
         assert!((residual - 3.0).abs() < 0.01, "residual should be ~3.0, got {}", residual);
 
         // Second segment: 7 pixels, starting with residual=3, stamp at 3, next at 8 -> residual=8-7=1
-        let residual2 = interpolate_and_stamp(&mut layer, 7.0, 5.0, 1.0, 14.0, 5.0, 1.0, &brush, residual, None, None, None, None, &mut rng);
+        let residual2 = interpolate_and_stamp(&mut layer, 7.0, 5.0, 1.0, 14.0, 5.0, 1.0, &brush, residual, None, None, None, None, &mut rng, 0.0);
         assert!((residual2 - 1.0).abs() < 0.01, "residual should be ~1.0, got {}", residual2);
     }
 
@@ -1057,9 +1097,9 @@ mod tests {
         };
 
         let mut layer_low = Layer::new(0, 200, 20);
-        interpolate_and_stamp(&mut layer_low, 0.0, 10.0, 0.25, 100.0, 10.0, 0.25, &brush, 0.0, None, None, None, None, &mut Rng::from_coords(0.0, 10.0));
+        interpolate_and_stamp(&mut layer_low, 0.0, 10.0, 0.25, 100.0, 10.0, 0.25, &brush, 0.0, None, None, None, None, &mut Rng::from_coords(0.0, 10.0), 0.0);
         let mut layer_high = Layer::new(0, 200, 20);
-        interpolate_and_stamp(&mut layer_high, 0.0, 10.0, 1.0, 100.0, 10.0, 1.0, &brush, 0.0, None, None, None, None, &mut Rng::from_coords(0.0, 10.0));
+        interpolate_and_stamp(&mut layer_high, 0.0, 10.0, 1.0, 100.0, 10.0, 1.0, &brush, 0.0, None, None, None, None, &mut Rng::from_coords(0.0, 10.0), 0.0);
 
         let cols_drawn = |layer: &Layer| -> usize {
             (0..200)
@@ -1089,9 +1129,9 @@ mod tests {
         };
 
         let mut layer_low = Layer::new(0, 200, 20);
-        interpolate_and_stamp(&mut layer_low, 0.0, 10.0, 0.25, 100.0, 10.0, 0.25, &brush, 0.0, None, None, None, None, &mut Rng::from_coords(0.0, 10.0));
+        interpolate_and_stamp(&mut layer_low, 0.0, 10.0, 0.25, 100.0, 10.0, 0.25, &brush, 0.0, None, None, None, None, &mut Rng::from_coords(0.0, 10.0), 0.0);
         let mut layer_high = Layer::new(0, 200, 20);
-        interpolate_and_stamp(&mut layer_high, 0.0, 10.0, 1.0, 100.0, 10.0, 1.0, &brush, 0.0, None, None, None, None, &mut Rng::from_coords(0.0, 10.0));
+        interpolate_and_stamp(&mut layer_high, 0.0, 10.0, 1.0, 100.0, 10.0, 1.0, &brush, 0.0, None, None, None, None, &mut Rng::from_coords(0.0, 10.0), 0.0);
 
         let cols_drawn = |layer: &Layer| -> usize {
             (0..200)
@@ -1116,7 +1156,7 @@ mod tests {
             ..Default::default()
         };
 
-        interpolate_and_stamp(&mut layer, 0.0, 10.0, 1.0, 100.0, 10.0, 1.0, &brush, 0.0, None, None, None, None, &mut Rng::from_coords(0.0, 10.0));
+        interpolate_and_stamp(&mut layer, 0.0, 10.0, 1.0, 100.0, 10.0, 1.0, &brush, 0.0, None, None, None, None, &mut Rng::from_coords(0.0, 10.0), 0.0);
 
         let first_quarter_has_stamps = (0..25u32)
             .any(|x| (0..20u32).any(|y| layer.pixel(x, y).unwrap()[3] > 0));

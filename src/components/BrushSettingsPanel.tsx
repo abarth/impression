@@ -25,6 +25,8 @@ interface BrushSettingsPanelProps {
 const CONTROL_LABELS: Record<number, string> = {
   0: "Off",
   1: "Pen Pressure",
+  3: "Direction",
+  4: "Initial Direction",
 };
 
 function DynamicParamControl({
@@ -51,6 +53,8 @@ function DynamicParamControl({
         >
           <option value={0}>{CONTROL_LABELS[0]}</option>
           <option value={1}>{CONTROL_LABELS[1]}</option>
+          <option value={3}>{CONTROL_LABELS[3]}</option>
+          <option value={4}>{CONTROL_LABELS[4]}</option>
         </select>
       </div>
       <SliderControl
@@ -62,7 +66,7 @@ function DynamicParamControl({
         displayValue={`${Math.round(param.jitter * 100)}%`}
         onChange={(v) => onChange({ ...param, jitter: v })}
       />
-      {showMinimum !== false && param.control === 1 && (
+      {showMinimum !== false && param.control !== 0 && (
         <SliderControl
           label="Minimum"
           value={param.minimum}

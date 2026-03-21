@@ -458,6 +458,42 @@ describe("abrParser", () => {
     expect(sd.roundness.control).toBe(0);
   });
 
+  it("maps Direction and InitialDirection bVTy values", () => {
+    const header = new BinaryBuilder().u16(6).u16(2);
+    const samp = buildSampSection([
+      { width: 2, height: 2, pixels: [255, 255, 255, 255], uuid: "tip-1" },
+    ], 2);
+
+    // bVTy=6 = InitialDirection, bVTy=5 = Direction
+    const szVr = new BinaryBuilder().key("szVr").tag("Objc").append(buildBrVr(2, 0, 10));
+    const angleDyn = new BinaryBuilder().key("angleDynamics").tag("Objc").append(buildBrVr(6, 0));
+    const rndDyn = new BinaryBuilder().key("roundnessDynamics").tag("Objc").append(buildBrVr(5, 50));
+
+    const desc = buildDescSection([{
+      name: "Direction Brush",
+      tipUuid: "tip-1",
+      presetItems: [
+        boolItem("useTipDynamics", true),
+        szVr,
+        angleDyn,
+        rndDyn,
+      ],
+    }]);
+
+    const data = new BinaryBuilder().append(header).append(samp).append(desc);
+    const result = parseAbrFile(new Uint8Array(data.toArray()).buffer);
+
+    expect(result.length).toBe(1);
+    const sd = result[0].params!.shapeDynamics!;
+
+    // Angle: bVTy=6 → InitialDirection (4)
+    expect(sd.angle.control).toBe(4);
+
+    // Roundness: bVTy=5 → Direction (3), jitter=50%
+    expect(sd.roundness.control).toBe(3);
+    expect(sd.roundness.jitter).toBeCloseTo(0.5);
+  });
+
   it("extracts transfer dynamics from desc section", () => {
     const header = new BinaryBuilder().u16(6).u16(2);
     const samp = buildSampSection([
