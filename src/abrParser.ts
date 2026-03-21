@@ -10,7 +10,7 @@
  * - https://github.com/jlai/brush-viewer (TypeScript)
  */
 
-import type { ShapeDynamics, TransferDynamics, DynamicParam, DynamicControl, DualBrushSettings } from "./hooks/useBrushSettings";
+import type { ShapeDynamics, TransferDynamics, DynamicParam, DynamicControl, DualBrushSettings, ScatterSettings, TextureSettings } from "./hooks/useBrushSettings";
 import {
   DUAL_BRUSH_MODE_MULTIPLY,
   DUAL_BRUSH_MODE_DARKEN,
@@ -35,6 +35,8 @@ export interface AbrBrushParams {
   shapeDynamics?: ShapeDynamics;
   transferDynamics?: TransferDynamics;
   dualBrush?: DualBrushSettings;
+  scatterSettings?: ScatterSettings;
+  texture?: TextureSettings;
 }
 
 export interface ParsedAbrBrush {
@@ -550,6 +552,35 @@ function extractPresetParams(presetItems: Map<string, DescriptorValue>): AbrBrus
     params.transferDynamics = {
       opacity: mapDynamicParam(getObjc(presetItems, "opVr")),
       flow: mapDynamicParam(getObjc(presetItems, "prVr")),
+    };
+  }
+
+  // Scatter settings
+  const useScatter = getBool(presetItems, "useScatter");
+  if (useScatter) {
+    const scatter = getNumber(presetItems, "Sctr");
+    const count = getNumber(presetItems, "Cnt ");
+    const bothAxes = getBool(presetItems, "BthA");
+    const countJitter = getNumber(presetItems, "CntJ");
+    params.scatterSettings = {
+      scatter: scatter !== undefined ? scatter / 100 : 0,
+      count: count ?? 1,
+      bothAxes: bothAxes ?? false,
+      countJitter: countJitter !== undefined ? countJitter / 100 : 0,
+    };
+  }
+
+  // Texture settings
+  const useTexture = getBool(presetItems, "useTexture");
+  if (useTexture) {
+    const txScale = getNumber(presetItems, "Scl ");
+    const txDepth = getNumber(presetItems, "textureDepth");
+    const texEachTip = getBool(presetItems, "textureEachTip");
+    params.texture = {
+      enabled: true,
+      scale: txScale !== undefined ? txScale : 100,
+      depth: txDepth !== undefined ? txDepth / 100 : 1.0,
+      textureEachTip: texEachTip ?? false,
     };
   }
 

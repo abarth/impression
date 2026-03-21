@@ -212,6 +212,8 @@ export function useBrushPresets({
         if (p?.shapeDynamics) preset.shapeDynamics = p.shapeDynamics;
         if (p?.transferDynamics) preset.transferDynamics = p.transferDynamics;
         if (p?.dualBrush) preset.dualBrush = p.dualBrush;
+        if (p?.scatterSettings) preset.scatterSettings = p.scatterSettings;
+        if (p?.texture) preset.texture = p.texture;
         if (p?.flipX) preset.flipX = true;
         if (p?.flipY) preset.flipY = true;
         await s.savePreset(preset);
