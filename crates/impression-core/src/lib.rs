@@ -12,6 +12,7 @@ mod replay;
 mod sampling;
 mod selection;
 mod site;
+pub mod stroke;
 
 use wasm_bindgen::prelude::*;
 

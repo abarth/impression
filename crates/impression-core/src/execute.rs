@@ -1,8 +1,8 @@
-use crate::brush;
 use crate::canvas::Canvas;
 use crate::color::Color;
 use crate::operation::{Operation, SiteOperation};
 use crate::selection::{CombineMode, SelectionMask};
+use crate::stroke;
 
 impl Canvas {
     /// Execute a single operation mutating the canvas state, without recording it
@@ -30,7 +30,7 @@ impl Canvas {
                 let sel_ref = sel_data.as_deref();
                 if let Some(l) = self.layers.iter_mut().find(|l| l.id == layer) {
                     let stroke_state = &mut self.sites.get_mut(&site).unwrap().stroke_state;
-                    brush::stroke_begin(
+                    stroke::stroke_begin(
                         l,
                         stroke_state,
                         &brush,
@@ -56,7 +56,7 @@ impl Canvas {
                 let sel_ref = sel_data.as_deref();
                 if let Some(l) = self.layers.iter_mut().find(|l| l.id == stroke_layer) {
                     let stroke_state = &mut self.sites.get_mut(&site).unwrap().stroke_state;
-                    brush::stroke_move(
+                    stroke::stroke_move(
                         l,
                         stroke_state,
                         &brush,
@@ -71,7 +71,7 @@ impl Canvas {
                 }
             }
             Operation::StrokeEnd => {
-                brush::stroke_end(&mut self.site_for_mut(site).stroke_state);
+                stroke::stroke_end(&mut self.site_for_mut(site).stroke_state);
             }
             Operation::SetBrushSize(size) => self.site_for_mut(site).brush.size = size,
             Operation::SetBrushSpacing(spacing) => self.site_for_mut(site).brush.spacing = spacing,

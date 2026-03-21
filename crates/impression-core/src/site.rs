@@ -1,6 +1,7 @@
-use crate::brush::{BrushSettings, BrushTip, StrokeState};
+use crate::brush::{BrushSettings, BrushTip};
 use crate::operation::LayerId;
 use crate::selection::SelectionMask;
+use crate::stroke::StrokeState;
 
 /// Per-site state: brush settings, selection, stroke state, and lasso points.
 /// Each connected user (site) has their own isolated copy of these.
