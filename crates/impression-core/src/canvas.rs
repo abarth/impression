@@ -4,7 +4,7 @@ use crate::blend_mode::BlendMode;
 use crate::brush::{BrushTip, DualBrushSettings, ScatterSettings, TextureSettings};
 use crate::color::Color;
 use crate::dynamics::{ShapeDynamics, TransferDynamics};
-use crate::layer::Layer;
+use crate::layer::{AdjustmentKind, Layer, LayerKind};
 use crate::operation::{LayerId, Operation, SiteId, SiteOperation};
 use crate::oplog::OpLog;
 use crate::replay::{Checkpoint, CHECKPOINT_INTERVAL};
@@ -130,6 +130,19 @@ impl Canvas {
         let id = self.next_layer_id();
         self.apply(Operation::AddLayer { id });
         (self.layers.len() - 1) as u32
+    }
+
+    pub fn add_adjustment_layer(&mut self, kind: AdjustmentKind) -> u32 {
+        let id = self.next_layer_id();
+        self.apply(Operation::AddAdjustmentLayer { id, kind });
+        (self.layers.len() - 1) as u32
+    }
+
+    pub fn set_adjustment_data(&mut self, index: u32, kind: AdjustmentKind) {
+        if let Some(l) = self.layers.get(index as usize) {
+            let id = l.id;
+            self.apply(Operation::SetAdjustmentData { layer: id, kind });
+        }
     }
 
     pub fn remove_layer(&mut self, index: u32) -> bool {
@@ -440,6 +453,8 @@ impl Canvas {
                 | Operation::SetTexture(_)
                 | Operation::SetTextureTip(_)
                 | Operation::ResetBrush
+                | Operation::AddAdjustmentLayer { .. }
+                | Operation::SetAdjustmentData { .. }
                 | Operation::CreateCanvas { .. } => {
                     self.oplog.begin_undo_group(site_op.site);
                 }
@@ -1219,5 +1234,83 @@ mod tests {
         let site2 = canvas2.site_for_mut(0);
         assert!((site1.brush.size - site2.brush.size).abs() < 0.01,
             "Replay brush size ({}) should match live ({})", site2.brush.size, site1.brush.size);
+    }
+
+    #[test]
+    fn test_add_adjustment_layer() {
+        let mut canvas = Canvas::new(100, 100);
+        let idx = canvas.add_adjustment_layer(AdjustmentKind::GradientMap {
+            gradient_id: "test-grad".to_string(),
+        });
+        assert_eq!(idx, 0);
+        assert_eq!(canvas.layers.len(), 1);
+
+        let layer = &canvas.layers[0];
+        assert!(layer.is_adjustment());
+        assert!(layer.pixels.is_empty(), "Adjustment layers should have no pixel buffer");
+        assert_eq!(layer.name, "Gradient Map");
+
+        match &layer.kind {
+            LayerKind::Adjustment(AdjustmentKind::GradientMap { gradient_id }) => {
+                assert_eq!(gradient_id, "test-grad");
+            }
+            _ => panic!("Expected GradientMap adjustment layer"),
+        }
+    }
+
+    #[test]
+    fn test_set_adjustment_data() {
+        let mut canvas = Canvas::new(100, 100);
+        canvas.add_adjustment_layer(AdjustmentKind::GradientMap {
+            gradient_id: "grad-1".to_string(),
+        });
+
+        canvas.set_adjustment_data(0, AdjustmentKind::GradientMap {
+            gradient_id: "grad-2".to_string(),
+        });
+
+        match &canvas.layers[0].kind {
+            LayerKind::Adjustment(AdjustmentKind::GradientMap { gradient_id }) => {
+                assert_eq!(gradient_id, "grad-2");
+            }
+            _ => panic!("Expected updated GradientMap"),
+        }
+    }
+
+    #[test]
+    fn test_undo_adjustment_layer() {
+        let mut canvas = Canvas::new(100, 100);
+        canvas.add_adjustment_layer(AdjustmentKind::GradientMap {
+            gradient_id: "test".to_string(),
+        });
+        assert_eq!(canvas.layers.len(), 1);
+
+        assert!(canvas.undo());
+        assert_eq!(canvas.layers.len(), 0);
+
+        assert!(canvas.redo());
+        assert_eq!(canvas.layers.len(), 1);
+        assert!(canvas.layers[0].is_adjustment());
+    }
+
+    #[test]
+    fn test_mixed_raster_and_adjustment_layers() {
+        let mut canvas = Canvas::new(100, 100);
+        canvas.add_layer(); // raster
+        canvas.add_adjustment_layer(AdjustmentKind::GradientMap {
+            gradient_id: "grad".to_string(),
+        });
+        canvas.add_layer(); // another raster
+
+        assert_eq!(canvas.layers.len(), 3);
+        assert!(!canvas.layers[0].is_adjustment());
+        assert!(canvas.layers[1].is_adjustment());
+        assert!(!canvas.layers[2].is_adjustment());
+
+        // Adjustment layer has no pixels
+        assert!(canvas.layers[1].pixels.is_empty());
+        // Raster layers have pixels
+        assert!(!canvas.layers[0].pixels.is_empty());
+        assert!(!canvas.layers[2].pixels.is_empty());
     }
 }

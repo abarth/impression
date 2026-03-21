@@ -4,12 +4,34 @@ use crate::operation::LayerId;
 /// Dirty region bounds: (x_min, y_min, x_max, y_max) inclusive.
 pub type DirtyBounds = (u32, u32, u32, u32);
 
+/// The kind of adjustment an adjustment layer applies.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum AdjustmentKind {
+    /// Maps luminance through a gradient lookup.
+    /// The gradient_id references a gradient stored in the TypeScript/IndexedDB side.
+    GradientMap { gradient_id: String },
+}
+
+/// Distinguishes raster (pixel) layers from adjustment layers.
+#[derive(Clone, Debug, PartialEq)]
+pub enum LayerKind {
+    Raster,
+    Adjustment(AdjustmentKind),
+}
+
+impl Default for LayerKind {
+    fn default() -> Self {
+        LayerKind::Raster
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Layer {
     /// Globally unique identifier. Generated as `(site_id << 32) | counter`.
     /// See docs/multiplayer-design.md.
     pub id: LayerId,
     pub name: String,
+    pub kind: LayerKind,
     pub pixels: Vec<u8>,
     pub width: u32,
     pub height: u32,
@@ -26,6 +48,7 @@ impl Layer {
         Self {
             id,
             name: String::new(),
+            kind: LayerKind::Raster,
             pixels: vec![0u8; size],
             width,
             height,
@@ -35,6 +58,27 @@ impl Layer {
             visible: true,
             blend_mode: BlendMode::default(),
         }
+    }
+
+    /// Create a new adjustment layer. No pixel buffer is allocated.
+    pub fn new_adjustment(id: LayerId, width: u32, height: u32, kind: AdjustmentKind) -> Self {
+        Self {
+            id,
+            name: String::new(),
+            kind: LayerKind::Adjustment(kind),
+            pixels: Vec::new(),
+            width,
+            height,
+            dirty: false,
+            dirty_bounds: None,
+            opacity: 1.0,
+            visible: true,
+            blend_mode: BlendMode::default(),
+        }
+    }
+
+    pub fn is_adjustment(&self) -> bool {
+        matches!(self.kind, LayerKind::Adjustment(_))
     }
 
     pub fn clear(&mut self) {

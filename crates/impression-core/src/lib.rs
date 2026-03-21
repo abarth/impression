@@ -93,6 +93,61 @@ impl ImpressionCanvas {
         self.inner.layers.len() as u32
     }
 
+    /// Add an adjustment layer. kind: 0 = GradientMap. Returns layer index.
+    pub fn add_adjustment_layer(&mut self, kind: u32, gradient_id: &str) -> u32 {
+        let adj_kind = match kind {
+            0 => layer::AdjustmentKind::GradientMap {
+                gradient_id: gradient_id.to_string(),
+            },
+            _ => layer::AdjustmentKind::GradientMap {
+                gradient_id: gradient_id.to_string(),
+            },
+        };
+        self.inner.add_adjustment_layer(adj_kind)
+    }
+
+    /// Check if a layer is an adjustment layer.
+    pub fn is_adjustment_layer(&self, layer_idx: u32) -> bool {
+        self.inner
+            .layer(layer_idx)
+            .map(|l| l.is_adjustment())
+            .unwrap_or(false)
+    }
+
+    /// Get layer kind: 0 = Raster, 1 = GradientMap.
+    pub fn layer_kind(&self, layer_idx: u32) -> u32 {
+        match self.inner.layer(layer_idx) {
+            Some(l) => match &l.kind {
+                layer::LayerKind::Raster => 0,
+                layer::LayerKind::Adjustment(layer::AdjustmentKind::GradientMap { .. }) => 1,
+            },
+            None => 0,
+        }
+    }
+
+    /// Get the gradient ID for a gradient map adjustment layer.
+    pub fn gradient_map_gradient_id(&self, layer_idx: u32) -> Option<String> {
+        match self.inner.layer(layer_idx) {
+            Some(l) => match &l.kind {
+                layer::LayerKind::Adjustment(layer::AdjustmentKind::GradientMap {
+                    gradient_id,
+                }) => Some(gradient_id.clone()),
+                _ => None,
+            },
+            None => None,
+        }
+    }
+
+    /// Set the gradient ID for a gradient map adjustment layer.
+    pub fn set_gradient_map_gradient(&mut self, layer_idx: u32, gradient_id: &str) {
+        self.inner.set_adjustment_data(
+            layer_idx,
+            layer::AdjustmentKind::GradientMap {
+                gradient_id: gradient_id.to_string(),
+            },
+        );
+    }
+
     /// Get the layer opacity.
     pub fn layer_opacity(&self, layer: u32) -> f32 {
         self.inner.layer(layer).map(|l| l.opacity).unwrap_or(0.0)

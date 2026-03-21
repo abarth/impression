@@ -317,6 +317,23 @@ impl Canvas {
                 site_state.brush.texture_tip_id = tip_id.clone();
                 site_state.texture_tip = cloned_tip;
             }
+            Operation::AddAdjustmentLayer { id, ref kind } => {
+                let mut layer = crate::layer::Layer::new_adjustment(id, self.width, self.height, kind.clone());
+                let adj_name = match kind {
+                    crate::layer::AdjustmentKind::GradientMap { .. } => "Gradient Map",
+                };
+                layer.name = adj_name.to_string();
+                self.layers.push(layer);
+                let counter = (id & 0xFFFFFFFF) as u32;
+                if counter >= self.layer_id_counter {
+                    self.layer_id_counter = counter + 1;
+                }
+            }
+            Operation::SetAdjustmentData { layer, ref kind } => {
+                if let Some(l) = self.layer_by_id_mut(layer) {
+                    l.kind = crate::layer::LayerKind::Adjustment(kind.clone());
+                }
+            }
         }
     }
 }

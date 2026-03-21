@@ -128,6 +128,16 @@ pub enum Operation {
     /// Reset brush settings to defaults, preserving color. Ensures replay
     /// matches live execution even if the frontend omits some properties.
     ResetBrush,
+    /// Add an adjustment layer with the given kind.
+    AddAdjustmentLayer {
+        id: LayerId,
+        kind: crate::layer::AdjustmentKind,
+    },
+    /// Update the adjustment data for an adjustment layer.
+    SetAdjustmentData {
+        layer: LayerId,
+        kind: crate::layer::AdjustmentKind,
+    },
 }
 
 /// Magic byte prefix indicating a versioned format.
@@ -426,5 +436,25 @@ mod tests {
     fn test_deserialize_empty_data() {
         let decoded = deserialize_operations(&[]).unwrap();
         assert!(decoded.is_empty());
+    }
+
+    #[test]
+    fn test_round_trip_add_adjustment_layer() {
+        round_trip(Operation::AddAdjustmentLayer {
+            id: 42,
+            kind: crate::layer::AdjustmentKind::GradientMap {
+                gradient_id: "my-gradient".to_string(),
+            },
+        });
+    }
+
+    #[test]
+    fn test_round_trip_set_adjustment_data() {
+        round_trip(Operation::SetAdjustmentData {
+            layer: 99,
+            kind: crate::layer::AdjustmentKind::GradientMap {
+                gradient_id: "updated-gradient".to_string(),
+            },
+        });
     }
 }
