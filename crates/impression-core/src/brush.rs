@@ -407,8 +407,9 @@ pub fn stamp_ellipse(
     // Inner radius where the falloff begins.
     let inner_r = r * hardness;
 
-    // Precompute rotation (rotate by -angle to align with brush axes)
-    let angle_rad = -angle_degrees.to_radians();
+    // Precompute inverse rotation to map canvas pixels back to brush space.
+    // Positive angle = counter-clockwise on screen (Photoshop convention, Y-down).
+    let angle_rad = angle_degrees.to_radians();
     let cos_a = angle_rad.cos();
     let sin_a = angle_rad.sin();
     let inv_roundness = 1.0 / roundness;
@@ -418,7 +419,7 @@ pub fn stamp_ellipse(
             let dx = px as f32 + 0.5 - cx;
             let dy = py as f32 + 0.5 - cy;
 
-            // Apply inverse rotation
+            // Inverse rotation (canvas → brush space)
             let rx = dx * cos_a - dy * sin_a;
             let ry = dx * sin_a + dy * cos_a;
 
@@ -502,7 +503,8 @@ pub fn stamp_tip(
     let x_max = ((cx + extent + 1.0).ceil()).min(layer.width as f32 - 1.0) as u32;
     let y_max = ((cy + extent + 1.0).ceil()).min(layer.height as f32 - 1.0) as u32;
 
-    let angle_rad = -angle_degrees.to_radians();
+    // Positive angle = counter-clockwise on screen (Photoshop convention, Y-down).
+    let angle_rad = angle_degrees.to_radians();
     let cos_a = angle_rad.cos();
     let sin_a = angle_rad.sin();
     let inv_roundness = 1.0 / roundness;
@@ -519,7 +521,7 @@ pub fn stamp_tip(
             let dx = px as f32 + 0.5 - cx;
             let dy = py as f32 + 0.5 - cy;
 
-            // Inverse rotation
+            // Inverse rotation (canvas → brush space)
             let rx = dx * cos_a - dy * sin_a;
             let ry = (dx * sin_a + dy * cos_a) * inv_roundness;
 
@@ -1404,6 +1406,37 @@ mod tests {
         // Along x-axis (short): pixel at (27, 20) should NOT be painted
         let along_x = layer.pixel(27, 20).unwrap()[3];
         assert_eq!(along_x, 0, "Should not paint far along x-axis when rotated 90°, got {along_x}");
+    }
+
+    #[test]
+    fn test_angle_direction_is_ccw_on_screen() {
+        // Use an asymmetric tip: opaque on the right half, transparent on the left.
+        // At angle=0, right-of-center should be painted, left should not.
+        // At angle=90 (CCW on screen, Y-down), the right half rotates upward:
+        //   above center → painted, below center → not painted.
+        let mut pixels = vec![0u8; 64]; // 8x8
+        for row in 0..8u32 {
+            for col in 4..8u32 {
+                pixels[(row * 8 + col) as usize] = 255;
+            }
+        }
+        let tip = BrushTip { pixels, width: 8, height: 8 };
+
+        // angle=0: right side painted, left side not
+        let mut layer0 = Layer::new(0, 40, 40);
+        stamp_tip(&mut layer0, 20.0, 20.0, 8.0, &tip, Color::black(), 1.0, 1.0, 0.0, false, false, None, None, None);
+        let right = layer0.pixel(24, 20).unwrap()[3];
+        let left = layer0.pixel(16, 20).unwrap()[3];
+        assert!(right > 0, "At angle=0, right of center should be painted, got {right}");
+        assert_eq!(left, 0, "At angle=0, left of center should be transparent, got {left}");
+
+        // angle=90 CCW: the opaque right half should now appear above center
+        let mut layer90 = Layer::new(0, 40, 40);
+        stamp_tip(&mut layer90, 20.0, 20.0, 8.0, &tip, Color::black(), 1.0, 1.0, 90.0, false, false, None, None, None);
+        let above = layer90.pixel(20, 16).unwrap()[3];
+        let below = layer90.pixel(20, 24).unwrap()[3];
+        assert!(above > 0, "At angle=90 CCW, above center should be painted, got {above}");
+        assert_eq!(below, 0, "At angle=90 CCW, below center should be transparent, got {below}");
     }
 
     #[test]
