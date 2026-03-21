@@ -8,10 +8,13 @@ import { useColorState } from "../hooks/useColorState";
 import { useLayerManager } from "../hooks/useLayerManager";
 import { useSelection } from "../hooks/useSelection";
 import { useBrushPresets } from "../hooks/useBrushPresets";
+import { useGradientPresets } from "../hooks/useGradientPresets";
+import { rasterizeGradient } from "../gradient";
 import { CanvasViewport } from "../components/CanvasViewport";
 import { MenuBar } from "../components/MenuBar";
 import { ToolPicker } from "../components/ToolPicker";
 import { BrushPicker } from "../components/BrushPicker";
+import { GradientPanel } from "../components/GradientPanel";
 import { ToolSettingsPanel } from "../components/ToolSettingsPanel";
 import { BrushSettingsPanel } from "../components/BrushSettingsPanel";
 import { ColorDisplay } from "../components/ColorDisplay";
@@ -44,6 +47,7 @@ export function DocumentViewer({
     activeTool,
     onApplyPreset: applyPreset,
   });
+  const { groups: gradientGroups, activeGradientId, selectGradient, importGrd } = useGradientPresets(storage);
   const [undoState, setUndoState] = useState({ canUndo: false, canRedo: false });
 
   // Poll undo/redo state (cheap WASM call) to keep buttons in sync
@@ -94,6 +98,41 @@ export function DocumentViewer({
   }, [engine, activeIndex]);
 
   useSelection(engine, activeIndex, { onExport: handleExport });
+
+  // Upload rasterized gradient data to a gradient map layer
+  const uploadGradientToLayer = useCallback(
+    (layerIndex: number, gradientId: string) => {
+      if (!engine) return;
+      const allGradients = Object.values(gradientGroups).flat();
+      const gradient = allGradients.find((g) => g.id === gradientId);
+      if (gradient) {
+        const data = rasterizeGradient(gradient);
+        engine.uploadGradientData(layerIndex, data);
+      }
+    },
+    [engine, gradientGroups],
+  );
+
+  // When the active gradient changes, update the active layer if it's a gradient map
+  const handleGradientSelect = useCallback(
+    (gradientId: string) => {
+      selectGradient(gradientId);
+      if (engine && layers[activeIndex]?.kind === "gradient-map") {
+        setGradientMapGradient(activeIndex, gradientId);
+        uploadGradientToLayer(activeIndex, gradientId);
+      }
+    },
+    [engine, activeIndex, layers, selectGradient, setGradientMapGradient, uploadGradientToLayer],
+  );
+
+  // When adding a gradient map, use the active gradient
+  const handleAddGradientMap = useCallback(() => {
+    const gid = activeGradientId ?? "default-bw";
+    const idx = addGradientMapLayer(gid);
+    if (idx !== undefined) {
+      uploadGradientToLayer(idx, gid);
+    }
+  }, [activeGradientId, addGradientMapLayer, uploadGradientToLayer]);
 
   return (
     <div className="flex flex-col h-screen w-screen bg-graphite-950">
@@ -153,13 +192,19 @@ export function DocumentViewer({
             onBackgroundChange={setBackground}
             onSwap={swapColors}
           />
+          <GradientPanel
+            groups={gradientGroups}
+            activeGradientId={activeGradientId}
+            onSelect={handleGradientSelect}
+            onImportGrd={importGrd}
+          />
           <LayerPanel
             layers={layers}
             activeIndex={activeIndex}
             canvasColor={canvasColor}
             canvasVisible={canvasVisible}
             onAdd={addLayer}
-            onAddGradientMap={() => addGradientMapLayer("default-bw")}
+            onAddGradientMap={handleAddGradientMap}
             onRemove={removeLayer}
             onSelect={selectLayer}
             onOpacityChange={setLayerOpacity}
