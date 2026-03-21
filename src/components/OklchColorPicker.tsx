@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { hexToOklch, oklchToHex, oklchToSrgb, maxChroma, isInGamut } from "../lib/oklch";
+import { ExternalLink } from "lucide-react";
 
 interface OklchColorPickerProps {
   color: string;
@@ -218,8 +219,34 @@ export function OklchColorPicker({ color, onChange }: OklchColorPickerProps) {
   const thumbTop = (1 - lch.c / MAX_CHROMA) * 100;
   const hueLeft = (lch.h / 360) * 100;
 
+  // Formatted display values
+  const lPct = (lch.l * 100).toFixed(1);
+  const cVal = lch.c.toFixed(4);
+  const hVal = lch.h.toFixed(1);
+
+  // oklch.com link with current color
+  const oklchUrl = `https://oklch.com/#${lPct},${cVal},${hVal},100`;
+
   return (
     <div className="flex flex-col gap-3" style={{ width: AREA_SIZE }}>
+      {/* Title with oklch.com link */}
+      <div className="flex items-center justify-between">
+        <h4 className="text-[11px] font-medium text-cream-muted tracking-wide uppercase">
+          OKLCH
+        </h4>
+        <a
+          href={oklchUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          title="View on oklch.com"
+          className="flex items-center gap-1 text-[10px] text-cream-muted/50
+            hover:text-cream-muted transition-colors duration-150"
+        >
+          oklch.com
+          <ExternalLink size={9} strokeWidth={2} />
+        </a>
+      </div>
+
       {/* 2D Lightness × Chroma area */}
       <div
         ref={areaContainerRef}
@@ -280,6 +307,22 @@ export function OklchColorPicker({ color, onChange }: OklchColorPickerProps) {
             backgroundColor: oklchToHex(lch.l, Math.min(lch.c, maxChroma(lch.l, lch.h)), lch.h),
           }}
         />
+      </div>
+
+      {/* Numerical OKLCH values */}
+      <div className="grid grid-cols-3 gap-1">
+        <div className="flex flex-col items-center rounded-md bg-graphite-850 px-1.5 py-1">
+          <span className="text-[9px] text-cream-muted/60 uppercase tracking-wider">L</span>
+          <span className="text-[11px] text-cream-dim font-mono">{lPct}%</span>
+        </div>
+        <div className="flex flex-col items-center rounded-md bg-graphite-850 px-1.5 py-1">
+          <span className="text-[9px] text-cream-muted/60 uppercase tracking-wider">C</span>
+          <span className="text-[11px] text-cream-dim font-mono">{cVal}</span>
+        </div>
+        <div className="flex flex-col items-center rounded-md bg-graphite-850 px-1.5 py-1">
+          <span className="text-[9px] text-cream-muted/60 uppercase tracking-wider">H</span>
+          <span className="text-[11px] text-cream-dim font-mono">{hVal}°</span>
+        </div>
       </div>
 
       {/* Hex input */}
