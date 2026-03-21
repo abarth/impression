@@ -77,6 +77,11 @@ function longItem(key: string, value: number): BinaryBuilder {
   return new BinaryBuilder().key(key).tag("long").i32(value);
 }
 
+/** Build an enum descriptor item. */
+function enumItem(key: string, enumType: string, value: string): BinaryBuilder {
+  return new BinaryBuilder().key(key).tag("enum").classId(enumType).classId(value);
+}
+
 /**
  * Build a samp section with entries. Each entry uses a 47-byte header (sub-version 1).
  * For sub-version 2, supply uuids and use 301-byte headers with Pascal string prefix.
@@ -512,5 +517,69 @@ describe("abrParser", () => {
     expect(result.length).toBe(1);
     expect(result[0].params!.shapeDynamics).toBeUndefined();
     expect(result[0].params!.transferDynamics).toBeUndefined();
+  });
+
+  it("extracts dual brush settings from desc section", () => {
+    const header = new BinaryBuilder().u16(6).u16(2);
+    const samp = buildSampSection([
+      { width: 2, height: 2, pixels: [255, 255, 255, 255], uuid: "tip-1" },
+    ], 2);
+
+    // Build a nested dualBrush Objc descriptor with mode, diameter, spacing, hardness
+    const dualItems = [
+      enumItem("Md  ", "BlnM", "Drkn"),
+      untfItem("Dmtr", "#Pxl", 25),
+      untfItem("Spcn", "#Prc", 50),
+      untfItem("Hrdn", "#Prc", 80),
+    ];
+    const dualDesc = new BinaryBuilder()
+      .unicodeString("")
+      .classId("null")
+      .u32(dualItems.length);
+    for (const item of dualItems) dualDesc.append(item);
+
+    const desc = buildDescSection([{
+      name: "Dual Brush",
+      tipUuid: "tip-1",
+      presetItems: [
+        boolItem("useDualBrush", true),
+        new BinaryBuilder().key("dualBrush").tag("Objc").append(dualDesc),
+      ],
+    }]);
+
+    const data = new BinaryBuilder().append(header).append(samp).append(desc);
+    const buf = new Uint8Array(data.toArray()).buffer;
+    const result = parseAbrFile(buf);
+
+    expect(result.length).toBe(1);
+    const db = result[0].params!.dualBrush!;
+    expect(db).toBeDefined();
+    expect(db.enabled).toBe(true);
+    expect(db.mode).toBe(1); // Darken
+    expect(db.size).toBe(25);
+    expect(db.spacing).toBeCloseTo(0.5);
+    expect(db.hardness).toBeCloseTo(0.8);
+  });
+
+  it("does not include dual brush when useDualBrush is false", () => {
+    const header = new BinaryBuilder().u16(6).u16(2);
+    const samp = buildSampSection([
+      { width: 2, height: 2, pixels: [255, 255, 255, 255], uuid: "tip-1" },
+    ], 2);
+
+    const desc = buildDescSection([{
+      name: "No Dual",
+      tipUuid: "tip-1",
+      presetItems: [
+        boolItem("useDualBrush", false),
+      ],
+    }]);
+
+    const data = new BinaryBuilder().append(header).append(samp).append(desc);
+    const buf = new Uint8Array(data.toArray()).buffer;
+    const result = parseAbrFile(buf);
+
+    expect(result.length).toBe(1);
+    expect(result[0].params!.dualBrush).toBeUndefined();
   });
 });

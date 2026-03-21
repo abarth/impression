@@ -304,9 +304,10 @@ mod tests {
 
     #[test]
     fn test_round_trip_dual_brush() {
-        use crate::brush::DualBrushSettings;
+        use crate::brush::{DualBrushMode, DualBrushSettings};
         round_trip(Operation::SetDualBrush(DualBrushSettings {
             enabled: true,
+            mode: DualBrushMode::Darken,
             use_computed: false,
             hardness: 0.5,
             size: 30.0,

@@ -10,7 +10,15 @@
  * - https://github.com/jlai/brush-viewer (TypeScript)
  */
 
-import type { ShapeDynamics, TransferDynamics, DynamicParam, DynamicControl } from "./hooks/useBrushSettings";
+import type { ShapeDynamics, TransferDynamics, DynamicParam, DynamicControl, DualBrushSettings } from "./hooks/useBrushSettings";
+import {
+  DUAL_BRUSH_MODE_MULTIPLY,
+  DUAL_BRUSH_MODE_DARKEN,
+  DUAL_BRUSH_MODE_LIGHTEN,
+  DUAL_BRUSH_MODE_SUBTRACT,
+  DUAL_BRUSH_MODE_LINEAR_DODGE,
+  DUAL_BRUSH_MODE_SCREEN,
+} from "./hooks/useBrushSettings";
 
 /** Parsed brush parameters from ABR descriptor. */
 export interface AbrBrushParams {
@@ -25,6 +33,7 @@ export interface AbrBrushParams {
   flipY?: boolean;
   shapeDynamics?: ShapeDynamics;
   transferDynamics?: TransferDynamics;
+  dualBrush?: DualBrushSettings;
 }
 
 export interface ParsedAbrBrush {
@@ -413,6 +422,31 @@ function getText(items: Map<string, DescriptorValue>, key: string): string | und
   return v.value;
 }
 
+/** Get the value string of an enum descriptor item. */
+function getEnum(items: Map<string, DescriptorValue>, key: string): string | undefined {
+  const v = items.get(key);
+  if (!v || v.type !== "enum") return undefined;
+  return v.value;
+}
+
+/** Map a Photoshop blend mode 4-char key to our DualBrushMode constant.
+ *  PS dual brush supports: Multiply, Darken, Lighten, Color Dodge (≈Linear Dodge),
+ *  Color Burn (≈Subtract), Screen, Overlay, Hard Mix, Difference, Exclusion.
+ *  We map the ones we support; unsupported modes fall back to Multiply. */
+function mapDualBrushMode(psKey: string | undefined): number {
+  switch (psKey) {
+    case "Mltp": return DUAL_BRUSH_MODE_MULTIPLY;
+    case "Drkn": return DUAL_BRUSH_MODE_DARKEN;
+    case "Lghn": return DUAL_BRUSH_MODE_LIGHTEN;
+    case "Sbtr": return DUAL_BRUSH_MODE_SUBTRACT;
+    case "LnDd": return DUAL_BRUSH_MODE_LINEAR_DODGE;
+    case "Scrn": return DUAL_BRUSH_MODE_SCREEN;
+    // Color Dodge is close enough to Linear Dodge for alpha values
+    case "CDdg": return DUAL_BRUSH_MODE_LINEAR_DODGE;
+    default: return DUAL_BRUSH_MODE_MULTIPLY;
+  }
+}
+
 /** Extract brush parameters from a "Brsh" sub-descriptor (computedBrush or sampledBrush). */
 function extractBrushParams(items: Map<string, DescriptorValue>): AbrBrushParams {
   const params: AbrBrushParams = {};
@@ -509,6 +543,24 @@ function extractPresetParams(presetItems: Map<string, DescriptorValue>): AbrBrus
     params.transferDynamics = {
       opacity: mapDynamicParam(getObjc(presetItems, "opVr")),
       flow: mapDynamicParam(getObjc(presetItems, "prVr")),
+    };
+  }
+
+  // Dual brush
+  const useDualBrush = getBool(presetItems, "useDualBrush");
+  if (useDualBrush) {
+    const dualItems = getObjc(presetItems, "dualBrush");
+    const mode = dualItems ? mapDualBrushMode(getEnum(dualItems, "Md  ")) : DUAL_BRUSH_MODE_MULTIPLY;
+    const dualDiameter = dualItems ? getNumber(dualItems, "Dmtr") : undefined;
+    const dualSpacing = dualItems ? getNumber(dualItems, "Spcn") : undefined;
+    const dualHardness = dualItems ? getNumber(dualItems, "Hrdn") : undefined;
+    params.dualBrush = {
+      enabled: true,
+      mode,
+      useComputed: true, // ABR dual brushes use computed tips by default
+      hardness: dualHardness !== undefined ? dualHardness / 100 : 1.0,
+      size: dualDiameter ?? 20,
+      spacing: dualSpacing !== undefined ? dualSpacing / 100 : 0.25,
     };
   }
 

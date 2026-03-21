@@ -3,6 +3,14 @@ import * as Popover from "@radix-ui/react-popover";
 import { Settings2 } from "lucide-react";
 import { SliderControl } from "./SliderControl";
 import type { BrushSettings, DynamicParam, DynamicControl, ScatterSettings, DualBrushSettings, TextureSettings } from "../hooks/useBrushSettings";
+import {
+  DUAL_BRUSH_MODE_MULTIPLY,
+  DUAL_BRUSH_MODE_DARKEN,
+  DUAL_BRUSH_MODE_LIGHTEN,
+  DUAL_BRUSH_MODE_SUBTRACT,
+  DUAL_BRUSH_MODE_LINEAR_DODGE,
+  DUAL_BRUSH_MODE_SCREEN,
+} from "../hooks/useBrushSettings";
 
 interface BrushSettingsPanelProps {
   settings: BrushSettings;
@@ -281,6 +289,21 @@ function DualBrushPane({ settings, onUpdate }: BrushSettingsPanelProps) {
       </button>
       {db.enabled && (
         <>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-medium text-cream-muted uppercase tracking-wider shrink-0">Mode</span>
+            <select
+              value={db.mode}
+              onChange={(e) => update({ mode: Number(e.target.value) })}
+              className="flex-1 bg-graphite-850 border border-graphite-800 text-cream text-[11px] rounded px-1.5 py-1 outline-none focus:border-graphite-700 transition-colors duration-150"
+            >
+              <option value={DUAL_BRUSH_MODE_MULTIPLY}>Multiply</option>
+              <option value={DUAL_BRUSH_MODE_DARKEN}>Darken</option>
+              <option value={DUAL_BRUSH_MODE_LIGHTEN}>Lighten</option>
+              <option value={DUAL_BRUSH_MODE_SUBTRACT}>Subtract</option>
+              <option value={DUAL_BRUSH_MODE_LINEAR_DODGE}>Linear Dodge</option>
+              <option value={DUAL_BRUSH_MODE_SCREEN}>Screen</option>
+            </select>
+          </div>
           <SliderControl
             label="Size"
             value={db.size}

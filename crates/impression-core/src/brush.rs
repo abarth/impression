@@ -38,11 +38,67 @@ impl Default for TextureSettings {
     }
 }
 
+/// How the secondary tip's alpha combines with the primary tip's alpha.
+///
+/// In Photoshop, the dual brush panel has a "Mode" dropdown that controls
+/// this combination. These operate on scalar alpha values (0.0–1.0),
+/// not on RGB colors.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum DualBrushMode {
+    /// `primary * secondary` — masks the primary where secondary is transparent.
+    Multiply = 0,
+    /// `min(primary, secondary)` — takes the darker (more transparent) of the two.
+    Darken = 1,
+    /// `max(primary, secondary)` — takes the lighter (more opaque) of the two.
+    Lighten = 2,
+    /// `max(0, primary - secondary)` — subtracts secondary from primary.
+    Subtract = 3,
+    /// `primary + secondary * (1 - primary)` — adds secondary where primary is thin.
+    LinearDodge = 4,
+    /// `1 - (1 - primary) * (1 - secondary)` — Screen; brightens combined alpha.
+    Screen = 5,
+}
+
+impl Default for DualBrushMode {
+    fn default() -> Self {
+        DualBrushMode::Multiply
+    }
+}
+
+impl DualBrushMode {
+    pub fn from_u8(v: u8) -> Self {
+        match v {
+            0 => DualBrushMode::Multiply,
+            1 => DualBrushMode::Darken,
+            2 => DualBrushMode::Lighten,
+            3 => DualBrushMode::Subtract,
+            4 => DualBrushMode::LinearDodge,
+            5 => DualBrushMode::Screen,
+            _ => DualBrushMode::Multiply,
+        }
+    }
+
+    /// Combine primary and secondary alpha values using this mode.
+    pub fn apply(self, primary: f32, secondary: f32) -> f32 {
+        match self {
+            DualBrushMode::Multiply => primary * secondary,
+            DualBrushMode::Darken => primary.min(secondary),
+            DualBrushMode::Lighten => primary.max(secondary),
+            DualBrushMode::Subtract => (primary - secondary).max(0.0),
+            DualBrushMode::LinearDodge => (primary + secondary * (1.0 - primary)).min(1.0),
+            DualBrushMode::Screen => 1.0 - (1.0 - primary) * (1.0 - secondary),
+        }
+    }
+}
+
 /// Dual brush settings: composite a secondary tip with the primary for texture.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DualBrushSettings {
     /// Whether dual brush is enabled.
     pub enabled: bool,
+    /// How the secondary tip alpha combines with the primary.
+    pub mode: DualBrushMode,
     /// Use a computed circle (true) or the registered secondary tip (false).
     pub use_computed: bool,
     /// Hardness for computed circle secondary tip.
@@ -57,6 +113,7 @@ impl Default for DualBrushSettings {
     fn default() -> Self {
         Self {
             enabled: false,
+            mode: DualBrushMode::Multiply,
             use_computed: true,
             hardness: 1.0,
             size: 20.0,
@@ -330,7 +387,7 @@ pub fn stamp_ellipse(
     roundness: f32,
     angle_degrees: f32,
     selection: Option<&[u8]>,
-    dual: Option<(&SecondaryTipState, f32)>,
+    dual: Option<(&SecondaryTipState, f32, DualBrushMode)>,
     texture: Option<(&TextureSettings, &BrushTip)>,
 ) {
     if radius <= 0.0 || alpha <= 0.0 {
@@ -387,11 +444,14 @@ pub fn stamp_ellipse(
                 }
             };
 
-            let dual_alpha = match &dual {
-                Some((secondary, sec_radius)) => sample_secondary_tip(
-                    px as f32 + 0.5, py as f32 + 0.5, cx, cy, *sec_radius, secondary,
-                ),
-                None => 1.0,
+            let combined_alpha = match &dual {
+                Some((secondary, sec_radius, mode)) => {
+                    let sec = sample_secondary_tip(
+                        px as f32 + 0.5, py as f32 + 0.5, cx, cy, *sec_radius, secondary,
+                    );
+                    mode.apply(edge_alpha, sec)
+                },
+                None => edge_alpha,
             };
             let texture_alpha = match &texture {
                 Some((tex, pattern)) => sample_texture(
@@ -403,7 +463,7 @@ pub fn stamp_ellipse(
                 Some(mask) => mask[(py * layer.width + px) as usize] as f32 / 255.0,
                 None => 1.0,
             };
-            let final_alpha = alpha * edge_alpha * dual_alpha * texture_alpha * selection_alpha;
+            let final_alpha = alpha * combined_alpha * texture_alpha * selection_alpha;
             if let Some(pixel) = layer.pixel_mut(px, py) {
                 blend_pixel(pixel, color, final_alpha);
             }
@@ -428,7 +488,7 @@ pub fn stamp_tip(
     flip_x: bool,
     flip_y: bool,
     selection: Option<&[u8]>,
-    dual: Option<(&SecondaryTipState, f32)>,
+    dual: Option<(&SecondaryTipState, f32, DualBrushMode)>,
     texture: Option<(&TextureSettings, &BrushTip)>,
 ) {
     if radius <= 0.0 || alpha <= 0.0 || tip.width == 0 || tip.height == 0 {
@@ -501,11 +561,14 @@ pub fn stamp_tip(
                 continue;
             }
 
-            let dual_alpha = match &dual {
-                Some((secondary, sec_radius)) => sample_secondary_tip(
-                    px as f32 + 0.5, py as f32 + 0.5, cx, cy, *sec_radius, secondary,
-                ),
-                None => 1.0,
+            let combined_alpha = match &dual {
+                Some((secondary, sec_radius, mode)) => {
+                    let sec = sample_secondary_tip(
+                        px as f32 + 0.5, py as f32 + 0.5, cx, cy, *sec_radius, secondary,
+                    );
+                    mode.apply(tip_alpha, sec)
+                },
+                None => tip_alpha,
             };
             let texture_alpha = match &texture {
                 Some((tex, pattern)) => sample_texture(
@@ -517,7 +580,7 @@ pub fn stamp_tip(
                 Some(mask) => mask[(py * layer.width + px) as usize] as f32 / 255.0,
                 None => 1.0,
             };
-            let final_alpha = alpha * tip_alpha * dual_alpha * texture_alpha * selection_alpha;
+            let final_alpha = alpha * combined_alpha * texture_alpha * selection_alpha;
             if let Some(pixel) = layer.pixel_mut(px, py) {
                 blend_pixel(pixel, color, final_alpha);
             }
@@ -700,11 +763,11 @@ pub fn interpolate_and_stamp(
                     Some(t) => SecondaryTipState::Image(t),
                     None => SecondaryTipState::Computed { hardness: brush.dual_brush.hardness },
                 };
-                Some((sec_state, sec_radius))
+                Some((sec_state, sec_radius, brush.dual_brush.mode))
             } else {
                 None
             };
-            let dual_ref = dual.as_ref().map(|(s, r)| (s, *r));
+            let dual_ref = dual.as_ref().map(|(s, r, m)| (s, *r, *m));
             let tex_ref = if brush.texture.enabled {
                 texture_tip.map(|t| (&brush.texture, t))
             } else {
@@ -763,11 +826,11 @@ pub fn stroke_begin(
             Some(t) => SecondaryTipState::Image(t),
             None => SecondaryTipState::Computed { hardness: brush.dual_brush.hardness },
         };
-        Some((sec_state, sec_radius))
+        Some((sec_state, sec_radius, brush.dual_brush.mode))
     } else {
         None
     };
-    let dual_ref = dual.as_ref().map(|(s, r)| (s, *r));
+    let dual_ref = dual.as_ref().map(|(s, r, m)| (s, *r, *m));
     let tex_ref = if brush.texture.enabled {
         texture_tip.map(|t| (&brush.texture, t))
     } else {
@@ -1519,7 +1582,7 @@ mod tests {
         let sec = SecondaryTipState::Computed { hardness: 1.0 };
         let mut layer_dual = Layer::new(0, 40, 40);
         // Secondary radius = 3px (much smaller than primary radius = 8px)
-        stamp_ellipse(&mut layer_dual, 20.0, 20.0, 8.0, Color::black(), 1.0, 1.0, 1.0, 0.0, None, Some((&sec, 3.0)), None);
+        stamp_ellipse(&mut layer_dual, 20.0, 20.0, 8.0, Color::black(), 1.0, 1.0, 1.0, 0.0, None, Some((&sec, 3.0, DualBrushMode::Multiply)), None);
         let center_dual = layer_dual.pixel(20, 20).unwrap()[3];
         assert!(center_dual > 200, "With dual brush, center should still be opaque");
 
@@ -1615,5 +1678,81 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_dual_brush_mode_apply() {
+        // Multiply: primary * secondary
+        assert!((DualBrushMode::Multiply.apply(0.8, 0.5) - 0.4).abs() < 0.001);
+
+        // Darken: min
+        assert!((DualBrushMode::Darken.apply(0.8, 0.5) - 0.5).abs() < 0.001);
+        assert!((DualBrushMode::Darken.apply(0.3, 0.7) - 0.3).abs() < 0.001);
+
+        // Lighten: max
+        assert!((DualBrushMode::Lighten.apply(0.8, 0.5) - 0.8).abs() < 0.001);
+        assert!((DualBrushMode::Lighten.apply(0.3, 0.7) - 0.7).abs() < 0.001);
+
+        // Subtract: primary - secondary, clamped to 0
+        assert!((DualBrushMode::Subtract.apply(0.8, 0.3) - 0.5).abs() < 0.001);
+        assert!((DualBrushMode::Subtract.apply(0.3, 0.8) - 0.0).abs() < 0.001);
+
+        // LinearDodge: primary + secondary * (1 - primary)
+        assert!((DualBrushMode::LinearDodge.apply(0.5, 0.5) - 0.75).abs() < 0.001);
+        assert!((DualBrushMode::LinearDodge.apply(1.0, 1.0) - 1.0).abs() < 0.001);
+
+        // Screen: 1 - (1-p)(1-s)
+        assert!((DualBrushMode::Screen.apply(0.5, 0.5) - 0.75).abs() < 0.001);
+        assert!((DualBrushMode::Screen.apply(0.0, 0.0) - 0.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_dual_brush_mode_from_u8() {
+        assert_eq!(DualBrushMode::from_u8(0), DualBrushMode::Multiply);
+        assert_eq!(DualBrushMode::from_u8(1), DualBrushMode::Darken);
+        assert_eq!(DualBrushMode::from_u8(2), DualBrushMode::Lighten);
+        assert_eq!(DualBrushMode::from_u8(3), DualBrushMode::Subtract);
+        assert_eq!(DualBrushMode::from_u8(4), DualBrushMode::LinearDodge);
+        assert_eq!(DualBrushMode::from_u8(5), DualBrushMode::Screen);
+        assert_eq!(DualBrushMode::from_u8(255), DualBrushMode::Multiply); // unknown falls back
+    }
+
+    #[test]
+    fn test_dual_brush_lighten_mode_preserves_primary() {
+        // With Lighten mode, the combined alpha should be >= the primary's edge_alpha,
+        // so the result should be at least as opaque as without dual brush
+        let sec = SecondaryTipState::Computed { hardness: 1.0 };
+
+        let mut layer_no_dual = Layer::new(0, 40, 40);
+        stamp_ellipse(&mut layer_no_dual, 20.0, 20.0, 8.0, Color::black(), 1.0, 1.0, 1.0, 0.0, None, None, None);
+
+        let mut layer_lighten = Layer::new(0, 40, 40);
+        stamp_ellipse(&mut layer_lighten, 20.0, 20.0, 8.0, Color::black(), 1.0, 1.0, 1.0, 0.0, None,
+            Some((&sec, 3.0, DualBrushMode::Lighten)), None);
+
+        // At the center, secondary is fully opaque, so max(primary, secondary) = primary
+        let center_no_dual = layer_no_dual.pixel(20, 20).unwrap()[3];
+        let center_lighten = layer_lighten.pixel(20, 20).unwrap()[3];
+        assert_eq!(center_no_dual, center_lighten, "Lighten at center should match no-dual");
+
+        // At the edge (outside secondary radius), Lighten should take max(edge_alpha, 0) = edge_alpha
+        // So the result should match the no-dual case at the edges
+        let edge_no_dual = layer_no_dual.pixel(26, 20).unwrap()[3];
+        let edge_lighten = layer_lighten.pixel(26, 20).unwrap()[3];
+        assert_eq!(edge_no_dual, edge_lighten, "Lighten at edge should match no-dual");
+    }
+
+    #[test]
+    fn test_dual_brush_subtract_mode() {
+        let sec = SecondaryTipState::Computed { hardness: 1.0 };
+
+        // With Subtract mode, center pixels (where secondary is opaque) should have
+        // reduced alpha: max(0, primary - 1.0) = 0
+        let mut layer = Layer::new(0, 40, 40);
+        stamp_ellipse(&mut layer, 20.0, 20.0, 8.0, Color::black(), 1.0, 1.0, 1.0, 0.0, None,
+            Some((&sec, 8.0, DualBrushMode::Subtract)), None);
+
+        let center = layer.pixel(20, 20).unwrap()[3];
+        assert_eq!(center, 0, "Subtract with fully opaque secondary should produce zero alpha");
     }
 }

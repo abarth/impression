@@ -184,6 +184,7 @@ impl ImpressionCanvas {
     pub fn set_dual_brush(
         &mut self,
         enabled: bool,
+        mode: u8,
         use_computed: bool,
         hardness: f32,
         size: f32,
@@ -191,6 +192,7 @@ impl ImpressionCanvas {
     ) {
         self.inner.set_dual_brush(brush::DualBrushSettings {
             enabled,
+            mode: brush::DualBrushMode::from_u8(mode),
             use_computed,
             hardness,
             size,

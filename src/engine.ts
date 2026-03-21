@@ -205,10 +205,10 @@ export class Engine {
   }
 
   setDualBrush(
-    enabled: boolean, useComputed: boolean,
+    enabled: boolean, mode: number, useComputed: boolean,
     hardness: number, size: number, spacing: number,
   ): void {
-    this.canvas.set_dual_brush(enabled, useComputed, hardness, size, spacing);
+    this.canvas.set_dual_brush(enabled, mode, useComputed, hardness, size, spacing);
   }
 
   setSecondaryBrushTip(id: string): void {

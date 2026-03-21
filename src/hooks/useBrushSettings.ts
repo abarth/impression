@@ -29,8 +29,19 @@ export interface ScatterSettings {
   countJitter: number;
 }
 
+/** How the secondary tip alpha combines with the primary tip alpha.
+ *  Matches Rust DualBrushMode repr(u8). */
+export const DUAL_BRUSH_MODE_MULTIPLY = 0;
+export const DUAL_BRUSH_MODE_DARKEN = 1;
+export const DUAL_BRUSH_MODE_LIGHTEN = 2;
+export const DUAL_BRUSH_MODE_SUBTRACT = 3;
+export const DUAL_BRUSH_MODE_LINEAR_DODGE = 4;
+export const DUAL_BRUSH_MODE_SCREEN = 5;
+
 export interface DualBrushSettings {
   enabled: boolean;
+  /** Combination mode (see DUAL_BRUSH_MODE_* constants). */
+  mode: number;
   useComputed: boolean;
   hardness: number;
   size: number;
@@ -102,6 +113,7 @@ const DEFAULT_SCATTER: ScatterSettings = {
 
 const DEFAULT_DUAL_BRUSH: DualBrushSettings = {
   enabled: false,
+  mode: DUAL_BRUSH_MODE_MULTIPLY,
   useComputed: true,
   hardness: 1.0,
   size: 20,
@@ -208,7 +220,7 @@ export function useBrushSettings(engine: Engine | null, activeTool: Tool) {
     const sc = s.scatterSettings;
     eng.setScatter(sc.scatter, sc.bothAxes, sc.count, sc.countJitter);
     const db = s.dualBrush;
-    eng.setDualBrush(db.enabled, db.useComputed, db.hardness, db.size, db.spacing);
+    eng.setDualBrush(db.enabled, db.mode, db.useComputed, db.hardness, db.size, db.spacing);
     const tx = s.texture;
     eng.setTexture(tx.enabled, tx.scale, tx.depth, tx.textureEachTip);
   }, []);
