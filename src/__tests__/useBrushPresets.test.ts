@@ -119,6 +119,59 @@ describe("useBrushPresets isImageTip", () => {
   });
 });
 
+describe("useBrushPresets selectPreset applies all fields", () => {
+  it("should pass flipX, flipY, and smoothing to onApplyPreset", async () => {
+    const preset: BrushPreset = {
+      ...COMPUTED_PRESET,
+      id: "preset-flipped",
+      flipX: true,
+      flipY: true,
+      smoothing: 0.5,
+      shapeDynamics: {
+        size: { jitter: 0, control: 1, minimum: 0.2 },
+        angle: { jitter: 0.8, control: 0, minimum: 0 },
+        roundness: { jitter: 0, control: 0, minimum: 0 },
+      },
+      transferDynamics: {
+        opacity: { jitter: 0.3, control: 0, minimum: 0 },
+        flow: { jitter: 0, control: 1, minimum: 0.1 },
+      },
+      dualBrush: {
+        enabled: true,
+        mode: 1,
+        useComputed: true,
+        hardness: 0.8,
+        size: 25,
+        spacing: 0.5,
+      },
+    };
+    const engine = createMockEngine();
+    const storage = createMockStorage([preset]);
+    const onApplyPreset = vi.fn();
+
+    const { result } = renderHook(() =>
+      useBrushPresets({ engine, storage, activeTool: "brush", onApplyPreset }),
+    );
+
+    await vi.waitFor(() => {
+      expect(result.current.presets.length).toBe(1);
+    });
+
+    act(() => result.current.selectPreset("preset-flipped"));
+
+    expect(onApplyPreset).toHaveBeenCalledWith(
+      expect.objectContaining({
+        flipX: true,
+        flipY: true,
+        smoothing: 0.5,
+        shapeDynamics: preset.shapeDynamics,
+        transferDynamics: preset.transferDynamics,
+        dualBrush: preset.dualBrush,
+      }),
+    );
+  });
+});
+
 describe("useBrushPresets tip lifecycle", () => {
   it("should call clearBrushTip when selecting a computed preset", async () => {
     const engine = createMockEngine();

@@ -116,6 +116,9 @@ export function useBrushPresets({
       if (preset.scatterSettings) partial.scatterSettings = preset.scatterSettings;
       if (preset.dualBrush) partial.dualBrush = preset.dualBrush;
       if (preset.texture) partial.texture = preset.texture;
+      if (preset.flipX) partial.flipX = preset.flipX;
+      if (preset.flipY) partial.flipY = preset.flipY;
+      if (preset.smoothing !== undefined) partial.smoothing = preset.smoothing;
 
       onApplyPreset(partial);
       activateTip(preset);
@@ -205,8 +208,12 @@ export function useBrushPresets({
         };
         if (p?.opacity !== undefined) preset.opacity = p.opacity;
         if (p?.flow !== undefined) preset.flow = p.flow;
+        if (p?.smoothing !== undefined) preset.smoothing = p.smoothing;
         if (p?.shapeDynamics) preset.shapeDynamics = p.shapeDynamics;
         if (p?.transferDynamics) preset.transferDynamics = p.transferDynamics;
+        if (p?.dualBrush) preset.dualBrush = p.dualBrush;
+        if (p?.flipX) preset.flipX = true;
+        if (p?.flipY) preset.flipY = true;
         await s.savePreset(preset);
       }
 

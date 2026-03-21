@@ -31,6 +31,7 @@ export interface AbrBrushParams {
   flow?: number;
   flipX?: boolean;
   flipY?: boolean;
+  smoothing?: number;
   shapeDynamics?: ShapeDynamics;
   transferDynamics?: TransferDynamics;
   dualBrush?: DualBrushSettings;
@@ -518,13 +519,15 @@ function extractPresetParams(presetItems: Map<string, DescriptorValue>): AbrBrus
   const brushItems = getObjc(presetItems, "Brsh");
   const params = brushItems ? extractBrushParams(brushItems) : {};
 
-  // Opacity and flow from "toolOptions" (integer percentages)
+  // Opacity, flow, and smoothing from "toolOptions"
   const toolOpts = getObjc(presetItems, "toolOptions");
   if (toolOpts) {
     const opct = getNumber(toolOpts, "Opct");
     if (opct !== undefined) params.opacity = opct / 100;
     const flow = getNumber(toolOpts, "flow");
     if (flow !== undefined) params.flow = flow / 100;
+    const smoo = getNumber(toolOpts, "Smoo");
+    if (smoo !== undefined) params.smoothing = smoo / 100;
   }
 
   // Shape dynamics

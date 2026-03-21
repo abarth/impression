@@ -561,6 +561,32 @@ describe("abrParser", () => {
     expect(db.hardness).toBeCloseTo(0.8);
   });
 
+  it("extracts smoothing from toolOptions", () => {
+    const toolOptsDesc = new BinaryBuilder()
+      .unicodeString("").classId("PbTl")
+      .u32(1)
+      .append(untfItem("Smoo", "#Prc", 75));
+
+    const header = new BinaryBuilder().u16(6).u16(2);
+    const samp = buildSampSection([
+      { width: 2, height: 2, pixels: [255, 255, 255, 255], uuid: "tip-1" },
+    ], 2);
+    const desc = buildDescSection([{
+      name: "Smooth Brush",
+      tipUuid: "tip-1",
+      presetItems: [
+        new BinaryBuilder().key("toolOptions").tag("Objc").append(toolOptsDesc),
+      ],
+    }]);
+
+    const data = new BinaryBuilder().append(header).append(samp).append(desc);
+    const buf = new Uint8Array(data.toArray()).buffer;
+    const result = parseAbrFile(buf);
+
+    expect(result.length).toBe(1);
+    expect(result[0].params!.smoothing).toBeCloseTo(0.75);
+  });
+
   it("does not include dual brush when useDualBrush is false", () => {
     const header = new BinaryBuilder().u16(6).u16(2);
     const samp = buildSampSection([

@@ -27,6 +27,9 @@ export interface BrushPreset {
   scatterSettings?: ScatterSettings;
   dualBrush?: DualBrushSettings;
   texture?: TextureSettings;
+  flipX?: boolean;
+  flipY?: boolean;
+  smoothing?: number;
   sort_order: number;
 }
 
