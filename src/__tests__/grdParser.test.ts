@@ -141,23 +141,15 @@ function buildSolidGradientGrd(opts: {
   // GRD header
   b.writeTag("8BGR");
   b.writeU16(5); // version
+  b.writeU32(0); // padding/reserved field after version
 
   // Top-level descriptor
   b.writeUnicodeString(""); // name
   b.writeClassId("null"); // classId
-  b.writeU32(1); // 1 item: GrSt
+  b.writeU32(1); // 1 item: GrdL
 
-  // GrSt object
-  b.writeKey("GrSt");
-  b.writeTag("Objc");
-  b.writeUnicodeString("");
-  b.writeClassId("null");
-
-  const grstItemCount = 1; // just Grdn list
-  b.writeU32(grstItemCount);
-
-  // Grdn list
-  b.writeKey("Grdn");
+  // GrdL list (gradient list directly under top-level descriptor)
+  b.writeKey("GrdL");
   b.writeTag("VlLs");
   b.writeU32(1); // 1 gradient
 
@@ -310,6 +302,27 @@ describe("parseGrdFile", () => {
     const buffer = new ArrayBuffer(8);
     new DataView(buffer).setUint32(0, 0xdeadbeef);
     expect(parseGrdFile(buffer)).toEqual([]);
+  });
+
+  it("parses a real Photoshop GRD file", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const filePath = path.resolve(__dirname, "../../data/Angel Gradients.grd");
+    const fileBuffer = fs.readFileSync(filePath);
+    const arrayBuffer = fileBuffer.buffer.slice(
+      fileBuffer.byteOffset,
+      fileBuffer.byteOffset + fileBuffer.byteLength,
+    );
+    const gradients = parseGrdFile(arrayBuffer);
+
+    expect(gradients.length).toBeGreaterThan(0);
+    // Every parsed gradient should have at least one color stop
+    for (const g of gradients) {
+      if (g.form === "solid") {
+        expect(g.colorStops.length).toBeGreaterThanOrEqual(1);
+        expect(g.opacityStops.length).toBeGreaterThanOrEqual(1);
+      }
+    }
   });
 });
 

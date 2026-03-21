@@ -276,18 +276,23 @@ export function parseGrdFile(buffer: ArrayBuffer): ParsedGrdGradient[] {
   const magic = reader.readTag();
 
   if (magic === "8BGR") {
-    // Modern GRD format: version + descriptor
+    // Modern GRD format: version + U32 padding + descriptor
     const version = reader.readU16();
     if (version < 5) return [];
+    reader.skip(4); // skip unknown U32 field after version
 
     try {
       const descriptor = readDescriptor(reader, reader.position + reader.remaining);
 
-      // Look for gradient list under "GrSt" key
+      // Try "GrSt" → "Grdn" (some files) or direct "GrdL" key (other files)
+      let gradList: DescriptorValue[] | undefined;
       const grstItems = getObjc(descriptor.items, "GrSt");
-      if (!grstItems) return [];
-
-      const gradList = getList(grstItems, "Grdn");
+      if (grstItems) {
+        gradList = getList(grstItems, "Grdn");
+      }
+      if (!gradList) {
+        gradList = getList(descriptor.items, "GrdL");
+      }
       if (!gradList) return [];
 
       for (const item of gradList) {
