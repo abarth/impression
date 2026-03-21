@@ -649,7 +649,6 @@ pub(crate) fn recomposite_region(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dynamics::Rng;
 
     #[test]
     fn test_stamp_ellipse_center_pixel() {

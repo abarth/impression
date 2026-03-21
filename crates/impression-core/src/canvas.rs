@@ -1380,4 +1380,76 @@ mod tests {
         assert!(!canvas.layers[0].pixels.is_empty());
         assert!(!canvas.layers[2].pixels.is_empty());
     }
+
+    #[test]
+    fn test_load_chunk_restores_all_layer_types() {
+        // Create a canvas, add layers of different types, paint, and flush
+        let mut canvas1 = Canvas::new(64, 64);
+        canvas1.add_layer();
+        canvas1.set_brush_size(5.0);
+        canvas1.set_brush_color(255, 0, 0);
+        canvas1.stroke_begin(0, 10.0, 10.0, 1.0);
+        canvas1.stroke_end();
+        canvas1.add_adjustment_layer(AdjustmentKind::GradientMap {
+            gradient_id: "test-grad".to_string(),
+        });
+        canvas1.add_layer();
+        canvas1.set_brush_color(0, 0, 255);
+        canvas1.stroke_begin(2, 30.0, 30.0, 1.0);
+        canvas1.stroke_end();
+
+        assert_eq!(canvas1.layers.len(), 3);
+        assert!(!canvas1.layers[0].is_adjustment());
+        assert!(canvas1.layers[1].is_adjustment());
+        assert!(!canvas1.layers[2].is_adjustment());
+
+        // Flush all operations to get serialized data
+        let data = canvas1.flush_pending_operations().expect("should have ops");
+
+        // Load into a fresh canvas
+        let mut canvas2 = Canvas::new(64, 64);
+        canvas2.load_chunk(&data).expect("load should succeed");
+
+        // Verify all layers reconstructed
+        assert_eq!(canvas2.layers.len(), 3);
+        assert!(!canvas2.layers[0].is_adjustment());
+        assert!(canvas2.layers[1].is_adjustment());
+        assert!(!canvas2.layers[2].is_adjustment());
+        assert_eq!(canvas2.layers[0].name, "Layer 1");
+        assert_eq!(canvas2.layers[1].name, "Gradient Map");
+        assert_eq!(canvas2.layers[2].name, "Layer 3");
+
+        // Verify layer 0 has painted pixels (non-zero)
+        let has_paint = canvas2.layers[0].pixels.chunks(4).any(|px| px[3] > 0);
+        assert!(has_paint, "Layer 0 should have painted pixels after load");
+
+        // Verify layer 2 also has painted pixels
+        let has_paint2 = canvas2.layers[2].pixels.chunks(4).any(|px| px[3] > 0);
+        assert!(has_paint2, "Layer 2 should have painted pixels after load");
+    }
+
+    #[test]
+    fn test_load_chunk_restores_layer_order_after_move() {
+        let mut canvas1 = Canvas::new(64, 64);
+        canvas1.add_layer(); // Layer 1 at index 0
+        canvas1.add_layer(); // Layer 2 at index 1
+        canvas1.add_layer(); // Layer 3 at index 2
+
+        // Move Layer 1 (index 0) to the end (index 2)
+        canvas1.move_layer(0, 2);
+        assert_eq!(canvas1.layers[0].name, "Layer 2");
+        assert_eq!(canvas1.layers[1].name, "Layer 3");
+        assert_eq!(canvas1.layers[2].name, "Layer 1");
+
+        let data = canvas1.flush_pending_operations().expect("should have ops");
+
+        // Load into a fresh canvas and verify order is preserved
+        let mut canvas2 = Canvas::new(64, 64);
+        canvas2.load_chunk(&data).expect("load should succeed");
+
+        assert_eq!(canvas2.layers.len(), 3);
+        assert_eq!(canvas2.layers[0].name, "Layer 2");
+        assert_eq!(canvas2.layers[1].name, "Layer 3");
+        assert_eq!(canvas2.layers[2].name, "Layer 1");
+    }
 }

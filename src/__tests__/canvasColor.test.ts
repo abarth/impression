@@ -3,18 +3,25 @@ import { renderHook, act } from "@testing-library/react";
 import { useLayerManager } from "../hooks/useLayerManager";
 import { useColorState } from "../hooks/useColorState";
 
-function createMockEngine() {
+function createMockEngine(layerCount = 1) {
   return {
     addLayer: vi.fn(),
     removeLayer: vi.fn().mockReturnValue(true),
     setActiveLayer: vi.fn(),
-    getLayerCount: vi.fn().mockReturnValue(1),
+    getLayerCount: vi.fn().mockReturnValue(layerCount),
+    getLayerName: vi.fn((i: number) => `Layer ${i + 1}`),
+    getLayerVisible: vi.fn().mockReturnValue(true),
+    getLayerOpacity: vi.fn().mockReturnValue(1.0),
+    getLayerBlendMode: vi.fn().mockReturnValue(0),
+    getLayerKind: vi.fn().mockReturnValue(0),
+    getGradientMapGradientId: vi.fn(),
     setLayerOpacity: vi.fn(),
     setLayerBlendMode: vi.fn(),
     setLayerVisible: vi.fn(),
     setBackgroundColor: vi.fn(),
     setCanvasVisible: vi.fn(),
     setBrushColor: vi.fn(),
+    renameLayer: vi.fn(),
   };
 }
 
@@ -72,8 +79,9 @@ describe("Canvas visibility in useLayerManager", () => {
 });
 
 describe("Layer visibility in useLayerManager", () => {
-  it("should initialize layers as visible", () => {
-    const { result } = renderHook(() => useLayerManager(null));
+  it("should initialize layers as visible when engine present", () => {
+    const engine = createMockEngine();
+    const { result } = renderHook(() => useLayerManager(engine as never));
     expect(result.current.layers[0].visible).toBe(true);
   });
 

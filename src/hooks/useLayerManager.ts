@@ -16,11 +16,16 @@ export interface LayerInfo {
 
 let nextLayerId = 0;
 
+/** Map engine layer-kind number to our LayerKind type. */
+function engineKindToLayerKind(kind: number): LayerKind {
+  switch (kind) {
+    case 1: return "gradient-map";
+    default: return "raster";
+  }
+}
+
 export function useLayerManager(engine: Engine | null) {
-  const [layers, setLayers] = useState<LayerInfo[]>(() => {
-    const id = nextLayerId++;
-    return [{ id, name: "Layer 1", visible: true, opacity: 1.0, blendMode: 0, kind: "raster" as LayerKind }];
-  });
+  const [layers, setLayers] = useState<LayerInfo[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
   const [canvasColor, setCanvasColorState] = useState("#ffffff");
   const [canvasVisible, setCanvasVisible] = useState(true);
@@ -30,9 +35,41 @@ export function useLayerManager(engine: Engine | null) {
   const engineRef = useRef(engine);
   engineRef.current = engine;
 
-  // Sync canvas color to engine on init
+  /** Read all layer metadata from the engine and rebuild React state. */
+  const syncLayersFromEngine = useCallback(() => {
+    const eng = engineRef.current;
+    if (!eng) return;
+    const count = eng.getLayerCount();
+    const synced: LayerInfo[] = [];
+    for (let i = 0; i < count; i++) {
+      const kindNum = eng.getLayerKind(i);
+      const kind = engineKindToLayerKind(kindNum);
+      const info: LayerInfo = {
+        id: nextLayerId++,
+        name: eng.getLayerName(i),
+        visible: eng.getLayerVisible(i),
+        opacity: eng.getLayerOpacity(i),
+        blendMode: eng.getLayerBlendMode(i),
+        kind,
+      };
+      if (kind === "gradient-map") {
+        info.gradientId = eng.getGradientMapGradientId(i);
+      }
+      synced.push(info);
+    }
+    layersRef.current = synced;
+    setLayers(synced);
+    // Clamp active index to valid range
+    const clamped = Math.min(activeIndexRef.current, Math.max(0, count - 1));
+    activeIndexRef.current = clamped;
+    setActiveIndex(clamped);
+  }, []);
+
+  // Sync layer state from engine when the engine becomes available
+  // (covers both new documents and loaded documents).
   useEffect(() => {
     if (engine) {
+      syncLayersFromEngine();
       const [r, g, b] = hexToRgb(canvasColor);
       engine.setBackgroundColor(r, g, b);
     }
@@ -233,5 +270,5 @@ export function useLayerManager(engine: Engine | null) {
     [],
   );
 
-  return { layers, activeIndex, canvasColor, canvasVisible, addLayer, addGradientMapLayer, removeLayer, selectLayer, setLayerOpacity, setLayerBlendMode, renameLayer, moveLayer, toggleLayerVisible, setCanvasColor, toggleCanvasVisible, setGradientMapGradient };
+  return { layers, activeIndex, canvasColor, canvasVisible, addLayer, addGradientMapLayer, removeLayer, selectLayer, setLayerOpacity, setLayerBlendMode, renameLayer, moveLayer, toggleLayerVisible, setCanvasColor, toggleCanvasVisible, setGradientMapGradient, syncLayersFromEngine };
 }

@@ -323,6 +323,10 @@ export class Engine {
     this.needsRender = true;
   }
 
+  getLayerOpacity(layer: number): number {
+    return this.canvas.layer_opacity(layer);
+  }
+
   getLayerBlendMode(layer: number): number {
     return this.canvas.layer_blend_mode(layer);
   }

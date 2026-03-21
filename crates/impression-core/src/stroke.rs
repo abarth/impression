@@ -476,8 +476,9 @@ pub fn stroke_end(state: &mut StrokeState) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::brush::BrushSettings;
-    use crate::dynamics::{DynamicControl, DynamicParam, ShapeDynamics, TransferDynamics};
+    use crate::blend_mode::BlendMode;
+    use crate::brush::{BrushSettings, ScatterSettings};
+    use crate::color::Color;
 
     #[test]
     fn test_interpolation_spacing() {
