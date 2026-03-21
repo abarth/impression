@@ -5,6 +5,14 @@ use crate::brush::{
 use crate::dynamics::{self, Rng};
 use crate::layer::Layer;
 
+pub struct StrokeParams<'a> {
+    pub brush: &'a BrushSettings,
+    pub active_tip: Option<&'a BrushTip>,
+    pub secondary_tip: Option<&'a BrushTip>,
+    pub texture_tip: Option<&'a BrushTip>,
+    pub selection: Option<&'a [u8]>,
+}
+
 #[derive(Clone, Debug)]
 pub struct StrokeState {
     pub active: bool,
@@ -86,12 +94,8 @@ pub fn interpolate_and_stamp(
     x1: f32,
     y1: f32,
     p1: f32,
-    brush: &BrushSettings,
+    params: &StrokeParams,
     residual: f32,
-    tip: Option<&BrushTip>,
-    secondary_tip: Option<&BrushTip>,
-    texture_tip: Option<&BrushTip>,
-    selection: Option<&[u8]>,
     rng: &mut Rng,
     initial_direction_angle: f32,
 ) -> f32 {
@@ -125,6 +129,7 @@ pub fn interpolate_and_stamp(
         }
     };
 
+    let brush = params.brush;
     let scatter = &brush.scatter;
     let mut dist = residual;
 
@@ -201,7 +206,7 @@ pub fn interpolate_and_stamp(
 
             let dual = if brush.dual_brush.enabled {
                 let sec_radius = brush.dual_brush.size / 2.0;
-                let sec_state = match secondary_tip {
+                let sec_state = match params.secondary_tip {
                     Some(t) => SecondaryTipState::Image(t),
                     None => SecondaryTipState::Computed {
                         hardness: brush.dual_brush.hardness,
@@ -213,11 +218,11 @@ pub fn interpolate_and_stamp(
             };
             let dual_ref = dual.as_ref().map(|(s, r, m)| (s, *r, *m));
             let tex_ref = if brush.texture.enabled {
-                texture_tip.map(|t| (&brush.texture, t))
+                params.texture_tip.map(|t| (&brush.texture, t))
             } else {
                 None
             };
-            if let Some(tip) = tip {
+            if let Some(tip) = params.active_tip {
                 stamp_tip(
                     target,
                     sx,
@@ -230,7 +235,7 @@ pub fn interpolate_and_stamp(
                     stamp_angle,
                     brush.flip_x,
                     brush.flip_y,
-                    selection,
+                    params.selection,
                     dual_ref,
                     tex_ref,
                 );
@@ -245,7 +250,7 @@ pub fn interpolate_and_stamp(
                     brush.hardness,
                     stamp_roundness,
                     stamp_angle,
-                    selection,
+                    params.selection,
                     dual_ref,
                     tex_ref,
                 );
@@ -264,14 +269,10 @@ pub fn interpolate_and_stamp(
 pub fn stroke_begin(
     layer: &mut Layer,
     state: &mut StrokeState,
-    brush: &BrushSettings,
+    params: &StrokeParams,
     x: f32,
     y: f32,
     pressure: f32,
-    tip: Option<&BrushTip>,
-    secondary_tip: Option<&BrushTip>,
-    texture_tip: Option<&BrushTip>,
-    selection: Option<&[u8]>,
 ) {
     state.active = true;
     state.last_point = Some((x, y, pressure));
@@ -285,6 +286,7 @@ pub fn stroke_begin(
     let mut stroke = Layer::new(0, layer.width, layer.height);
 
     // No direction available for the first stamp
+    let brush = params.brush;
     let dir_angle = 0.0;
     let effective_size = dynamics::apply_dynamic(
         &brush.shape_dynamics.size,
@@ -320,7 +322,7 @@ pub fn stroke_begin(
 
     let dual = if brush.dual_brush.enabled {
         let sec_radius = brush.dual_brush.size / 2.0;
-        let sec_state = match secondary_tip {
+        let sec_state = match params.secondary_tip {
             Some(t) => SecondaryTipState::Image(t),
             None => SecondaryTipState::Computed {
                 hardness: brush.dual_brush.hardness,
@@ -332,11 +334,11 @@ pub fn stroke_begin(
     };
     let dual_ref = dual.as_ref().map(|(s, r, m)| (s, *r, *m));
     let tex_ref = if brush.texture.enabled {
-        texture_tip.map(|t| (&brush.texture, t))
+        params.texture_tip.map(|t| (&brush.texture, t))
     } else {
         None
     };
-    if let Some(tip) = tip {
+    if let Some(tip) = params.active_tip {
         stamp_tip(
             &mut stroke,
             x,
@@ -349,7 +351,7 @@ pub fn stroke_begin(
             stamp_angle,
             brush.flip_x,
             brush.flip_y,
-            selection,
+            params.selection,
             dual_ref,
             tex_ref,
         );
@@ -364,7 +366,7 @@ pub fn stroke_begin(
             brush.hardness,
             stamp_roundness,
             stamp_angle,
-            selection,
+            params.selection,
             dual_ref,
             tex_ref,
         );
@@ -399,14 +401,10 @@ pub fn stroke_begin(
 pub fn stroke_move(
     layer: &mut Layer,
     state: &mut StrokeState,
-    brush: &BrushSettings,
+    params: &StrokeParams,
     x: f32,
     y: f32,
     pressure: f32,
-    tip: Option<&BrushTip>,
-    secondary_tip: Option<&BrushTip>,
-    texture_tip: Option<&BrushTip>,
-    selection: Option<&[u8]>,
 ) {
     if !state.active {
         return;
@@ -424,6 +422,7 @@ pub fn stroke_move(
 
     if let Some((lx, ly, lp)) = state.last_point {
         // Capture initial direction on the first move
+        let brush = params.brush;
         let dx = x - lx;
         let dy = y - ly;
         let seg_len = (dx * dx + dy * dy).sqrt();
@@ -442,12 +441,8 @@ pub fn stroke_move(
             x,
             y,
             pressure,
-            brush,
+            params,
             state.residual_distance,
-            tip,
-            secondary_tip,
-            texture_tip,
-            selection,
             rng,
             initial_dir,
         );
@@ -501,12 +496,14 @@ mod tests {
             10.0,
             5.0,
             1.0,
-            &brush,
+            &StrokeParams {
+                brush: &brush,
+                active_tip: None,
+                secondary_tip: None,
+                texture_tip: None,
+                selection: None,
+            },
             0.0,
-            None,
-            None,
-            None,
-            None,
             &mut Rng::from_coords(0.0, 5.0),
             0.0,
         );
@@ -527,13 +524,35 @@ mod tests {
         let brush = BrushSettings::default();
 
         stroke_begin(
-            &mut layer, &mut state, &brush, 10.0, 10.0, 1.0, None, None, None, None,
+            &mut layer,
+            &mut state,
+            &StrokeParams {
+                brush: &brush,
+                active_tip: None,
+                secondary_tip: None,
+                texture_tip: None,
+                selection: None,
+            },
+            10.0,
+            10.0,
+            1.0,
         );
         assert!(state.active);
         assert!(layer.dirty);
 
         stroke_move(
-            &mut layer, &mut state, &brush, 20.0, 10.0, 1.0, None, None, None, None,
+            &mut layer,
+            &mut state,
+            &StrokeParams {
+                brush: &brush,
+                active_tip: None,
+                secondary_tip: None,
+                texture_tip: None,
+                selection: None,
+            },
+            20.0,
+            10.0,
+            1.0,
         );
         assert!(state.active);
 
@@ -554,8 +573,23 @@ mod tests {
         // First segment: 7 pixels long, step=5, stamps at 0 and 5, next at 10 -> residual=10-7=3
         let mut rng = Rng::from_coords(0.0, 5.0);
         let residual = interpolate_and_stamp(
-            &mut layer, 0.0, 5.0, 1.0, 7.0, 5.0, 1.0, &brush, 0.0, None, None, None, None,
-            &mut rng, 0.0,
+            &mut layer,
+            0.0,
+            5.0,
+            1.0,
+            7.0,
+            5.0,
+            1.0,
+            &StrokeParams {
+                brush: &brush,
+                active_tip: None,
+                secondary_tip: None,
+                texture_tip: None,
+                selection: None,
+            },
+            0.0,
+            &mut rng,
+            0.0,
         );
         assert!(
             (residual - 3.0).abs() < 0.01,
@@ -565,8 +599,23 @@ mod tests {
 
         // Second segment: 7 pixels, starting with residual=3, stamp at 3, next at 8 -> residual=8-7=1
         let residual2 = interpolate_and_stamp(
-            &mut layer, 7.0, 5.0, 1.0, 14.0, 5.0, 1.0, &brush, residual, None, None, None, None,
-            &mut rng, 0.0,
+            &mut layer,
+            7.0,
+            5.0,
+            1.0,
+            14.0,
+            5.0,
+            1.0,
+            &StrokeParams {
+                brush: &brush,
+                active_tip: None,
+                secondary_tip: None,
+                texture_tip: None,
+                selection: None,
+            },
+            residual,
+            &mut rng,
+            0.0,
         );
         assert!(
             (residual2 - 1.0).abs() < 0.01,
@@ -593,12 +642,14 @@ mod tests {
             100.0,
             10.0,
             0.25,
-            &brush,
+            &StrokeParams {
+                brush: &brush,
+                active_tip: None,
+                secondary_tip: None,
+                texture_tip: None,
+                selection: None,
+            },
             0.0,
-            None,
-            None,
-            None,
-            None,
             &mut Rng::from_coords(0.0, 10.0),
             0.0,
         );
@@ -611,12 +662,14 @@ mod tests {
             100.0,
             10.0,
             1.0,
-            &brush,
+            &StrokeParams {
+                brush: &brush,
+                active_tip: None,
+                secondary_tip: None,
+                texture_tip: None,
+                selection: None,
+            },
             0.0,
-            None,
-            None,
-            None,
-            None,
             &mut Rng::from_coords(0.0, 10.0),
             0.0,
         );
@@ -661,12 +714,14 @@ mod tests {
             100.0,
             10.0,
             0.25,
-            &brush,
+            &StrokeParams {
+                brush: &brush,
+                active_tip: None,
+                secondary_tip: None,
+                texture_tip: None,
+                selection: None,
+            },
             0.0,
-            None,
-            None,
-            None,
-            None,
             &mut Rng::from_coords(0.0, 10.0),
             0.0,
         );
@@ -679,12 +734,14 @@ mod tests {
             100.0,
             10.0,
             1.0,
-            &brush,
+            &StrokeParams {
+                brush: &brush,
+                active_tip: None,
+                secondary_tip: None,
+                texture_tip: None,
+                selection: None,
+            },
             0.0,
-            None,
-            None,
-            None,
-            None,
             &mut Rng::from_coords(0.0, 10.0),
             0.0,
         );
@@ -720,12 +777,14 @@ mod tests {
             100.0,
             10.0,
             1.0,
-            &brush,
+            &StrokeParams {
+                brush: &brush,
+                active_tip: None,
+                secondary_tip: None,
+                texture_tip: None,
+                selection: None,
+            },
             0.0,
-            None,
-            None,
-            None,
-            None,
             &mut Rng::from_coords(0.0, 10.0),
             0.0,
         );
@@ -762,10 +821,32 @@ mod tests {
 
         // Draw a short stroke to get many overlapping stamps
         stroke_begin(
-            &mut layer, &mut state, &brush, 25.0, 25.0, 1.0, None, None, None, None,
+            &mut layer,
+            &mut state,
+            &StrokeParams {
+                brush: &brush,
+                active_tip: None,
+                secondary_tip: None,
+                texture_tip: None,
+                selection: None,
+            },
+            25.0,
+            25.0,
+            1.0,
         );
         stroke_move(
-            &mut layer, &mut state, &brush, 30.0, 25.0, 1.0, None, None, None, None,
+            &mut layer,
+            &mut state,
+            &StrokeParams {
+                brush: &brush,
+                active_tip: None,
+                secondary_tip: None,
+                texture_tip: None,
+                selection: None,
+            },
+            30.0,
+            25.0,
+            1.0,
         );
         stroke_end(&mut state);
 
@@ -794,7 +875,18 @@ mod tests {
 
         let opacity_before = layer.opacity;
         stroke_begin(
-            &mut layer, &mut state, &brush, 25.0, 25.0, 1.0, None, None, None, None,
+            &mut layer,
+            &mut state,
+            &StrokeParams {
+                brush: &brush,
+                active_tip: None,
+                secondary_tip: None,
+                texture_tip: None,
+                selection: None,
+            },
+            25.0,
+            25.0,
+            1.0,
         );
         stroke_end(&mut state);
 
@@ -823,14 +915,16 @@ mod tests {
         stroke_begin(
             &mut layer,
             &mut state,
-            &paint_brush,
+            &StrokeParams {
+                brush: &paint_brush,
+                active_tip: None,
+                secondary_tip: None,
+                texture_tip: None,
+                selection: None,
+            },
             25.0,
             25.0,
             1.0,
-            None,
-            None,
-            None,
-            None,
         );
         stroke_end(&mut state);
 
@@ -859,14 +953,16 @@ mod tests {
         stroke_begin(
             &mut layer,
             &mut state,
-            &erase_brush,
+            &StrokeParams {
+                brush: &erase_brush,
+                active_tip: None,
+                secondary_tip: None,
+                texture_tip: None,
+                selection: None,
+            },
             25.0,
             25.0,
             1.0,
-            None,
-            None,
-            None,
-            None,
         );
         stroke_end(&mut state);
 
@@ -885,14 +981,16 @@ mod tests {
         stroke_begin(
             &mut layer,
             &mut state,
-            &paint_brush,
+            &StrokeParams {
+                brush: &paint_brush,
+                active_tip: None,
+                secondary_tip: None,
+                texture_tip: None,
+                selection: None,
+            },
             25.0,
             25.0,
             1.0,
-            None,
-            None,
-            None,
-            None,
         );
         stroke_end(&mut state);
 
@@ -912,14 +1010,16 @@ mod tests {
         stroke_begin(
             &mut layer,
             &mut state,
-            &erase_brush,
+            &StrokeParams {
+                brush: &erase_brush,
+                active_tip: None,
+                secondary_tip: None,
+                texture_tip: None,
+                selection: None,
+            },
             25.0,
             25.0,
             1.0,
-            None,
-            None,
-            None,
-            None,
         );
         stroke_end(&mut state);
 
@@ -947,7 +1047,18 @@ mod tests {
 
         // Begin stroke at (10, 100)
         stroke_begin(
-            &mut layer, &mut state, &brush, 10.0, 100.0, 1.0, None, None, None, None,
+            &mut layer,
+            &mut state,
+            &StrokeParams {
+                brush: &brush,
+                active_tip: None,
+                secondary_tip: None,
+                texture_tip: None,
+                selection: None,
+            },
+            10.0,
+            100.0,
+            1.0,
         );
         let _bounds1 = layer.dirty_bounds.unwrap();
 
@@ -957,7 +1068,18 @@ mod tests {
 
         // Move to (50, 100) — far from start
         stroke_move(
-            &mut layer, &mut state, &brush, 50.0, 100.0, 1.0, None, None, None, None,
+            &mut layer,
+            &mut state,
+            &StrokeParams {
+                brush: &brush,
+                active_tip: None,
+                secondary_tip: None,
+                texture_tip: None,
+                selection: None,
+            },
+            50.0,
+            100.0,
+            1.0,
         );
         let bounds2 = layer.dirty_bounds.unwrap();
 
@@ -966,7 +1088,18 @@ mod tests {
 
         // Move to (190, 100) — far from previous
         stroke_move(
-            &mut layer, &mut state, &brush, 190.0, 100.0, 1.0, None, None, None, None,
+            &mut layer,
+            &mut state,
+            &StrokeParams {
+                brush: &brush,
+                active_tip: None,
+                secondary_tip: None,
+                texture_tip: None,
+                selection: None,
+            },
+            190.0,
+            100.0,
+            1.0,
         );
         let bounds3 = layer.dirty_bounds.unwrap();
 
@@ -999,26 +1132,30 @@ mod tests {
         stroke_begin(
             &mut layer_no_scatter,
             &mut state,
-            &brush,
+            &StrokeParams {
+                brush: &brush,
+                active_tip: None,
+                secondary_tip: None,
+                texture_tip: None,
+                selection: None,
+            },
             20.0,
             100.0,
             1.0,
-            None,
-            None,
-            None,
-            None,
         );
         stroke_move(
             &mut layer_no_scatter,
             &mut state,
-            &brush,
+            &StrokeParams {
+                brush: &brush,
+                active_tip: None,
+                secondary_tip: None,
+                texture_tip: None,
+                selection: None,
+            },
             180.0,
             100.0,
             1.0,
-            None,
-            None,
-            None,
-            None,
         );
         stroke_end(&mut state);
 
@@ -1047,26 +1184,30 @@ mod tests {
         stroke_begin(
             &mut layer_scatter,
             &mut state,
-            &scatter_brush,
+            &StrokeParams {
+                brush: &scatter_brush,
+                active_tip: None,
+                secondary_tip: None,
+                texture_tip: None,
+                selection: None,
+            },
             20.0,
             100.0,
             1.0,
-            None,
-            None,
-            None,
-            None,
         );
         stroke_move(
             &mut layer_scatter,
             &mut state,
-            &scatter_brush,
+            &StrokeParams {
+                brush: &scatter_brush,
+                active_tip: None,
+                secondary_tip: None,
+                texture_tip: None,
+                selection: None,
+            },
             180.0,
             100.0,
             1.0,
-            None,
-            None,
-            None,
-            None,
         );
         stroke_end(&mut state);
 

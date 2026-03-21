@@ -67,6 +67,13 @@ impl Canvas {
             .expect("active site must exist")
     }
 
+    /// Helper to look up a brush tip in the registry and clone it.
+    pub(crate) fn get_cloned_tip(&self, tip_id: &Option<String>) -> Option<BrushTip> {
+        tip_id
+            .as_ref()
+            .and_then(|id| self.tip_registry.get(id).cloned())
+    }
+
     /// Get the active site's state mutably.
     pub(crate) fn site_mut(&mut self) -> &mut SiteState {
         self.sites.entry(self.active_site).or_default()

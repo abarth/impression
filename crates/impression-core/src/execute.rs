@@ -19,55 +19,31 @@ impl Canvas {
                 y,
                 pressure,
             } => {
-                self.sites.entry(site).or_default().stroke_layer = layer;
-                let site_state = self.sites.get(&site).unwrap();
-                let sel_data: Option<Vec<u8>> =
-                    site_state.selection.as_ref().map(|s| s.data.clone());
-                let brush = site_state.brush.clone();
-                let tip = site_state.active_tip.clone();
-                let sec_tip = site_state.secondary_tip.clone();
-                let tex_tip = site_state.texture_tip.clone();
-                let sel_ref = sel_data.as_deref();
+                let site_state = self.sites.entry(site).or_default();
+                site_state.stroke_layer = layer;
+                let params = stroke::StrokeParams {
+                    brush: &site_state.brush,
+                    active_tip: site_state.active_tip.as_ref(),
+                    secondary_tip: site_state.secondary_tip.as_ref(),
+                    texture_tip: site_state.texture_tip.as_ref(),
+                    selection: site_state.selection.as_ref().map(|s| s.data.as_slice()),
+                };
                 if let Some(l) = self.layers.iter_mut().find(|l| l.id == layer) {
-                    let stroke_state = &mut self.sites.get_mut(&site).unwrap().stroke_state;
-                    stroke::stroke_begin(
-                        l,
-                        stroke_state,
-                        &brush,
-                        x,
-                        y,
-                        pressure,
-                        tip.as_ref(),
-                        sec_tip.as_ref(),
-                        tex_tip.as_ref(),
-                        sel_ref,
-                    );
+                    stroke::stroke_begin(l, &mut site_state.stroke_state, &params, x, y, pressure);
                 }
             }
             Operation::StrokeMove { x, y, pressure } => {
-                let site_state = self.sites.get(&site).unwrap();
+                let site_state = self.sites.entry(site).or_default();
                 let stroke_layer = site_state.stroke_layer;
-                let sel_data: Option<Vec<u8>> =
-                    site_state.selection.as_ref().map(|s| s.data.clone());
-                let brush = site_state.brush.clone();
-                let tip = site_state.active_tip.clone();
-                let sec_tip = site_state.secondary_tip.clone();
-                let tex_tip = site_state.texture_tip.clone();
-                let sel_ref = sel_data.as_deref();
+                let params = stroke::StrokeParams {
+                    brush: &site_state.brush,
+                    active_tip: site_state.active_tip.as_ref(),
+                    secondary_tip: site_state.secondary_tip.as_ref(),
+                    texture_tip: site_state.texture_tip.as_ref(),
+                    selection: site_state.selection.as_ref().map(|s| s.data.as_slice()),
+                };
                 if let Some(l) = self.layers.iter_mut().find(|l| l.id == stroke_layer) {
-                    let stroke_state = &mut self.sites.get_mut(&site).unwrap().stroke_state;
-                    stroke::stroke_move(
-                        l,
-                        stroke_state,
-                        &brush,
-                        x,
-                        y,
-                        pressure,
-                        tip.as_ref(),
-                        sec_tip.as_ref(),
-                        tex_tip.as_ref(),
-                        sel_ref,
-                    );
+                    stroke::stroke_move(l, &mut site_state.stroke_state, &params, x, y, pressure);
                 }
             }
             Operation::StrokeEnd => {
@@ -98,9 +74,7 @@ impl Canvas {
                 site_state.texture_tip = None;
             }
             Operation::SetBrushTip(ref tip_id) => {
-                let cloned_tip = tip_id
-                    .as_ref()
-                    .and_then(|id| self.tip_registry.get(id).cloned());
+                let cloned_tip = self.get_cloned_tip(tip_id);
                 let site_state = self.site_for_mut(site);
                 site_state.brush.active_tip_id = tip_id.clone();
                 site_state.active_tip = cloned_tip;
@@ -233,9 +207,7 @@ impl Canvas {
                 self.site_for_mut(site).brush.dual_brush = settings;
             }
             Operation::SetSecondaryBrushTip(ref tip_id) => {
-                let cloned_tip = tip_id
-                    .as_ref()
-                    .and_then(|id| self.tip_registry.get(id).cloned());
+                let cloned_tip = self.get_cloned_tip(tip_id);
                 let site_state = self.site_for_mut(site);
                 site_state.brush.secondary_tip_id = tip_id.clone();
                 site_state.secondary_tip = cloned_tip;
@@ -244,9 +216,7 @@ impl Canvas {
                 self.site_for_mut(site).brush.texture = settings;
             }
             Operation::SetTextureTip(ref tip_id) => {
-                let cloned_tip = tip_id
-                    .as_ref()
-                    .and_then(|id| self.tip_registry.get(id).cloned());
+                let cloned_tip = self.get_cloned_tip(tip_id);
                 let site_state = self.site_for_mut(site);
                 site_state.brush.texture_tip_id = tip_id.clone();
                 site_state.texture_tip = cloned_tip;
