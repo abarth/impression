@@ -10,7 +10,5 @@ services:
       - ~/.copilot:/root/.copilot:rw
       - ~/.config/gh:/root/.config/gh:ro
       - ~/.config/github-copilot:/root/.config/github-copilot:ro
-    ports:
-      - "5173:5173" # Vite default port
     # The container will stay awake so you can 'docker-compose exec dev bash'
     # and run your coding agents or the development server inside it.
