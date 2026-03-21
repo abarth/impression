@@ -4,7 +4,7 @@ use crate::blend_mode::BlendMode;
 use crate::brush::{BrushTip, DualBrushSettings, ScatterSettings, TextureSettings};
 use crate::color::Color;
 use crate::dynamics::{ShapeDynamics, TransferDynamics};
-use crate::layer::{AdjustmentKind, Layer, LayerKind};
+use crate::layer::{AdjustmentKind, Layer};
 use crate::operation::{LayerId, Operation, SiteId, SiteOperation};
 use crate::oplog::OpLog;
 use crate::replay::{Checkpoint, CHECKPOINT_INTERVAL};
@@ -54,6 +54,7 @@ impl Canvas {
     }
 
     /// Get the active site's state.
+    #[allow(dead_code)]
     pub(crate) fn site(&self) -> &SiteState {
         self.sites.get(&self.active_site).expect("active site must exist")
     }
@@ -425,6 +426,7 @@ impl Canvas {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::layer::LayerKind;
 
     #[test]
     fn test_canvas_creation() {
@@ -532,7 +534,7 @@ mod tests {
     fn test_oplog_records_layer_operations() {
         let mut canvas = Canvas::new(100, 100);
         canvas.add_layer();
-        let layer_id = canvas.layers[0].id;
+        let _layer_id = canvas.layers[0].id;
         canvas.set_layer_opacity(0, 0.5);
         canvas.set_layer_blend_mode(0, BlendMode::Multiply);
         canvas.set_layer_visible(0, false);

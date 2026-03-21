@@ -200,7 +200,7 @@ mod tests {
 
     #[test]
     fn test_copy_composite() {
-        let (r, g, b, a) = porter_duff_composite(
+        let (r, _g, _b, a) = porter_duff_composite(
             0.5, 0.0, 0.0, 0.5,
             0.0, 1.0, 0.0, 1.0,
             BlendMode::Copy,
@@ -233,7 +233,7 @@ mod tests {
 
     #[test]
     fn test_src_over_matches_normal_compositing() {
-        let (r, g, b, a) = porter_duff_composite(
+        let (r, g, _b, a) = porter_duff_composite(
             0.5, 0.0, 0.0, 0.5,
             0.0, 0.25, 0.0, 0.5,
             BlendMode::SrcOver,

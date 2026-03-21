@@ -51,6 +51,7 @@ impl SelectionMask {
     }
 
     /// Get the selection value at (x, y).
+    #[allow(dead_code)]
     pub fn get(&self, x: u32, y: u32) -> u8 {
         if x >= self.width || y >= self.height {
             return 0;
@@ -59,6 +60,7 @@ impl SelectionMask {
     }
 
     /// Set the selection value at (x, y).
+    #[allow(dead_code)]
     pub fn set(&mut self, x: u32, y: u32, value: u8) {
         if x < self.width && y < self.height {
             self.data[(y * self.width + x) as usize] = value;
@@ -66,6 +68,7 @@ impl SelectionMask {
     }
 
     /// Fill the entire mask with 255 (select all).
+    #[allow(dead_code)]
     pub fn select_all(&mut self) {
         self.data.fill(255);
         self.dirty = true;

@@ -1,11 +1,9 @@
 use std::collections::HashMap;
 
-use crate::brush;
 use crate::canvas::Canvas;
 use crate::color::Color;
 use crate::layer::Layer;
-use crate::operation::{Operation, SiteId, SiteOperation};
-use crate::selection::{CombineMode, SelectionMask};
+use crate::operation::SiteId;
 use crate::site::SiteState;
 
 /// How many undo groups between automatic checkpoints.

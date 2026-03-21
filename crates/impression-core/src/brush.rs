@@ -375,6 +375,7 @@ fn sample_texture(
 
 /// Draw a filled circle (stamp) onto the layer at the given center with given radius and alpha.
 /// If a selection mask is provided, the stamp is clipped to the selected region.
+#[allow(dead_code)]
 pub fn stamp_circle(
     layer: &mut Layer,
     cx: f32,
@@ -1340,7 +1341,7 @@ mod tests {
 
         // Begin stroke at (10, 100)
         stroke_begin(&mut layer, &mut state, &brush, 10.0, 100.0, 1.0, None, None, None, None);
-        let bounds1 = layer.dirty_bounds.unwrap();
+        let _bounds1 = layer.dirty_bounds.unwrap();
 
         // Clear dirty to simulate syncLayer
         layer.clear_dirty();
