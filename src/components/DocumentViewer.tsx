@@ -47,7 +47,7 @@ export function DocumentViewer({
     activeTool,
     onApplyPreset: applyPreset,
   });
-  const { groups: gradientGroups, activeGradientId, selectGradient, importGrd } = useGradientPresets(storage);
+  const { groups: gradientGroups, activeGradientId, selectGradient, importGrd } = useGradientPresets({ storage });
   const [undoState, setUndoState] = useState({ canUndo: false, canRedo: false });
 
   // Poll undo/redo state (cheap WASM call) to keep buttons in sync

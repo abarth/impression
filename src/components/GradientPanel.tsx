@@ -1,6 +1,8 @@
-import { useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect } from "react";
 import type { Gradient } from "../gradient";
 import { rasterizeGradient } from "../gradient";
+import type { ImportResult } from "../hooks/useGradientPresets";
+import { ImportErrorDialog } from "./ImportErrorDialog";
 
 interface GradientThumbnailProps {
   gradient: Gradient;
@@ -47,7 +49,7 @@ interface GradientPanelProps {
   groups: Record<string, Gradient[]>;
   activeGradientId: string | null;
   onSelect: (id: string) => void;
-  onImportGrd?: (file: File) => void;
+  onImportGrd?: (file: File) => Promise<ImportResult>;
 }
 
 export function GradientPanel({
@@ -57,6 +59,7 @@ export function GradientPanel({
   onImportGrd,
 }: GradientPanelProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [importError, setImportError] = useState<string | null>(null);
   const groupNames = Object.keys(groups);
   if (groupNames.length === 0 && !onImportGrd) return null;
 
@@ -95,9 +98,14 @@ export function GradientPanel({
             type="file"
             accept=".grd"
             className="hidden"
-            onChange={(e) => {
+            onChange={async (e) => {
               const file = e.target.files?.[0];
-              if (file) onImportGrd(file);
+              if (file) {
+                const result = await onImportGrd(file);
+                if (!result.success) {
+                  setImportError(result.error ?? "Import failed.");
+                }
+              }
               e.target.value = "";
             }}
           />
@@ -109,6 +117,12 @@ export function GradientPanel({
           </button>
         </>
       )}
+      <ImportErrorDialog
+        open={importError !== null}
+        onClose={() => setImportError(null)}
+        title="Gradient Import Failed"
+        message={importError ?? ""}
+      />
     </div>
   );
 }

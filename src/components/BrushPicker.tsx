@@ -1,11 +1,13 @@
-import { useRef } from "react";
+import { useState, useRef } from "react";
 import type { BrushPreset } from "../brushPresets";
+import type { ImportResult } from "../hooks/useGradientPresets";
+import { ImportErrorDialog } from "./ImportErrorDialog";
 
 interface BrushPickerProps {
   groups: Record<string, BrushPreset[]>;
   activePresetId: string | null;
   onSelect: (id: string) => void;
-  onImportAbr?: (file: File) => void;
+  onImportAbr?: (file: File) => Promise<ImportResult>;
 }
 
 function PresetThumbnail({
@@ -53,6 +55,7 @@ export function BrushPicker({
   onImportAbr,
 }: BrushPickerProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [importError, setImportError] = useState<string | null>(null);
   const groupNames = Object.keys(groups);
   if (groupNames.length === 0 && !onImportAbr) return null;
 
@@ -89,20 +92,31 @@ export function BrushPicker({
             type="file"
             accept=".abr"
             className="hidden"
-            onChange={(e) => {
+            onChange={async (e) => {
               const file = e.target.files?.[0];
-              if (file) onImportAbr(file);
+              if (file) {
+                const result = await onImportAbr(file);
+                if (!result.success) {
+                  setImportError(result.error ?? "Import failed.");
+                }
+              }
               e.target.value = "";
             }}
           />
           <button
-            className="text-[11px] text-cream-muted hover:text-cream transition-colors duration-150 text-left"
+            className="text-[11px] text-cream-muted hover:text-cream transition-colors duration-150 text-left cursor-pointer"
             onClick={() => fileInputRef.current?.click()}
           >
             Import ABR...
           </button>
         </>
       )}
+      <ImportErrorDialog
+        open={importError !== null}
+        onClose={() => setImportError(null)}
+        title="Brush Import Failed"
+        message={importError ?? ""}
+      />
     </div>
   );
 }

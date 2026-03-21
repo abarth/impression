@@ -4,6 +4,7 @@ import type { BrushSettings } from "./useBrushSettings";
 import type { Engine } from "../engine";
 import type { Storage } from "../storage";
 import type { Tool } from "./useTool";
+import type { ImportResult } from "./useGradientPresets";
 import { parseAbrFile } from "../abrParser";
 
 type ToolWithSettings = "brush" | "eraser";
@@ -161,13 +162,35 @@ export function useBrushPresets({
   );
 
   const importAbr = useCallback(
-    async (file: File) => {
+    async (file: File): Promise<ImportResult> => {
       const s = storageRef.current;
-      if (!s) return;
+      if (!s) return { success: false, count: 0, error: "Storage not available." };
 
-      const buffer = await file.arrayBuffer();
-      const parsed = parseAbrFile(buffer);
-      if (parsed.length === 0) return;
+      let buffer: ArrayBuffer;
+      try {
+        buffer = await file.arrayBuffer();
+      } catch {
+        return { success: false, count: 0, error: "Could not read the file." };
+      }
+
+      let parsed;
+      try {
+        parsed = parseAbrFile(buffer);
+      } catch (e) {
+        return {
+          success: false,
+          count: 0,
+          error: `Failed to parse "${file.name}": ${e instanceof Error ? e.message : "unknown error"}.`,
+        };
+      }
+
+      if (parsed.length === 0) {
+        return {
+          success: false,
+          count: 0,
+          error: `No brushes found in "${file.name}". The file may be empty or in an unsupported format.`,
+        };
+      }
 
       const groupName = `Imported - ${file.name}`;
       const existingPresets = await s.listPresets();
@@ -222,6 +245,8 @@ export function useBrushPresets({
       const list = await s.listPresets();
       list.sort((a, b) => a.sort_order - b.sort_order);
       setPresets(list);
+
+      return { success: true, count: parsed.length };
     },
     [],
   );

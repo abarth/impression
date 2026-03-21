@@ -297,7 +297,10 @@ export function parseGrdFile(buffer: ArrayBuffer): ParsedGrdGradient[] {
 
       for (const item of gradList) {
         if (item.type !== "Objc") continue;
-        const parsed = parseGradientDescriptor(item.items);
+        // Some GRD files wrap each gradient in a "Grad" key
+        const gradObj = getObjc(item.items, "Grad");
+        const gradientItems = gradObj ?? item.items;
+        const parsed = parseGradientDescriptor(gradientItems);
         if (parsed) gradients.push(parsed);
       }
     } catch {

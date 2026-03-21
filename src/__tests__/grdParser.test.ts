@@ -118,62 +118,37 @@ class GrdBuilder {
 }
 
 /**
- * Build a minimal GRD file with one solid gradient.
+ * Write the body of a gradient descriptor (Nm, GrdF, Intr, Clrs, Trns).
  */
-function buildSolidGradientGrd(opts: {
-  name?: string;
-  smoothness?: number;
-  colorStops?: Array<{
-    position: number;
-    midpoint: number;
-    r: number;
-    g: number;
-    b: number;
-  }>;
-  opacityStops?: Array<{
-    position: number;
-    midpoint: number;
-    opacity: number;
-  }>;
-}): ArrayBuffer {
-  const b = new GrdBuilder();
+function writeGradientBody(
+  b: GrdBuilder,
+  opts: {
+    name?: string;
+    smoothness?: number;
+    colorStops?: Array<{
+      position: number;
+      midpoint: number;
+      r: number;
+      g: number;
+      b: number;
+    }>;
+    opacityStops?: Array<{
+      position: number;
+      midpoint: number;
+      opacity: number;
+    }>;
+  },
+): void {
+  b.writeU32(5); // Nm, GrdF, Intr, Clrs, Trns
 
-  // GRD header
-  b.writeTag("8BGR");
-  b.writeU16(5); // version
-  b.writeU32(0); // padding/reserved field after version
-
-  // Top-level descriptor
-  b.writeUnicodeString(""); // name
-  b.writeClassId("null"); // classId
-  b.writeU32(1); // 1 item: GrdL
-
-  // GrdL list (gradient list directly under top-level descriptor)
-  b.writeKey("GrdL");
-  b.writeTag("VlLs");
-  b.writeU32(1); // 1 gradient
-
-  // Gradient descriptor
-  b.writeTag("Objc");
-  b.writeUnicodeString("");
-  b.writeClassId("Grdn");
-
-  // Count items in gradient: Nm, GrdF, Intr, Clrs, Trns = 5
-  b.writeU32(5);
-
-  // Name
   b.writeTEXT("Nm  ", opts.name ?? "Test Gradient");
-
-  // Form: CstS (solid/custom stops)
   b.writeEnum("GrdF", "GrdF", "CstS");
 
-  // Smoothness (0-4096)
   const smoothnessVal = Math.round(
     ((opts.smoothness ?? 100) / 100) * 4096,
   );
   b.writeLong("Intr", smoothnessVal);
 
-  // Color stops
   const colorStops = opts.colorStops ?? [
     { position: 0, midpoint: 50, r: 0, g: 0, b: 0 },
     { position: 4096, midpoint: 50, r: 255, g: 255, b: 255 },
@@ -187,27 +162,22 @@ function buildSolidGradientGrd(opts: {
     b.writeTag("Objc");
     b.writeUnicodeString("");
     b.writeClassId("Clrt");
-    b.writeU32(4); // Clr, Type, Lctn, Mdpn
+    b.writeU32(4);
 
-    // Color object
     b.writeKey("Clr ");
     b.writeTag("Objc");
     b.writeUnicodeString("");
     b.writeClassId("RGBC");
-    b.writeU32(3); // Rd, Grn, Bl
+    b.writeU32(3);
     b.writeUntF("Rd  ", "#Rlt", stop.r);
     b.writeUntF("Grn ", "#Rlt", stop.g);
     b.writeUntF("Bl  ", "#Rlt", stop.b);
 
-    // Type
     b.writeEnum("Type", "Clry", "UsrS");
-    // Position
     b.writeLong("Lctn", stop.position);
-    // Midpoint
     b.writeLong("Mdpn", stop.midpoint);
   }
 
-  // Opacity stops
   const opacityStops = opts.opacityStops ?? [
     { position: 0, midpoint: 50, opacity: 100 },
     { position: 4096, midpoint: 50, opacity: 100 },
@@ -221,11 +191,108 @@ function buildSolidGradientGrd(opts: {
     b.writeTag("Objc");
     b.writeUnicodeString("");
     b.writeClassId("TrnS");
-    b.writeU32(3); // Opct, Lctn, Mdpn
+    b.writeU32(3);
 
     b.writeUntF("Opct", "#Prc", stop.opacity);
     b.writeLong("Lctn", stop.position);
     b.writeLong("Mdpn", stop.midpoint);
+  }
+}
+
+type GradientOpts = Parameters<typeof writeGradientBody>[1];
+
+/**
+ * Build a GRD file using the GrdL layout (flat gradient list).
+ */
+function buildGrdWithGrdL(opts: GradientOpts): ArrayBuffer {
+  const b = new GrdBuilder();
+
+  b.writeTag("8BGR");
+  b.writeU16(5);
+  b.writeU32(0);
+
+  b.writeUnicodeString("");
+  b.writeClassId("null");
+  b.writeU32(1);
+
+  b.writeKey("GrdL");
+  b.writeTag("VlLs");
+  b.writeU32(1);
+
+  b.writeTag("Objc");
+  b.writeUnicodeString("");
+  b.writeClassId("Grdn");
+  writeGradientBody(b, opts);
+
+  return b.build();
+}
+
+/**
+ * Build a GRD file using the "Grad" wrapper layout.
+ * Each gradient Objc contains a single "Grad" key wrapping the real data.
+ * This matches the structure produced by some versions of Photoshop.
+ */
+function buildGrdWithGradWrapper(opts: GradientOpts): ArrayBuffer {
+  const b = new GrdBuilder();
+
+  b.writeTag("8BGR");
+  b.writeU16(5);
+  b.writeU32(0);
+
+  b.writeUnicodeString("");
+  b.writeClassId("null");
+  b.writeU32(1);
+
+  b.writeKey("GrdL");
+  b.writeTag("VlLs");
+  b.writeU32(1);
+
+  // Outer Objc with a single "Grad" key
+  b.writeTag("Objc");
+  b.writeUnicodeString("");
+  b.writeClassId("Grdn");
+  b.writeU32(1); // 1 item: "Grad"
+
+  b.writeKey("Grad");
+  b.writeTag("Objc");
+  b.writeUnicodeString("");
+  b.writeClassId("Grdn");
+  writeGradientBody(b, opts);
+
+  return b.build();
+}
+
+/**
+ * Build a GRD file with multiple gradients using "Grad" wrapper layout.
+ */
+function buildGrdMultipleGradients(
+  gradients: GradientOpts[],
+): ArrayBuffer {
+  const b = new GrdBuilder();
+
+  b.writeTag("8BGR");
+  b.writeU16(5);
+  b.writeU32(0);
+
+  b.writeUnicodeString("");
+  b.writeClassId("null");
+  b.writeU32(1);
+
+  b.writeKey("GrdL");
+  b.writeTag("VlLs");
+  b.writeU32(gradients.length);
+
+  for (const opts of gradients) {
+    b.writeTag("Objc");
+    b.writeUnicodeString("");
+    b.writeClassId("Grdn");
+    b.writeU32(1);
+
+    b.writeKey("Grad");
+    b.writeTag("Objc");
+    b.writeUnicodeString("");
+    b.writeClassId("Grdn");
+    writeGradientBody(b, opts);
   }
 
   return b.build();
@@ -233,7 +300,7 @@ function buildSolidGradientGrd(opts: {
 
 describe("parseGrdFile", () => {
   it("parses a minimal solid gradient", () => {
-    const buffer = buildSolidGradientGrd({});
+    const buffer = buildGrdWithGrdL({});
     const gradients = parseGrdFile(buffer);
 
     expect(gradients).toHaveLength(1);
@@ -244,7 +311,7 @@ describe("parseGrdFile", () => {
   });
 
   it("parses color stops with RGB values", () => {
-    const buffer = buildSolidGradientGrd({
+    const buffer = buildGrdWithGrdL({
       colorStops: [
         { position: 0, midpoint: 50, r: 255, g: 0, b: 0 },
         { position: 2048, midpoint: 75, r: 0, g: 255, b: 0 },
@@ -264,7 +331,7 @@ describe("parseGrdFile", () => {
   });
 
   it("parses opacity stops", () => {
-    const buffer = buildSolidGradientGrd({
+    const buffer = buildGrdWithGrdL({
       opacityStops: [
         { position: 0, midpoint: 50, opacity: 100 },
         { position: 2048, midpoint: 50, opacity: 50 },
@@ -280,14 +347,14 @@ describe("parseGrdFile", () => {
   });
 
   it("parses smoothness", () => {
-    const buffer = buildSolidGradientGrd({ smoothness: 50 });
+    const buffer = buildGrdWithGrdL({ smoothness: 50 });
     const gradients = parseGrdFile(buffer);
 
     expect(gradients[0].smoothness).toBeCloseTo(50, 0);
   });
 
   it("parses gradient name", () => {
-    const buffer = buildSolidGradientGrd({ name: "My Cool Gradient" });
+    const buffer = buildGrdWithGrdL({ name: "My Cool Gradient" });
     const gradients = parseGrdFile(buffer);
 
     expect(gradients[0].name).toBe("My Cool Gradient");
@@ -304,31 +371,41 @@ describe("parseGrdFile", () => {
     expect(parseGrdFile(buffer)).toEqual([]);
   });
 
-  it("parses a real Photoshop GRD file", async () => {
-    const fs = await import("fs");
-    const path = await import("path");
-    const filePath = path.resolve(__dirname, "../../data/Angel Gradients.grd");
-    const fileBuffer = fs.readFileSync(filePath);
-    const arrayBuffer = fileBuffer.buffer.slice(
-      fileBuffer.byteOffset,
-      fileBuffer.byteOffset + fileBuffer.byteLength,
-    );
-    const gradients = parseGrdFile(arrayBuffer);
+  it("parses gradients with Grad wrapper (Photoshop export format)", () => {
+    const buffer = buildGrdWithGradWrapper({
+      name: "Wrapped Gradient",
+      colorStops: [
+        { position: 0, midpoint: 50, r: 255, g: 128, b: 0 },
+        { position: 4096, midpoint: 50, r: 0, g: 64, b: 255 },
+      ],
+    });
+    const gradients = parseGrdFile(buffer);
 
-    expect(gradients.length).toBeGreaterThan(0);
-    // Every parsed gradient should have at least one color stop
-    for (const g of gradients) {
-      if (g.form === "solid") {
-        expect(g.colorStops.length).toBeGreaterThanOrEqual(1);
-        expect(g.opacityStops.length).toBeGreaterThanOrEqual(1);
-      }
-    }
+    expect(gradients).toHaveLength(1);
+    expect(gradients[0].name).toBe("Wrapped Gradient");
+    expect(gradients[0].colorStops).toHaveLength(2);
+    expect(gradients[0].colorStops[0].color).toBe("#ff8000");
+    expect(gradients[0].colorStops[1].color).toBe("#0040ff");
+  });
+
+  it("parses multiple gradients with Grad wrapper", () => {
+    const buffer = buildGrdMultipleGradients([
+      { name: "Sunrise" },
+      { name: "Sunset" },
+      { name: "Ocean" },
+    ]);
+    const gradients = parseGrdFile(buffer);
+
+    expect(gradients).toHaveLength(3);
+    expect(gradients[0].name).toBe("Sunrise");
+    expect(gradients[1].name).toBe("Sunset");
+    expect(gradients[2].name).toBe("Ocean");
   });
 });
 
 describe("convertParsedGradients", () => {
   it("converts parsed gradients with IDs and group", () => {
-    const parsed = parseGrdFile(buildSolidGradientGrd({}));
+    const parsed = parseGrdFile(buildGrdWithGrdL({}));
     const gradients = convertParsedGradients(parsed, "Imported - test.grd", 5);
 
     expect(gradients).toHaveLength(1);
@@ -352,5 +429,41 @@ describe("convertParsedGradients", () => {
     ];
     const gradients = convertParsedGradients(parsed, "test");
     expect(gradients).toHaveLength(0);
+  });
+});
+
+describe("parseGrdFile (binary test files)", () => {
+  it("parses flat-layout.grd (GrdL, no Grad wrapper)", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const filePath = path.resolve(__dirname, "../../tests/grd/flat-layout.grd");
+    const buf = fs.readFileSync(filePath);
+    const gradients = parseGrdFile(
+      buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength),
+    );
+
+    expect(gradients).toHaveLength(2);
+    expect(gradients[0].name).toBe("Red to Blue");
+    expect(gradients[0].colorStops[0].color).toBe("#ff0000");
+    expect(gradients[0].colorStops[1].color).toBe("#0000ff");
+    expect(gradients[1].name).toBe("White to Black");
+  });
+
+  it("parses grad-wrapper.grd (GrdL with Grad wrapper)", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const filePath = path.resolve(__dirname, "../../tests/grd/grad-wrapper.grd");
+    const buf = fs.readFileSync(filePath);
+    const gradients = parseGrdFile(
+      buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength),
+    );
+
+    expect(gradients).toHaveLength(3);
+    expect(gradients[0].name).toBe("Sunset");
+    expect(gradients[0].colorStops).toHaveLength(3);
+    expect(gradients[1].name).toBe("Ocean");
+    expect(gradients[1].colorStops).toHaveLength(2);
+    expect(gradients[2].name).toBe("Forest");
+    expect(gradients[2].colorStops).toHaveLength(3);
   });
 });

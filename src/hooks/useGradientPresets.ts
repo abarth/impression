@@ -3,6 +3,12 @@ import type { Gradient } from "../gradient";
 import type { Storage } from "../storage";
 import { parseGrdFile, convertParsedGradients } from "../grdParser";
 
+export interface ImportResult {
+  success: boolean;
+  count: number;
+  error?: string;
+}
+
 interface UseGradientPresetsOptions {
   storage: Storage | null;
 }
@@ -60,13 +66,35 @@ export function useGradientPresets({ storage }: UseGradientPresetsOptions) {
     }
   }, [activeGradientId]);
 
-  const importGrd = useCallback(async (file: File) => {
+  const importGrd = useCallback(async (file: File): Promise<ImportResult> => {
     const s = storageRef.current;
-    if (!s) return;
+    if (!s) return { success: false, count: 0, error: "Storage not available." };
 
-    const buffer = await file.arrayBuffer();
-    const parsed = parseGrdFile(buffer);
-    if (parsed.length === 0) return;
+    let buffer: ArrayBuffer;
+    try {
+      buffer = await file.arrayBuffer();
+    } catch {
+      return { success: false, count: 0, error: "Could not read the file." };
+    }
+
+    let parsed;
+    try {
+      parsed = parseGrdFile(buffer);
+    } catch (e) {
+      return {
+        success: false,
+        count: 0,
+        error: `Failed to parse "${file.name}": ${e instanceof Error ? e.message : "unknown error"}.`,
+      };
+    }
+
+    if (parsed.length === 0) {
+      return {
+        success: false,
+        count: 0,
+        error: `No gradients found in "${file.name}". The file may be empty or in an unsupported format.`,
+      };
+    }
 
     const existingGradients = await s.listGradients();
     const maxOrder = existingGradients.reduce(
@@ -81,6 +109,14 @@ export function useGradientPresets({ storage }: UseGradientPresetsOptions) {
       maxOrder + 1,
     );
 
+    if (newGradients.length === 0) {
+      return {
+        success: false,
+        count: 0,
+        error: `"${file.name}" contained ${parsed.length} gradient(s), but none could be converted. Only solid gradients are currently supported.`,
+      };
+    }
+
     for (const gradient of newGradients) {
       await s.saveGradient(gradient);
     }
@@ -88,6 +124,8 @@ export function useGradientPresets({ storage }: UseGradientPresetsOptions) {
     const list = await s.listGradients();
     list.sort((a, b) => a.sort_order - b.sort_order);
     setGradients(list);
+
+    return { success: true, count: newGradients.length };
   }, []);
 
   const activeGradient = gradients.find((g) => g.id === activeGradientId) ?? null;
