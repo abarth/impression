@@ -60,6 +60,7 @@ export class Engine {
   addLayer(): number {
     const layerIndex = this.canvas.add_layer();
     createLayerTexture(this.gpu, this.canvas.width(), this.canvas.height());
+    this.flushAll();
     return layerIndex;
   }
 
@@ -71,6 +72,7 @@ export class Engine {
         this.activeLayer = Math.max(0, this.canvas.layer_count() - 1);
       }
       this.needsRender = true;
+      this.flushAll();
     }
     return removed;
   }
@@ -81,6 +83,7 @@ export class Engine {
     const layerIndex = this.canvas.add_adjustment_layer(0, gradientId);
     createGradientLayerTexture(this.gpu);
     this.needsRender = true;
+    this.flushAll();
     return layerIndex;
   }
 
@@ -100,6 +103,7 @@ export class Engine {
   setGradientMapGradient(layer: number, gradientId: string): void {
     this.canvas.set_gradient_map_gradient(layer, gradientId);
     this.needsRender = true;
+    this.flushAll();
   }
 
   /** Upload rasterized gradient data (256×1 RGBA) for an adjustment layer. */
