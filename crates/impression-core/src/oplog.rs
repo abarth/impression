@@ -256,6 +256,12 @@ impl OpLog {
         Ok(())
     }
 
+    /// Mark all current operations as already flushed. Called after loading
+    /// persisted chunks so that loaded operations are not re-flushed.
+    pub fn mark_flushed(&mut self) {
+        self.flush_index = self.operations.len();
+    }
+
     /// Number of active operations not yet flushed to persistent storage.
     pub fn pending_flush_count(&self) -> usize {
         // Count operations in active groups that are past flush_index

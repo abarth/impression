@@ -116,4 +116,30 @@ describe("syncLayersFromEngine", () => {
     expect(result.current.layers).toHaveLength(1);
     expect(result.current.layers[0].name).toBe("Layer 1");
   });
+
+  it("moveLayer should call syncLayersFromEngine and engine.moveLayer", () => {
+    const engine = createMockEngine([
+      { name: "Layer 1" },
+      { name: "Layer 2" },
+      { name: "Layer 3" },
+    ]);
+
+    const { result } = renderHook(() => useLayerManager(engine as never));
+    expect(result.current.layers).toHaveLength(3);
+
+    // After moveLayer(0, 2), engine returns reordered layers
+    engine.getLayerName.mockImplementation((i: number) =>
+      ["Layer 2", "Layer 3", "Layer 1"][i] ?? "",
+    );
+
+    act(() => {
+      result.current.moveLayer(0, 2);
+    });
+
+    expect(engine.moveLayer).toHaveBeenCalledWith(0, 2);
+    // Layers should be synced from engine (not manually spliced)
+    expect(result.current.layers[0].name).toBe("Layer 2");
+    expect(result.current.layers[1].name).toBe("Layer 3");
+    expect(result.current.layers[2].name).toBe("Layer 1");
+  });
 });

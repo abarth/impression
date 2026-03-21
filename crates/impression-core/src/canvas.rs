@@ -440,6 +440,9 @@ impl Canvas {
             self.oplog.push(site_op.clone());
             self.execute_op(site_op);
         }
+        // Mark loaded operations as already persisted so they are not
+        // re-flushed into new chunks (which would cause duplicate ops on reload).
+        self.oplog.mark_flushed();
         Ok(())
     }
 }
@@ -1451,5 +1454,219 @@ mod tests {
         assert_eq!(canvas2.layers[0].name, "Layer 2");
         assert_eq!(canvas2.layers[1].name, "Layer 3");
         assert_eq!(canvas2.layers[2].name, "Layer 1");
+    }
+
+    #[test]
+    fn test_roundtrip_blend_mode() {
+        let mut canvas1 = Canvas::new(32, 32);
+        canvas1.add_layer();
+        canvas1.set_layer_blend_mode(0, BlendMode::Multiply);
+
+        let data = canvas1.flush_pending_operations().expect("should have ops");
+        let mut canvas2 = Canvas::new(32, 32);
+        canvas2.load_chunk(&data).expect("load should succeed");
+
+        assert_eq!(canvas2.layers.len(), 1);
+        assert_eq!(canvas2.layers[0].blend_mode, BlendMode::Multiply);
+    }
+
+    #[test]
+    fn test_roundtrip_opacity() {
+        let mut canvas1 = Canvas::new(32, 32);
+        canvas1.add_layer();
+        canvas1.set_layer_opacity(0, 0.42);
+
+        let data = canvas1.flush_pending_operations().expect("should have ops");
+        let mut canvas2 = Canvas::new(32, 32);
+        canvas2.load_chunk(&data).expect("load should succeed");
+
+        assert_eq!(canvas2.layers.len(), 1);
+        assert!((canvas2.layers[0].opacity - 0.42).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_roundtrip_visibility() {
+        let mut canvas1 = Canvas::new(32, 32);
+        canvas1.add_layer();
+        canvas1.set_layer_visible(0, false);
+
+        let data = canvas1.flush_pending_operations().expect("should have ops");
+        let mut canvas2 = Canvas::new(32, 32);
+        canvas2.load_chunk(&data).expect("load should succeed");
+
+        assert_eq!(canvas2.layers.len(), 1);
+        assert!(!canvas2.layers[0].visible);
+    }
+
+    #[test]
+    fn test_roundtrip_rename() {
+        let mut canvas1 = Canvas::new(32, 32);
+        canvas1.add_layer();
+        canvas1.rename_layer(0, "My Custom Name".to_string());
+
+        let data = canvas1.flush_pending_operations().expect("should have ops");
+        let mut canvas2 = Canvas::new(32, 32);
+        canvas2.load_chunk(&data).expect("load should succeed");
+
+        assert_eq!(canvas2.layers.len(), 1);
+        assert_eq!(canvas2.layers[0].name, "My Custom Name");
+    }
+
+    #[test]
+    fn test_roundtrip_delete_layer() {
+        let mut canvas1 = Canvas::new(32, 32);
+        canvas1.add_layer(); // Layer 1
+        canvas1.add_layer(); // Layer 2
+        canvas1.add_layer(); // Layer 3
+        canvas1.remove_layer(1); // Remove Layer 2
+
+        let data = canvas1.flush_pending_operations().expect("should have ops");
+        let mut canvas2 = Canvas::new(32, 32);
+        canvas2.load_chunk(&data).expect("load should succeed");
+
+        assert_eq!(canvas2.layers.len(), 2);
+        assert_eq!(canvas2.layers[0].name, "Layer 1");
+        assert_eq!(canvas2.layers[1].name, "Layer 3");
+    }
+
+    #[test]
+    fn test_roundtrip_gradient_map_blend_mode() {
+        let mut canvas1 = Canvas::new(32, 32);
+        canvas1.add_layer();
+        canvas1.add_adjustment_layer(AdjustmentKind::GradientMap {
+            gradient_id: "grad-1".to_string(),
+        });
+        canvas1.set_layer_blend_mode(1, BlendMode::SoftLight);
+        canvas1.set_layer_opacity(1, 0.75);
+
+        let data = canvas1.flush_pending_operations().expect("should have ops");
+        let mut canvas2 = Canvas::new(32, 32);
+        canvas2.load_chunk(&data).expect("load should succeed");
+
+        assert_eq!(canvas2.layers.len(), 2);
+        assert!(canvas2.layers[1].is_adjustment());
+        assert_eq!(canvas2.layers[1].blend_mode, BlendMode::SoftLight);
+        assert!((canvas2.layers[1].opacity - 0.75).abs() < 1e-6);
+        if let LayerKind::Adjustment(AdjustmentKind::GradientMap { gradient_id }) = &canvas2.layers[1].kind {
+            assert_eq!(gradient_id, "grad-1");
+        } else {
+            panic!("Expected gradient map adjustment layer");
+        }
+    }
+
+    #[test]
+    fn test_flush_index_advances_after_load_chunk() {
+        // Verify that loaded operations are NOT re-flushed
+        let mut canvas1 = Canvas::new(32, 32);
+        canvas1.add_layer();
+        canvas1.set_layer_blend_mode(0, BlendMode::Multiply);
+
+        let data = canvas1.flush_pending_operations().expect("should have ops");
+
+        let mut canvas2 = Canvas::new(32, 32);
+        canvas2.load_chunk(&data).expect("load should succeed");
+
+        // After load_chunk, pending operations should be zero because
+        // mark_flushed() advances flush_index
+        assert_eq!(
+            canvas2.oplog.pending_flush_count(),
+            0,
+            "Loaded operations should not be pending for flush"
+        );
+
+        // Making a new operation should produce exactly 1 pending op
+        canvas2.set_layer_opacity(0, 0.5);
+        assert_eq!(
+            canvas2.oplog.pending_flush_count(),
+            1,
+            "Only the new operation should be pending"
+        );
+    }
+
+    #[test]
+    fn test_multi_chunk_no_duplicate_ops() {
+        // Simulate the real reload flow: load chunks, make changes, flush, reload
+        let mut canvas1 = Canvas::new(32, 32);
+        canvas1.add_layer();
+        let chunk0 = canvas1.flush_pending_operations().expect("chunk 0");
+
+        canvas1.add_layer();
+        let chunk1 = canvas1.flush_pending_operations().expect("chunk 1");
+
+        // Load both chunks into canvas2 (simulates page reload)
+        let mut canvas2 = Canvas::new(32, 32);
+        canvas2.load_chunk(&chunk0).expect("load chunk0");
+        canvas2.load_chunk(&chunk1).expect("load chunk1");
+        assert_eq!(canvas2.layers.len(), 2);
+
+        // Make a new change and flush — should only contain the new op
+        canvas2.set_layer_blend_mode(0, BlendMode::Screen);
+        let chunk2 = canvas2.flush_pending_operations().expect("chunk 2");
+
+        // Load all three chunks into canvas3
+        let mut canvas3 = Canvas::new(32, 32);
+        canvas3.load_chunk(&chunk0).expect("load");
+        canvas3.load_chunk(&chunk1).expect("load");
+        canvas3.load_chunk(&chunk2).expect("load");
+
+        // Should still have exactly 2 layers (no duplicates from re-flushed ops)
+        assert_eq!(
+            canvas3.layers.len(),
+            2,
+            "Should not have duplicate layers from re-flushed operations"
+        );
+        assert_eq!(canvas3.layers[0].blend_mode, BlendMode::Screen);
+    }
+
+    #[test]
+    fn test_roundtrip_all_properties_combined() {
+        let mut canvas1 = Canvas::new(64, 64);
+
+        // Layer 0: normal layer with custom properties
+        canvas1.add_layer();
+        canvas1.rename_layer(0, "Background".to_string());
+        canvas1.set_layer_opacity(0, 0.8);
+        canvas1.set_layer_blend_mode(0, BlendMode::Normal);
+        canvas1.set_brush_color(255, 0, 0);
+        canvas1.stroke_begin(0, 10.0, 10.0, 1.0);
+        canvas1.stroke_end();
+
+        // Layer 1: gradient map with soft light
+        canvas1.add_adjustment_layer(AdjustmentKind::GradientMap {
+            gradient_id: "sunset".to_string(),
+        });
+        canvas1.set_layer_blend_mode(1, BlendMode::SoftLight);
+        canvas1.set_layer_opacity(1, 0.6);
+        canvas1.rename_layer(1, "Color Grade".to_string());
+
+        // Layer 2: another normal layer
+        canvas1.add_layer();
+        canvas1.set_layer_visible(2, false);
+        canvas1.set_layer_blend_mode(2, BlendMode::Overlay);
+        canvas1.rename_layer(2, "Details".to_string());
+
+        // Move layer 2 before layer 1
+        canvas1.move_layer(2, 1);
+
+        // Delete original layer 0
+        canvas1.remove_layer(0);
+
+        let data = canvas1.flush_pending_operations().expect("should have ops");
+        let mut canvas2 = Canvas::new(64, 64);
+        canvas2.load_chunk(&data).expect("load should succeed");
+
+        // After moves and deletes, we should have 2 layers:
+        // Original "Details" (moved to index 1, then index 0 after delete)
+        // Original "Color Grade" gradient map (shifted)
+        assert_eq!(canvas2.layers.len(), 2);
+
+        // Verify the layer order and properties match canvas1
+        for i in 0..canvas1.layers.len() {
+            assert_eq!(canvas2.layers[i].name, canvas1.layers[i].name, "name mismatch at {i}");
+            assert_eq!(canvas2.layers[i].blend_mode, canvas1.layers[i].blend_mode, "blend mismatch at {i}");
+            assert!((canvas2.layers[i].opacity - canvas1.layers[i].opacity).abs() < 1e-6, "opacity mismatch at {i}");
+            assert_eq!(canvas2.layers[i].visible, canvas1.layers[i].visible, "visible mismatch at {i}");
+            assert_eq!(canvas2.layers[i].is_adjustment(), canvas1.layers[i].is_adjustment(), "kind mismatch at {i}");
+        }
     }
 }

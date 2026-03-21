@@ -321,6 +321,7 @@ export class Engine {
     this.canvas.set_layer_opacity(layer, opacity);
     updateLayerOpacity(this.gpu, layer, opacity);
     this.needsRender = true;
+    this.flushAll();
   }
 
   getLayerOpacity(layer: number): number {
@@ -335,6 +336,7 @@ export class Engine {
     this.canvas.set_layer_blend_mode(layer, mode);
     updateLayerBlendMode(this.gpu, layer, mode);
     this.needsRender = true;
+    this.flushAll();
   }
 
   getLayerVisible(layer: number): boolean {
@@ -347,16 +349,19 @@ export class Engine {
 
   renameLayer(layer: number, name: string): void {
     this.canvas.rename_layer(layer, name);
+    this.flushAll();
   }
 
   setLayerVisible(layer: number, visible: boolean): void {
     this.canvas.set_layer_visible(layer, visible);
     this.needsRender = true;
+    this.flushAll();
   }
 
   moveLayer(fromIndex: number, toIndex: number): void {
     this.canvas.move_layer(fromIndex, toIndex);
     this.syncAllLayers();
+    this.flushAll();
   }
 
   // Selection methods

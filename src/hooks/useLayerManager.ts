@@ -226,11 +226,8 @@ export function useLayerManager(engine: Engine | null) {
       if (fromIndex < 0 || fromIndex >= prev.length) return;
       if (toIndex < 0 || toIndex >= prev.length) return;
       eng.moveLayer(fromIndex, toIndex);
-      const nextLayers = [...prev];
-      const [moved] = nextLayers.splice(fromIndex, 1);
-      nextLayers.splice(toIndex, 0, moved);
-      layersRef.current = nextLayers;
-      setLayers(nextLayers);
+      // Sync layer state from engine rather than manual splice (issue #101)
+      syncLayersFromEngine();
       // Update active index to follow the moved layer or adjust for shift
       const prevActive = activeIndexRef.current;
       let nextActive: number;
