@@ -92,6 +92,7 @@ export function MenuBar({
     <NewDocumentDialog
       open={newDocOpen}
       onOpenChange={setNewDocOpen}
+      showTrigger={false}
       onCreateDocument={(name, w, h, ppi) => {
         onNewDocument?.(name, w, h, ppi);
       }}

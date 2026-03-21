@@ -7,6 +7,8 @@ interface NewDocumentDialogProps {
   /** When provided, the dialog is controlled externally. */
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  /** Whether to render the 'New Painting' trigger button. Defaults to true. */
+  showTrigger?: boolean;
 }
 
 const PRESETS: { label: string; width: number; height: number }[] = [
@@ -16,7 +18,7 @@ const PRESETS: { label: string; width: number; height: number }[] = [
   { label: "800 × 600", width: 800, height: 600 },
 ];
 
-export function NewDocumentDialog({ onCreateDocument, open: controlledOpen, onOpenChange: controlledOnOpenChange }: NewDocumentDialogProps) {
+export function NewDocumentDialog({ onCreateDocument, open: controlledOpen, onOpenChange: controlledOnOpenChange, showTrigger = true }: NewDocumentDialogProps) {
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
   const setOpen = controlledOnOpenChange ?? setInternalOpen;
@@ -44,16 +46,18 @@ export function NewDocumentDialog({ onCreateDocument, open: controlledOpen, onOp
 
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
-      <Dialog.Trigger asChild>
-        <button
-          className="flex items-center gap-2 px-4 py-2.5 rounded-xl
-            bg-graphite-800 text-cream hover:bg-graphite-750
-            shadow-soft transition-all duration-150 cursor-pointer"
-        >
-          <Plus size={16} strokeWidth={2} />
-          <span className="text-[13px]">New Painting</span>
-        </button>
-      </Dialog.Trigger>
+      {showTrigger && (
+        <Dialog.Trigger asChild>
+          <button
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl
+              bg-graphite-800 text-cream hover:bg-graphite-750
+              shadow-soft transition-all duration-150 cursor-pointer"
+          >
+            <Plus size={16} strokeWidth={2} />
+            <span className="text-[13px]">New Painting</span>
+          </button>
+        </Dialog.Trigger>
+      )}
 
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/50" />
