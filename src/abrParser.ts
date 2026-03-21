@@ -549,22 +549,24 @@ function extractPresetParams(presetItems: Map<string, DescriptorValue>): AbrBrus
     };
   }
 
-  // Dual brush
-  const useDualBrush = getBool(presetItems, "useDualBrush");
-  if (useDualBrush) {
-    const dualItems = getObjc(presetItems, "dualBrush");
-    const mode = dualItems ? mapDualBrushMode(getEnum(dualItems, "Md  ")) : DUAL_BRUSH_MODE_MULTIPLY;
-    const dualDiameter = dualItems ? getNumber(dualItems, "Dmtr") : undefined;
-    const dualSpacing = dualItems ? getNumber(dualItems, "Spcn") : undefined;
-    const dualHardness = dualItems ? getNumber(dualItems, "Hrdn") : undefined;
-    params.dualBrush = {
-      enabled: true,
-      mode,
-      useComputed: true, // ABR dual brushes use computed tips by default
-      hardness: dualHardness !== undefined ? dualHardness / 100 : 1.0,
-      size: dualDiameter ?? 20,
-      spacing: dualSpacing !== undefined ? dualSpacing / 100 : 0.25,
-    };
+  // Dual brush — useDualBrush lives inside the dualBrush sub-descriptor
+  const dualItems = getObjc(presetItems, "dualBrush");
+  if (dualItems) {
+    const useDualBrush = getBool(dualItems, "useDualBrush");
+    if (useDualBrush) {
+      const mode = mapDualBrushMode(getEnum(dualItems, "Md  "));
+      const dualDiameter = getNumber(dualItems, "Dmtr");
+      const dualSpacing = getNumber(dualItems, "Spcn");
+      const dualHardness = getNumber(dualItems, "Hrdn");
+      params.dualBrush = {
+        enabled: true,
+        mode,
+        useComputed: true, // ABR dual brushes use computed tips by default
+        hardness: dualHardness !== undefined ? dualHardness / 100 : 1.0,
+        size: dualDiameter ?? 20,
+        spacing: dualSpacing !== undefined ? dualSpacing / 100 : 0.25,
+      };
+    }
   }
 
   return params;

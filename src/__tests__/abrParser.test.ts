@@ -525,8 +525,9 @@ describe("abrParser", () => {
       { width: 2, height: 2, pixels: [255, 255, 255, 255], uuid: "tip-1" },
     ], 2);
 
-    // Build a nested dualBrush Objc descriptor with mode, diameter, spacing, hardness
+    // Build a nested dualBrush Objc descriptor — useDualBrush lives inside it
     const dualItems = [
+      boolItem("useDualBrush", true),
       enumItem("Md  ", "BlnM", "Drkn"),
       untfItem("Dmtr", "#Pxl", 25),
       untfItem("Spcn", "#Prc", 50),
@@ -534,7 +535,7 @@ describe("abrParser", () => {
     ];
     const dualDesc = new BinaryBuilder()
       .unicodeString("")
-      .classId("null")
+      .classId("dualBrush")
       .u32(dualItems.length);
     for (const item of dualItems) dualDesc.append(item);
 
@@ -542,7 +543,6 @@ describe("abrParser", () => {
       name: "Dual Brush",
       tipUuid: "tip-1",
       presetItems: [
-        boolItem("useDualBrush", true),
         new BinaryBuilder().key("dualBrush").tag("Objc").append(dualDesc),
       ],
     }]);
@@ -593,11 +593,19 @@ describe("abrParser", () => {
       { width: 2, height: 2, pixels: [255, 255, 255, 255], uuid: "tip-1" },
     ], 2);
 
+    // useDualBrush: false inside the dualBrush sub-descriptor
+    const dualItems = [boolItem("useDualBrush", false)];
+    const dualDesc = new BinaryBuilder()
+      .unicodeString("")
+      .classId("dualBrush")
+      .u32(dualItems.length);
+    for (const item of dualItems) dualDesc.append(item);
+
     const desc = buildDescSection([{
       name: "No Dual",
       tipUuid: "tip-1",
       presetItems: [
-        boolItem("useDualBrush", false),
+        new BinaryBuilder().key("dualBrush").tag("Objc").append(dualDesc),
       ],
     }]);
 
