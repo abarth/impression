@@ -48,6 +48,9 @@ export function App() {
       name={docManager.currentDocument.name ?? "painting"}
       engineOptions={engineOptions!}
       onClose={docManager.closeDocument}
+      onNewDocument={(name, w, h, ppi) => {
+        docManager.createDocument(name, w, h, ppi);
+      }}
     />
   )
 }

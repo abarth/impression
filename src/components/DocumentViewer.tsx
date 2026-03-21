@@ -24,12 +24,14 @@ interface DocumentViewerProps {
   name: string;
   engineOptions: EngineInitOptions;
   onClose?: () => void;
+  onNewDocument?: (name: string, width: number, height: number, ppi: number) => void;
 }
 
 export function DocumentViewer({
   name,
   engineOptions,
   onClose,
+  onNewDocument,
 }: DocumentViewerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const { engine, error: gpuError } = useEngine(canvasRef, engineOptions);
@@ -242,6 +244,8 @@ export function DocumentViewer({
         onFitToScreen={handleFitToScreen}
         onSwapColors={swapColors}
         onDefaultColors={handleDefaultColors}
+        onNewDocument={onNewDocument}
+        onOpenDocument={onClose}
       />
 
       <div className="flex flex-1 min-h-0">

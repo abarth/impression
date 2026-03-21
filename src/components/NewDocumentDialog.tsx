@@ -4,6 +4,9 @@ import { X, Plus } from "lucide-react";
 
 interface NewDocumentDialogProps {
   onCreateDocument: (name: string, width: number, height: number, ppi: number) => void;
+  /** When provided, the dialog is controlled externally. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 const PRESETS: { label: string; width: number; height: number }[] = [
@@ -13,8 +16,10 @@ const PRESETS: { label: string; width: number; height: number }[] = [
   { label: "800 × 600", width: 800, height: 600 },
 ];
 
-export function NewDocumentDialog({ onCreateDocument }: NewDocumentDialogProps) {
-  const [open, setOpen] = useState(false);
+export function NewDocumentDialog({ onCreateDocument, open: controlledOpen, onOpenChange: controlledOnOpenChange }: NewDocumentDialogProps) {
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = controlledOnOpenChange ?? setInternalOpen;
   const [name, setName] = useState("Untitled");
   const [width, setWidth] = useState(1920);
   const [height, setHeight] = useState(1080);

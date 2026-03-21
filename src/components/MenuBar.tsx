@@ -1,4 +1,6 @@
+import { useState, useEffect } from "react";
 import * as Menubar from "@radix-ui/react-menubar";
+import { NewDocumentDialog } from "./NewDocumentDialog";
 
 interface MenuBarProps {
   onUndo?: () => void;
@@ -18,6 +20,8 @@ interface MenuBarProps {
   onFitToScreen?: () => void;
   onSwapColors?: () => void;
   onDefaultColors?: () => void;
+  onNewDocument?: (name: string, width: number, height: number, ppi: number) => void;
+  onOpenDocument?: () => void;
 }
 
 const itemClass =
@@ -61,14 +65,51 @@ export function MenuBar({
   onFitToScreen,
   onSwapColors,
   onDefaultColors,
+  onNewDocument,
+  onOpenDocument,
 }: MenuBarProps) {
+  const [newDocOpen, setNewDocOpen] = useState(false);
+
+  // ⌘N / Ctrl+N keyboard shortcut to open New Document dialog
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement
+      ) return;
+      const isMod = e.metaKey || e.ctrlKey;
+      if (isMod && !e.shiftKey && e.key.toLowerCase() === "n") {
+        e.preventDefault();
+        setNewDocOpen(true);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   return (
+    <>
+    <NewDocumentDialog
+      open={newDocOpen}
+      onOpenChange={setNewDocOpen}
+      onCreateDocument={(name, w, h, ppi) => {
+        onNewDocument?.(name, w, h, ppi);
+      }}
+    />
     <Menubar.Root className="flex items-center h-8 px-1 gap-0.5 bg-graphite-950 border-b border-graphite-850 shrink-0">
       {/* File */}
       <Menubar.Menu>
         <MenuTrigger label="File" />
         <Menubar.Portal>
           <Menubar.Content className={contentClass} align="start" sideOffset={2}>
+            <Menubar.Item className={itemClass} onSelect={() => setNewDocOpen(true)}>
+              New...
+              <span className={shortcutClass}>{modLabel}N</span>
+            </Menubar.Item>
+            <Menubar.Item className={itemClass} onSelect={onOpenDocument}>
+              Open...
+            </Menubar.Item>
+            <Menubar.Separator className={separatorClass} />
             <Menubar.Item className={itemClass} onSelect={onExport}>
               Export as PNG
               <span className={shortcutClass}>{modLabel}{shiftLabel}E</span>
@@ -166,5 +207,6 @@ export function MenuBar({
         </Menubar.Portal>
       </Menubar.Menu>
     </Menubar.Root>
+    </>
   );
 }
