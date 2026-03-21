@@ -12,6 +12,8 @@
 			]
 		}
 	},
-	"forwardPorts": [5173],
+	"forwardPorts": [
+		5173
+	],
 	"workspaceFolder": "/workspace"
 }

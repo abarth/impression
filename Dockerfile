@@ -4,7 +4,23 @@ FROM rust:1.80-bullseye
 RUN apt-get update && apt-get install -y \
     curl \
     build-essential \
+    vim \
     && rm -rf /var/lib/apt/lists/*
+
+# Install GitHub CLI
+RUN mkdir -p -m 755 /etc/apt/keyrings \
+    && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null \
+    && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+    && apt-get update \
+    && apt-get install -y gh \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install wasm-pack
+RUN curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+# Add WebAssembly target for Rust
+RUN rustup target add wasm32-unknown-unknown
 
 # Install Node.js 22
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
@@ -13,11 +29,8 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
 # Install Claude Code
 RUN npm install -g @anthropic-ai/claude-code
 
-# Install wasm-pack
-RUN curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-
-# Add WebAssembly target for Rust
-RUN rustup target add wasm32-unknown-unknown
+# Install GitHub Copilot CLI
+RUN npm install -g @github/copilot
 
 # Set working directory
 WORKDIR /workspace
