@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { Plus, Trash2, Eye, EyeOff, GripVertical, Blend } from "lucide-react";
+import { Plus, Trash2, Eye, EyeOff, GripVertical, Blend, ChevronDown, ChevronRight } from "lucide-react";
 import * as Popover from "@radix-ui/react-popover";
 import { OklchColorPicker } from "./OklchColorPicker";
 import type { LayerInfo } from "../hooks/useLayerManager";
@@ -113,6 +113,7 @@ export function LayerPanel({
   const [editName, setEditName] = useState("");
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dropTarget, setDropTarget] = useState<number | null>(null);
+  const [collapsed, setCollapsed] = useState(false);
   const dragNodeRef = useRef<HTMLDivElement | null>(null);
 
   const handleDragStart = useCallback(
@@ -162,11 +163,24 @@ export function LayerPanel({
     [dragIndex, onMoveLayer],
   );
   return (
-    <div className="flex flex-col gap-2 px-4 py-4 flex-1 border-t border-graphite-850">
-      <div className="flex items-center justify-between">
+    <div className="flex flex-col flex-1 border-t border-graphite-850">
+      <button
+        className="flex items-center gap-1.5 px-4 pt-4 pb-2 cursor-pointer hover:bg-graphite-850/50 transition-all duration-150"
+        onClick={() => setCollapsed(!collapsed)}
+      >
+        {collapsed ? (
+          <ChevronRight size={12} strokeWidth={2} className="text-cream-muted shrink-0" />
+        ) : (
+          <ChevronDown size={12} strokeWidth={2} className="text-cream-muted shrink-0" />
+        )}
         <h3 className="text-[11px] font-medium text-cream-muted tracking-wide uppercase">
           Layers
         </h3>
+      </button>
+      {!collapsed && (
+      <div className="flex flex-col gap-2 px-4 pb-4">
+      <div className="flex items-center justify-between">
+        <div />
         <div className="flex gap-0.5">
           <button
             onClick={onAdd}
@@ -436,6 +450,8 @@ export function LayerPanel({
         </Popover.Root>
         </div>
       </div>
+      </div>
+      )}
     </div>
   );
 }

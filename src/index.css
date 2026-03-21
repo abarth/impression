@@ -73,3 +73,31 @@ body,
   background-position: 0 0, 0 8px, 8px -8px, -8px 0;
   background-color: #b0b0b0;
 }
+
+/* Themed overlay scrollbars — Soft Graphite palette */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-graphite-600) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-graphite-600);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-graphite-500);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
