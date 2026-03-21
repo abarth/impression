@@ -100,14 +100,22 @@ export function LayerPanel({
           Layers
         </h3>
         <div className="flex gap-0.5">
+          <button
+            onClick={onAdd}
+            title="New layer"
+            className="p-1.5 rounded-lg text-cream-muted hover:text-cream
+              hover:bg-graphite-800 transition-all duration-150 cursor-pointer"
+          >
+            <Plus size={14} strokeWidth={2} />
+          </button>
           <Popover.Root>
             <Popover.Trigger asChild>
               <button
-                title="Add layer"
+                title="Add adjustment layer"
                 className="p-1.5 rounded-lg text-cream-muted hover:text-cream
                   hover:bg-graphite-800 transition-all duration-150 cursor-pointer"
               >
-                <Plus size={14} strokeWidth={2} />
+                <Blend size={14} strokeWidth={2} />
               </button>
             </Popover.Trigger>
             <Popover.Portal>
@@ -117,13 +125,6 @@ export function LayerPanel({
                 className="z-50 rounded-xl bg-graphite-900 border border-graphite-750
                   p-1 shadow-panel min-w-[160px]"
               >
-                <button
-                  onClick={onAdd}
-                  className="w-full text-left px-3 py-1.5 rounded-lg text-[12px] text-cream-dim
-                    hover:bg-graphite-800 hover:text-cream transition-all duration-150 cursor-pointer"
-                >
-                  New Layer
-                </button>
                 <button
                   onClick={onAddGradientMap}
                   className="w-full text-left px-3 py-1.5 rounded-lg text-[12px] text-cream-dim
