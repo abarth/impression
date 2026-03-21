@@ -2,12 +2,16 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import type { Engine } from "../engine";
 import { hexToRgb } from "./useColorState";
 
+export type LayerKind = "raster" | "gradient-map";
+
 export interface LayerInfo {
   id: number; // unique ID for React keys
   name: string;
   visible: boolean;
   opacity: number;
   blendMode: number;
+  kind: LayerKind;
+  gradientId?: string;
 }
 
 let nextLayerId = 0;
@@ -15,7 +19,7 @@ let nextLayerId = 0;
 export function useLayerManager(engine: Engine | null) {
   const [layers, setLayers] = useState<LayerInfo[]>(() => {
     const id = nextLayerId++;
-    return [{ id, name: "Layer 1", visible: true, opacity: 1.0, blendMode: 0 }];
+    return [{ id, name: "Layer 1", visible: true, opacity: 1.0, blendMode: 0, kind: "raster" as LayerKind }];
   });
   const [activeIndex, setActiveIndex] = useState(0);
   const [canvasColor, setCanvasColorState] = useState("#ffffff");
@@ -48,11 +52,38 @@ export function useLayerManager(engine: Engine | null) {
       visible: true,
       opacity: 1.0,
       blendMode: 0,
+      kind: "raster",
     };
     const nextLayers = [...prev, newLayer];
     layersRef.current = nextLayers;
     setLayers(nextLayers);
     const nextActive = activeIndexRef.current + 1;
+    activeIndexRef.current = nextActive;
+    setActiveIndex(nextActive);
+    eng.setActiveLayer(nextActive);
+  }, []);
+
+  const addGradientMapLayer = useCallback((gradientId: string) => {
+    const eng = engineRef.current;
+    if (!eng) return;
+    eng.addGradientMapLayer(gradientId);
+    const id = nextLayerId++;
+    const prev = layersRef.current;
+    const newIndex = prev.length;
+    const name = eng.getLayerName(newIndex);
+    const newLayer: LayerInfo = {
+      id,
+      name,
+      visible: true,
+      opacity: 1.0,
+      blendMode: 0,
+      kind: "gradient-map",
+      gradientId,
+    };
+    const nextLayers = [...prev, newLayer];
+    layersRef.current = nextLayers;
+    setLayers(nextLayers);
+    const nextActive = newIndex;
     activeIndexRef.current = nextActive;
     setActiveIndex(nextActive);
     eng.setActiveLayer(nextActive);
@@ -189,5 +220,18 @@ export function useLayerManager(engine: Engine | null) {
     if (eng) eng.setCanvasVisible(next);
   }, []);
 
-  return { layers, activeIndex, canvasColor, canvasVisible, addLayer, removeLayer, selectLayer, setLayerOpacity, setLayerBlendMode, renameLayer, moveLayer, toggleLayerVisible, setCanvasColor, toggleCanvasVisible };
+  const setGradientMapGradient = useCallback(
+    (layerIndex: number, gradientId: string) => {
+      const eng = engineRef.current;
+      if (eng) eng.setGradientMapGradient(layerIndex, gradientId);
+      const nextLayers = layersRef.current.map((l, i) =>
+        i === layerIndex ? { ...l, gradientId } : l,
+      );
+      layersRef.current = nextLayers;
+      setLayers(nextLayers);
+    },
+    [],
+  );
+
+  return { layers, activeIndex, canvasColor, canvasVisible, addLayer, addGradientMapLayer, removeLayer, selectLayer, setLayerOpacity, setLayerBlendMode, renameLayer, moveLayer, toggleLayerVisible, setCanvasColor, toggleCanvasVisible, setGradientMapGradient };
 }

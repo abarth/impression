@@ -35,7 +35,7 @@ export function DocumentViewer({
   const { settings, updateSetting, applyPreset, toolLabel } = useBrushSettings(engine, activeTool);
   const { colors, setForeground, setBackground, swapColors } =
     useColorState(engine);
-  const { layers, activeIndex, canvasColor, canvasVisible, addLayer, removeLayer, selectLayer, setLayerOpacity, setLayerBlendMode, renameLayer, moveLayer, toggleLayerVisible, setCanvasColor, toggleCanvasVisible } =
+  const { layers, activeIndex, canvasColor, canvasVisible, addLayer, addGradientMapLayer, removeLayer, selectLayer, setLayerOpacity, setLayerBlendMode, renameLayer, moveLayer, toggleLayerVisible, setCanvasColor, toggleCanvasVisible, setGradientMapGradient } =
     useLayerManager(engine);
   const storage = engineOptions.storage;
   const { groups: presetGroups, activePresetId, isImageTip, selectPreset, importAbr } = useBrushPresets({
@@ -159,6 +159,7 @@ export function DocumentViewer({
             canvasColor={canvasColor}
             canvasVisible={canvasVisible}
             onAdd={addLayer}
+            onAddGradientMap={() => addGradientMapLayer("default-bw")}
             onRemove={removeLayer}
             onSelect={selectLayer}
             onOpacityChange={setLayerOpacity}

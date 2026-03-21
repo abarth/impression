@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from "react";
-import { Plus, Trash2, Eye, EyeOff, GripVertical } from "lucide-react";
+import { Plus, Trash2, Eye, EyeOff, GripVertical, Blend } from "lucide-react";
 import * as Popover from "@radix-ui/react-popover";
 import { OklchColorPicker } from "./OklchColorPicker";
 import type { LayerInfo } from "../hooks/useLayerManager";
@@ -11,6 +11,7 @@ interface LayerPanelProps {
   canvasColor: string;
   canvasVisible: boolean;
   onAdd: () => void;
+  onAddGradientMap: () => void;
   onRemove: (index: number) => void;
   onSelect: (index: number) => void;
   onOpacityChange: (index: number, opacity: number) => void;
@@ -28,6 +29,7 @@ export function LayerPanel({
   canvasColor,
   canvasVisible,
   onAdd,
+  onAddGradientMap,
   onRemove,
   onSelect,
   onOpacityChange,
@@ -98,14 +100,43 @@ export function LayerPanel({
           Layers
         </h3>
         <div className="flex gap-0.5">
-          <button
-            onClick={onAdd}
-            title="Add layer"
-            className="p-1.5 rounded-lg text-cream-muted hover:text-cream
-              hover:bg-graphite-800 transition-all duration-150 cursor-pointer"
-          >
-            <Plus size={14} strokeWidth={2} />
-          </button>
+          <Popover.Root>
+            <Popover.Trigger asChild>
+              <button
+                title="Add layer"
+                className="p-1.5 rounded-lg text-cream-muted hover:text-cream
+                  hover:bg-graphite-800 transition-all duration-150 cursor-pointer"
+              >
+                <Plus size={14} strokeWidth={2} />
+              </button>
+            </Popover.Trigger>
+            <Popover.Portal>
+              <Popover.Content
+                side="left"
+                sideOffset={8}
+                className="z-50 rounded-xl bg-graphite-900 border border-graphite-750
+                  p-1 shadow-panel min-w-[160px]"
+              >
+                <button
+                  onClick={onAdd}
+                  className="w-full text-left px-3 py-1.5 rounded-lg text-[12px] text-cream-dim
+                    hover:bg-graphite-800 hover:text-cream transition-all duration-150 cursor-pointer"
+                >
+                  New Layer
+                </button>
+                <button
+                  onClick={onAddGradientMap}
+                  className="w-full text-left px-3 py-1.5 rounded-lg text-[12px] text-cream-dim
+                    hover:bg-graphite-800 hover:text-cream transition-all duration-150 cursor-pointer
+                    flex items-center gap-2"
+                >
+                  <Blend size={12} strokeWidth={1.75} />
+                  Gradient Map
+                </button>
+                <Popover.Arrow className="fill-graphite-750" />
+              </Popover.Content>
+            </Popover.Portal>
+          </Popover.Root>
           <button
             onClick={() => onRemove(activeIndex)}
             disabled={layers.length <= 1}
@@ -223,15 +254,20 @@ export function LayerPanel({
                   onClick={(e) => e.stopPropagation()}
                 />
               ) : (
-                <span
-                  className="flex-1 truncate"
-                  onDoubleClick={(e) => {
-                    e.stopPropagation();
-                    setEditingIndex(index);
-                    setEditName(layer.name);
-                  }}
-                >
-                  {layer.name}
+                <span className="flex items-center gap-1 flex-1 min-w-0">
+                  {layer.kind !== "raster" && (
+                    <Blend size={11} strokeWidth={1.75} className="shrink-0 text-cream-muted" />
+                  )}
+                  <span
+                    className="flex-1 truncate"
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      setEditingIndex(index);
+                      setEditName(layer.name);
+                    }}
+                  >
+                    {layer.name}
+                  </span>
                 </span>
               )}
             </div>

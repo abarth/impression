@@ -112,6 +112,7 @@ export function useEngine(
             layerCount: eng.getLayerCount(),
             getLayerVisible: (i) => eng.getLayerVisible(i),
             getLayerBlendMode: (i) => eng.getLayerBlendMode(i),
+            getLayerKind: (i) => eng.getLayerKind(i),
             time,
           });
           requestAnimationFrame(render);
