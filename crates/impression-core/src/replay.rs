@@ -74,7 +74,8 @@ impl Canvas {
     /// Only marks layers as dirty if their pixel content actually changed.
     pub(crate) fn replay_active(&mut self) {
         // Fingerprint each layer's pixels before replay
-        let old_fingerprints: Vec<u64> = self.layers.iter().map(|l| l.pixel_fingerprint()).collect();
+        let old_fingerprints: Vec<u64> =
+            self.layers.iter().map(|l| l.pixel_fingerprint()).collect();
         let old_count = self.layers.len();
 
         if let Some(cp_idx) = self.find_best_checkpoint() {
@@ -114,7 +115,6 @@ impl Canvas {
             }
         }
     }
-
 }
 
 #[cfg(test)]
@@ -132,7 +132,12 @@ mod tests {
             canvas.set_brush_size(i as f32 + 1.0);
         }
 
-        assert_eq!(canvas.checkpoints.len(), 1, "Should have one checkpoint after {} groups", CHECKPOINT_INTERVAL);
+        assert_eq!(
+            canvas.checkpoints.len(),
+            1,
+            "Should have one checkpoint after {} groups",
+            CHECKPOINT_INTERVAL
+        );
     }
 
     #[test]
@@ -205,7 +210,10 @@ mod tests {
 
         canvas.redo();
         let px_redone = canvas.layer(0).unwrap().pixel(10, 10).unwrap();
-        assert_eq!(px_with_stroke, px_redone, "Redo should restore exact same pixels");
+        assert_eq!(
+            px_with_stroke, px_redone,
+            "Redo should restore exact same pixels"
+        );
     }
 
     #[test]
@@ -241,6 +249,9 @@ mod tests {
         let valid = canvas.find_best_checkpoint();
         // The checkpoint covered CHECKPOINT_INTERVAL groups, but some were removed
         // so it should no longer be valid
-        assert!(valid.is_none(), "Checkpoint should be invalidated after redo discard");
+        assert!(
+            valid.is_none(),
+            "Checkpoint should be invalidated after redo discard"
+        );
     }
 }

@@ -46,10 +46,7 @@ impl ImpressionCanvas {
 
     /// Get the byte length of the layer's pixel data.
     pub fn layer_pixels_len(&self, layer: u32) -> usize {
-        self.inner
-            .layer(layer)
-            .map(|l| l.pixels.len())
-            .unwrap_or(0)
+        self.inner.layer(layer).map(|l| l.pixels.len()).unwrap_or(0)
     }
 
     /// Check if a layer has been modified since the last clear.
@@ -66,22 +63,38 @@ impl ImpressionCanvas {
 
     /// Get the dirty region X origin (in pixels). Returns 0 if not dirty.
     pub fn layer_dirty_x(&self, layer: u32) -> u32 {
-        self.inner.layer(layer).and_then(|l| l.dirty_bounds).map(|b| b.0).unwrap_or(0)
+        self.inner
+            .layer(layer)
+            .and_then(|l| l.dirty_bounds)
+            .map(|b| b.0)
+            .unwrap_or(0)
     }
 
     /// Get the dirty region Y origin (in pixels). Returns 0 if not dirty.
     pub fn layer_dirty_y(&self, layer: u32) -> u32 {
-        self.inner.layer(layer).and_then(|l| l.dirty_bounds).map(|b| b.1).unwrap_or(0)
+        self.inner
+            .layer(layer)
+            .and_then(|l| l.dirty_bounds)
+            .map(|b| b.1)
+            .unwrap_or(0)
     }
 
     /// Get the dirty region width (in pixels). Returns 0 if not dirty.
     pub fn layer_dirty_width(&self, layer: u32) -> u32 {
-        self.inner.layer(layer).and_then(|l| l.dirty_bounds).map(|b| b.2 - b.0 + 1).unwrap_or(0)
+        self.inner
+            .layer(layer)
+            .and_then(|l| l.dirty_bounds)
+            .map(|b| b.2 - b.0 + 1)
+            .unwrap_or(0)
     }
 
     /// Get the dirty region height (in pixels). Returns 0 if not dirty.
     pub fn layer_dirty_height(&self, layer: u32) -> u32 {
-        self.inner.layer(layer).and_then(|l| l.dirty_bounds).map(|b| b.3 - b.1 + 1).unwrap_or(0)
+        self.inner
+            .layer(layer)
+            .and_then(|l| l.dirty_bounds)
+            .map(|b| b.3 - b.1 + 1)
+            .unwrap_or(0)
     }
 
     /// Remove a layer by index. Returns true if removed.
@@ -273,13 +286,7 @@ impl ImpressionCanvas {
     }
 
     /// Set scattering parameters.
-    pub fn set_scatter(
-        &mut self,
-        scatter: f32,
-        both_axes: bool,
-        count: u32,
-        count_jitter: f32,
-    ) {
+    pub fn set_scatter(&mut self, scatter: f32, both_axes: bool, count: u32, count_jitter: f32) {
         self.inner.set_scatter(brush::ScatterSettings {
             scatter,
             both_axes,
@@ -289,13 +296,7 @@ impl ImpressionCanvas {
     }
 
     /// Set texture overlay parameters.
-    pub fn set_texture(
-        &mut self,
-        enabled: bool,
-        scale: f32,
-        depth: f32,
-        texture_each_tip: bool,
-    ) {
+    pub fn set_texture(&mut self, enabled: bool, scale: f32, depth: f32, texture_each_tip: bool) {
         self.inner.set_texture(brush::TextureSettings {
             enabled,
             scale,
@@ -316,7 +317,8 @@ impl ImpressionCanvas {
 
     /// Register a custom brush tip image. Called from TypeScript before replay.
     pub fn register_brush_tip(&mut self, id: &str, pixels: &[u8], width: u32, height: u32) {
-        self.inner.register_brush_tip(id.to_string(), pixels.to_vec(), width, height);
+        self.inner
+            .register_brush_tip(id.to_string(), pixels.to_vec(), width, height);
     }
 
     /// Set the active brush tip by ID (must be registered first).
@@ -475,41 +477,43 @@ impl ImpressionCanvas {
 
     /// Returns true if the active site has a selection mask.
     pub fn has_selection(&self) -> bool {
-        self.inner.sites.get(&self.inner.active_site)
-            .and_then(|s| s.selection.as_ref())
-            .is_some()
+        self.inner.site().selection.as_ref().is_some()
     }
 
     /// Pointer to the active site's selection mask data for GPU upload.
     pub fn selection_mask_ptr(&self) -> *const u8 {
-        self.inner.sites.get(&self.inner.active_site)
-            .and_then(|s| s.selection.as_ref())
+        self.inner
+            .site()
+            .selection
+            .as_ref()
             .map(|s| s.data.as_ptr())
             .unwrap_or(std::ptr::null())
     }
 
     /// Byte length of the active site's selection mask data.
     pub fn selection_mask_len(&self) -> usize {
-        self.inner.sites.get(&self.inner.active_site)
-            .and_then(|s| s.selection.as_ref())
+        self.inner
+            .site()
+            .selection
+            .as_ref()
             .map(|s| s.data.len())
             .unwrap_or(0)
     }
 
     /// Check if the active site's selection mask has been modified.
     pub fn is_selection_dirty(&self) -> bool {
-        self.inner.sites.get(&self.inner.active_site)
-            .and_then(|s| s.selection.as_ref())
+        self.inner
+            .site()
+            .selection
+            .as_ref()
             .map(|s| s.dirty)
             .unwrap_or(false)
     }
 
     /// Clear the active site's selection dirty flag.
     pub fn clear_selection_dirty(&mut self) {
-        if let Some(site) = self.inner.sites.get_mut(&self.inner.active_site) {
-            if let Some(ref mut s) = site.selection {
-                s.dirty = false;
-            }
+        if let Some(ref mut s) = self.inner.site_mut().selection {
+            s.dirty = false;
         }
     }
 

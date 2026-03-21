@@ -1,4 +1,6 @@
-use crate::operation::{deserialize_operations, serialize_operations, Operation, SiteId, SiteOperation};
+use crate::operation::{
+    deserialize_operations, serialize_operations, Operation, SiteId, SiteOperation,
+};
 
 /// An undo group: a range of operations that undo/redo together,
 /// tagged with the site that created them for per-site undo.
@@ -83,12 +85,21 @@ impl OpLog {
         matches!(
             (last, op),
             (Operation::SetBrushSize(_), Operation::SetBrushSize(_))
-            | (Operation::SetBrushSpacing(_), Operation::SetBrushSpacing(_))
-            | (Operation::SetBrushOpacity(_), Operation::SetBrushOpacity(_))
-            | (Operation::SetBrushFlow(_), Operation::SetBrushFlow(_))
-            | (Operation::SetBrushBlendMode(_), Operation::SetBrushBlendMode(_))
-            | (Operation::SetBrushColor { .. }, Operation::SetBrushColor { .. })
-            | (Operation::SetBackgroundColor { .. }, Operation::SetBackgroundColor { .. })
+                | (Operation::SetBrushSpacing(_), Operation::SetBrushSpacing(_))
+                | (Operation::SetBrushOpacity(_), Operation::SetBrushOpacity(_))
+                | (Operation::SetBrushFlow(_), Operation::SetBrushFlow(_))
+                | (
+                    Operation::SetBrushBlendMode(_),
+                    Operation::SetBrushBlendMode(_)
+                )
+                | (
+                    Operation::SetBrushColor { .. },
+                    Operation::SetBrushColor { .. }
+                )
+                | (
+                    Operation::SetBackgroundColor { .. },
+                    Operation::SetBackgroundColor { .. }
+                )
         ) || matches!(
             (last, op),
             (
@@ -106,12 +117,15 @@ impl OpLog {
 
     /// Find the last non-undone group index for a given site.
     fn current_group_for_site(&self, site: SiteId) -> Option<usize> {
-        self.groups.iter().rposition(|g| g.site == site && !g.undone)
+        self.groups
+            .iter()
+            .rposition(|g| g.site == site && !g.undone)
     }
 
     /// Number of active operations (in non-undone groups).
     pub fn active_len(&self) -> usize {
-        self.groups.iter()
+        self.groups
+            .iter()
             .filter(|g| !g.undone)
             .map(|g| g.end - g.start)
             .sum()
@@ -130,7 +144,11 @@ impl OpLog {
 
     /// Undo the last group for the given site. Returns true if an undo occurred.
     pub fn undo(&mut self, site: SiteId) -> bool {
-        if let Some(idx) = self.groups.iter().rposition(|g| g.site == site && !g.undone) {
+        if let Some(idx) = self
+            .groups
+            .iter()
+            .rposition(|g| g.site == site && !g.undone)
+        {
             self.groups[idx].undone = true;
             true
         } else {
@@ -142,7 +160,9 @@ impl OpLog {
     pub fn redo(&mut self, site: SiteId) -> bool {
         // Find the earliest undone group for this site that comes after
         // the last active group for this site
-        let search_start = self.groups.iter()
+        let search_start = self
+            .groups
+            .iter()
             .rposition(|g| g.site == site && !g.undone)
             .map(|i| i + 1)
             .unwrap_or(0);
@@ -160,11 +180,15 @@ impl OpLog {
     }
 
     pub fn can_redo(&self, site: SiteId) -> bool {
-        let search_start = self.groups.iter()
+        let search_start = self
+            .groups
+            .iter()
             .rposition(|g| g.site == site && !g.undone)
             .map(|i| i + 1)
             .unwrap_or(0);
-        self.groups[search_start..].iter().any(|g| g.site == site && g.undone)
+        self.groups[search_start..]
+            .iter()
+            .any(|g| g.site == site && g.undone)
     }
 
     /// Total number of undo groups.
@@ -195,12 +219,15 @@ impl OpLog {
 
     /// Discard all undone (redo) groups for a site and their operations.
     fn discard_redo_for_site(&mut self, site: SiteId) {
-        let last_active = self.groups.iter()
+        let last_active = self
+            .groups
+            .iter()
             .rposition(|g| g.site == site && !g.undone);
         let search_start = last_active.map(|i| i + 1).unwrap_or(0);
 
         // Collect indices of undone groups for this site to remove
-        let to_remove: Vec<usize> = self.groups[search_start..].iter()
+        let to_remove: Vec<usize> = self.groups[search_start..]
+            .iter()
             .enumerate()
             .filter(|(_, g)| g.site == site && g.undone)
             .map(|(i, _)| search_start + i)
@@ -265,7 +292,9 @@ impl OpLog {
         }
         let data = serialize_operations(&pending);
         // Advance flush index past all active operations
-        let max_end = self.groups.iter()
+        let max_end = self
+            .groups
+            .iter()
             .filter(|g| !g.undone)
             .map(|g| g.end)
             .max()
@@ -485,12 +514,21 @@ mod tests {
     fn test_coalesce_layer_opacity_same_layer() {
         let mut log = OpLog::new();
         log.begin_undo_group(0);
-        log.push(site_op(Operation::SetLayerOpacity { layer: 1, opacity: 0.3 }));
-        log.push(site_op(Operation::SetLayerOpacity { layer: 1, opacity: 0.7 }));
+        log.push(site_op(Operation::SetLayerOpacity {
+            layer: 1,
+            opacity: 0.3,
+        }));
+        log.push(site_op(Operation::SetLayerOpacity {
+            layer: 1,
+            opacity: 0.7,
+        }));
         assert_eq!(log.active_len(), 1);
         assert_eq!(
             log.active_operations()[0].op,
-            Operation::SetLayerOpacity { layer: 1, opacity: 0.7 }
+            Operation::SetLayerOpacity {
+                layer: 1,
+                opacity: 0.7
+            }
         );
     }
 
@@ -498,8 +536,14 @@ mod tests {
     fn test_no_coalesce_layer_opacity_different_layers() {
         let mut log = OpLog::new();
         log.begin_undo_group(0);
-        log.push(site_op(Operation::SetLayerOpacity { layer: 1, opacity: 0.3 }));
-        log.push(site_op(Operation::SetLayerOpacity { layer: 2, opacity: 0.7 }));
+        log.push(site_op(Operation::SetLayerOpacity {
+            layer: 1,
+            opacity: 0.3,
+        }));
+        log.push(site_op(Operation::SetLayerOpacity {
+            layer: 2,
+            opacity: 0.7,
+        }));
         assert_eq!(log.active_len(), 2);
     }
 
@@ -507,9 +551,21 @@ mod tests {
     fn test_no_coalesce_stroke_move() {
         let mut log = OpLog::new();
         log.begin_undo_group(0);
-        log.push(site_op(Operation::StrokeMove { x: 1.0, y: 1.0, pressure: 1.0 }));
-        log.push(site_op(Operation::StrokeMove { x: 2.0, y: 2.0, pressure: 1.0 }));
-        log.push(site_op(Operation::StrokeMove { x: 3.0, y: 3.0, pressure: 1.0 }));
+        log.push(site_op(Operation::StrokeMove {
+            x: 1.0,
+            y: 1.0,
+            pressure: 1.0,
+        }));
+        log.push(site_op(Operation::StrokeMove {
+            x: 2.0,
+            y: 2.0,
+            pressure: 1.0,
+        }));
+        log.push(site_op(Operation::StrokeMove {
+            x: 3.0,
+            y: 3.0,
+            pressure: 1.0,
+        }));
         assert_eq!(log.active_len(), 3);
     }
 
@@ -532,8 +588,16 @@ mod tests {
     fn test_coalesce_background_color() {
         let mut log = OpLog::new();
         log.begin_undo_group(0);
-        log.push(site_op(Operation::SetBackgroundColor { r: 255, g: 0, b: 0 }));
-        log.push(site_op(Operation::SetBackgroundColor { r: 0, g: 255, b: 0 }));
+        log.push(site_op(Operation::SetBackgroundColor {
+            r: 255,
+            g: 0,
+            b: 0,
+        }));
+        log.push(site_op(Operation::SetBackgroundColor {
+            r: 0,
+            g: 255,
+            b: 0,
+        }));
         assert_eq!(log.active_len(), 1);
         assert_eq!(
             log.active_operations()[0].op,
@@ -545,12 +609,21 @@ mod tests {
     fn test_coalesce_blend_mode_same_layer() {
         let mut log = OpLog::new();
         log.begin_undo_group(0);
-        log.push(site_op(Operation::SetLayerBlendMode { layer: 1, mode: BlendMode::Multiply }));
-        log.push(site_op(Operation::SetLayerBlendMode { layer: 1, mode: BlendMode::Screen }));
+        log.push(site_op(Operation::SetLayerBlendMode {
+            layer: 1,
+            mode: BlendMode::Multiply,
+        }));
+        log.push(site_op(Operation::SetLayerBlendMode {
+            layer: 1,
+            mode: BlendMode::Screen,
+        }));
         assert_eq!(log.active_len(), 1);
         assert_eq!(
             log.active_operations()[0].op,
-            Operation::SetLayerBlendMode { layer: 1, mode: BlendMode::Screen }
+            Operation::SetLayerBlendMode {
+                layer: 1,
+                mode: BlendMode::Screen
+            }
         );
     }
 
@@ -625,11 +698,17 @@ mod tests {
 
         // Site 0 draws
         log.begin_undo_group(0);
-        log.push(SiteOperation { site: 0, op: Operation::SetBrushSize(10.0) });
+        log.push(SiteOperation {
+            site: 0,
+            op: Operation::SetBrushSize(10.0),
+        });
 
         // Site 1 draws
         log.begin_undo_group(1);
-        log.push(SiteOperation { site: 1, op: Operation::SetBrushSize(20.0) });
+        log.push(SiteOperation {
+            site: 1,
+            op: Operation::SetBrushSize(20.0),
+        });
 
         assert_eq!(log.active_len(), 2);
 
@@ -646,10 +725,16 @@ mod tests {
         let mut log = OpLog::new();
 
         log.begin_undo_group(0);
-        log.push(SiteOperation { site: 0, op: Operation::SetBrushSize(10.0) });
+        log.push(SiteOperation {
+            site: 0,
+            op: Operation::SetBrushSize(10.0),
+        });
 
         log.begin_undo_group(1);
-        log.push(SiteOperation { site: 1, op: Operation::SetBrushSize(20.0) });
+        log.push(SiteOperation {
+            site: 1,
+            op: Operation::SetBrushSize(20.0),
+        });
 
         // Undo site 0
         log.undo(0);
@@ -665,7 +750,10 @@ mod tests {
         let mut log = OpLog::new();
 
         log.begin_undo_group(1);
-        log.push(SiteOperation { site: 1, op: Operation::SetBrushSize(20.0) });
+        log.push(SiteOperation {
+            site: 1,
+            op: Operation::SetBrushSize(20.0),
+        });
 
         // Site 0 has nothing to undo
         assert!(!log.can_undo(0));

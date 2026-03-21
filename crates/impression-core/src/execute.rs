@@ -13,10 +13,16 @@ impl Canvas {
             Operation::CreateCanvas { .. } => {
                 // Canvas dimensions are fixed; ignore during replay
             }
-            Operation::StrokeBegin { layer, x, y, pressure } => {
+            Operation::StrokeBegin {
+                layer,
+                x,
+                y,
+                pressure,
+            } => {
                 self.sites.entry(site).or_default().stroke_layer = layer;
                 let site_state = self.sites.get(&site).unwrap();
-                let sel_data: Option<Vec<u8>> = site_state.selection.as_ref().map(|s| s.data.clone());
+                let sel_data: Option<Vec<u8>> =
+                    site_state.selection.as_ref().map(|s| s.data.clone());
                 let brush = site_state.brush.clone();
                 let tip = site_state.active_tip.clone();
                 let sec_tip = site_state.secondary_tip.clone();
@@ -24,13 +30,25 @@ impl Canvas {
                 let sel_ref = sel_data.as_deref();
                 if let Some(l) = self.layers.iter_mut().find(|l| l.id == layer) {
                     let stroke_state = &mut self.sites.get_mut(&site).unwrap().stroke_state;
-                    brush::stroke_begin(l, stroke_state, &brush, x, y, pressure, tip.as_ref(), sec_tip.as_ref(), tex_tip.as_ref(), sel_ref);
+                    brush::stroke_begin(
+                        l,
+                        stroke_state,
+                        &brush,
+                        x,
+                        y,
+                        pressure,
+                        tip.as_ref(),
+                        sec_tip.as_ref(),
+                        tex_tip.as_ref(),
+                        sel_ref,
+                    );
                 }
             }
             Operation::StrokeMove { x, y, pressure } => {
                 let site_state = self.sites.get(&site).unwrap();
                 let stroke_layer = site_state.stroke_layer;
-                let sel_data: Option<Vec<u8>> = site_state.selection.as_ref().map(|s| s.data.clone());
+                let sel_data: Option<Vec<u8>> =
+                    site_state.selection.as_ref().map(|s| s.data.clone());
                 let brush = site_state.brush.clone();
                 let tip = site_state.active_tip.clone();
                 let sec_tip = site_state.secondary_tip.clone();
@@ -38,7 +56,18 @@ impl Canvas {
                 let sel_ref = sel_data.as_deref();
                 if let Some(l) = self.layers.iter_mut().find(|l| l.id == stroke_layer) {
                     let stroke_state = &mut self.sites.get_mut(&site).unwrap().stroke_state;
-                    brush::stroke_move(l, stroke_state, &brush, x, y, pressure, tip.as_ref(), sec_tip.as_ref(), tex_tip.as_ref(), sel_ref);
+                    brush::stroke_move(
+                        l,
+                        stroke_state,
+                        &brush,
+                        x,
+                        y,
+                        pressure,
+                        tip.as_ref(),
+                        sec_tip.as_ref(),
+                        tex_tip.as_ref(),
+                        sel_ref,
+                    );
                 }
             }
             Operation::StrokeEnd => {
@@ -46,12 +75,18 @@ impl Canvas {
             }
             Operation::SetBrushSize(size) => self.site_for_mut(site).brush.size = size,
             Operation::SetBrushSpacing(spacing) => self.site_for_mut(site).brush.spacing = spacing,
-            Operation::SetBrushColor { r, g, b } => self.site_for_mut(site).brush.color = Color::new(r, g, b),
+            Operation::SetBrushColor { r, g, b } => {
+                self.site_for_mut(site).brush.color = Color::new(r, g, b)
+            }
             Operation::SetBrushOpacity(opacity) => self.site_for_mut(site).brush.opacity = opacity,
             Operation::SetBrushFlow(flow) => self.site_for_mut(site).brush.flow = flow,
             Operation::SetBrushBlendMode(mode) => self.site_for_mut(site).brush.blend_mode = mode,
-            Operation::SetBrushHardness(hardness) => self.site_for_mut(site).brush.hardness = hardness,
-            Operation::SetBrushRoundness(roundness) => self.site_for_mut(site).brush.roundness = roundness,
+            Operation::SetBrushHardness(hardness) => {
+                self.site_for_mut(site).brush.hardness = hardness
+            }
+            Operation::SetBrushRoundness(roundness) => {
+                self.site_for_mut(site).brush.roundness = roundness
+            }
             Operation::SetBrushAngle(angle) => self.site_for_mut(site).brush.angle = angle,
             Operation::ResetBrush => {
                 let site_state = self.site_for_mut(site);
@@ -63,7 +98,9 @@ impl Canvas {
                 site_state.texture_tip = None;
             }
             Operation::SetBrushTip(ref tip_id) => {
-                let cloned_tip = tip_id.as_ref().and_then(|id| self.tip_registry.get(id).cloned());
+                let cloned_tip = tip_id
+                    .as_ref()
+                    .and_then(|id| self.tip_registry.get(id).cloned());
                 let site_state = self.site_for_mut(site);
                 site_state.brush.active_tip_id = tip_id.clone();
                 site_state.active_tip = cloned_tip;
@@ -137,7 +174,9 @@ impl Canvas {
                 self.site_for_mut(site).selection = None;
             }
             Operation::ClearLayer { layer } => {
-                let sel_data: Option<Vec<u8>> = self.sites.get(&site)
+                let sel_data: Option<Vec<u8>> = self
+                    .sites
+                    .get(&site)
                     .and_then(|s| s.selection.as_ref())
                     .map(|s| s.data.clone());
                 if let Some(l) = self.layer_by_id_mut(layer) {
@@ -167,7 +206,9 @@ impl Canvas {
                 if let Some(from_idx) = self.layer_index_by_id(layer) {
                     let moved = self.layers.remove(from_idx);
                     let insert_at = match before {
-                        Some(before_id) => self.layer_index_by_id(before_id).unwrap_or(self.layers.len()),
+                        Some(before_id) => self
+                            .layer_index_by_id(before_id)
+                            .unwrap_or(self.layers.len()),
                         None => self.layers.len(),
                     };
                     self.layers.insert(insert_at, moved);
@@ -192,7 +233,9 @@ impl Canvas {
                 self.site_for_mut(site).brush.dual_brush = settings;
             }
             Operation::SetSecondaryBrushTip(ref tip_id) => {
-                let cloned_tip = tip_id.as_ref().and_then(|id| self.tip_registry.get(id).cloned());
+                let cloned_tip = tip_id
+                    .as_ref()
+                    .and_then(|id| self.tip_registry.get(id).cloned());
                 let site_state = self.site_for_mut(site);
                 site_state.brush.secondary_tip_id = tip_id.clone();
                 site_state.secondary_tip = cloned_tip;
@@ -201,13 +244,16 @@ impl Canvas {
                 self.site_for_mut(site).brush.texture = settings;
             }
             Operation::SetTextureTip(ref tip_id) => {
-                let cloned_tip = tip_id.as_ref().and_then(|id| self.tip_registry.get(id).cloned());
+                let cloned_tip = tip_id
+                    .as_ref()
+                    .and_then(|id| self.tip_registry.get(id).cloned());
                 let site_state = self.site_for_mut(site);
                 site_state.brush.texture_tip_id = tip_id.clone();
                 site_state.texture_tip = cloned_tip;
             }
             Operation::AddAdjustmentLayer { id, ref kind } => {
-                let mut layer = crate::layer::Layer::new_adjustment(id, self.width, self.height, kind.clone());
+                let mut layer =
+                    crate::layer::Layer::new_adjustment(id, self.width, self.height, kind.clone());
                 let adj_name = match kind {
                     crate::layer::AdjustmentKind::GradientMap { .. } => "Gradient Map",
                 };

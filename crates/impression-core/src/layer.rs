@@ -89,7 +89,12 @@ impl Layer {
     /// Mark the entire layer as dirty (for operations like clear or full replay).
     pub fn mark_fully_dirty(&mut self) {
         self.dirty = true;
-        self.dirty_bounds = Some((0, 0, self.width.saturating_sub(1), self.height.saturating_sub(1)));
+        self.dirty_bounds = Some((
+            0,
+            0,
+            self.width.saturating_sub(1),
+            self.height.saturating_sub(1),
+        ));
     }
 
     /// Expand the dirty region to include the given bounds.

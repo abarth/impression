@@ -90,7 +90,9 @@ impl Rng {
     pub fn from_coords(x: f32, y: f32) -> Self {
         let seed = x.to_bits() ^ y.to_bits().rotate_left(16);
         // Ensure non-zero state (xorshift requires it)
-        Self { state: if seed == 0 { 1 } else { seed } }
+        Self {
+            state: if seed == 0 { 1 } else { seed },
+        }
     }
 
     /// Return a random f32 in [0, 1).
@@ -108,7 +110,13 @@ impl Rng {
 ///
 /// `direction_angle` is the current stroke direction in degrees (used by Direction/InitialDirection
 /// controls for scaling parameters — normalized to [0,1] range).
-pub fn apply_dynamic(param: &DynamicParam, base: f32, pressure: f32, rng: &mut Rng, direction_angle: f32) -> f32 {
+pub fn apply_dynamic(
+    param: &DynamicParam,
+    base: f32,
+    pressure: f32,
+    rng: &mut Rng,
+    direction_angle: f32,
+) -> f32 {
     if param.control == DynamicControl::Off && param.jitter <= 0.0 {
         return base;
     }
@@ -145,7 +153,13 @@ pub fn apply_dynamic(param: &DynamicParam, base: f32, pressure: f32, rng: &mut R
 ///
 /// `direction_angle` is the current stroke direction in degrees.
 /// For Direction/InitialDirection, the brush tip angle follows the stroke direction.
-pub fn apply_angle_dynamic(param: &DynamicParam, base: f32, pressure: f32, rng: &mut Rng, direction_angle: f32) -> f32 {
+pub fn apply_angle_dynamic(
+    param: &DynamicParam,
+    base: f32,
+    pressure: f32,
+    rng: &mut Rng,
+    direction_angle: f32,
+) -> f32 {
     if param.control == DynamicControl::Off && param.jitter <= 0.0 {
         return base;
     }
@@ -202,7 +216,11 @@ mod tests {
     #[test]
     fn test_apply_dynamic_off_no_jitter() {
         // Control=Off, jitter=0: no variation at all
-        let param = DynamicParam { jitter: 0.0, control: DynamicControl::Off, minimum: 0.0 };
+        let param = DynamicParam {
+            jitter: 0.0,
+            control: DynamicControl::Off,
+            minimum: 0.0,
+        };
         let mut rng = Rng::from_coords(1.0, 1.0);
         assert_eq!(apply_dynamic(&param, 10.0, 0.5, &mut rng, 0.0), 10.0);
     }
@@ -210,7 +228,11 @@ mod tests {
     #[test]
     fn test_apply_dynamic_off_with_jitter() {
         // Control=Off, jitter=1.0: random variation from 0 to base
-        let param = DynamicParam { jitter: 1.0, control: DynamicControl::Off, minimum: 0.0 };
+        let param = DynamicParam {
+            jitter: 1.0,
+            control: DynamicControl::Off,
+            minimum: 0.0,
+        };
         let mut rng = Rng::from_coords(1.0, 1.0);
         let v = apply_dynamic(&param, 10.0, 0.5, &mut rng, 0.0);
         assert!(v >= 0.0 && v <= 10.0, "should be in [0, base]: {v}");
@@ -219,7 +241,11 @@ mod tests {
     #[test]
     fn test_apply_dynamic_pen_pressure_no_jitter() {
         // Control=PenPressure, jitter=0: size varies purely with pressure
-        let param = DynamicParam { jitter: 0.0, control: DynamicControl::PenPressure, minimum: 0.0 };
+        let param = DynamicParam {
+            jitter: 0.0,
+            control: DynamicControl::PenPressure,
+            minimum: 0.0,
+        };
         let mut rng = Rng::from_coords(1.0, 1.0);
 
         // Full pressure -> base * 1.0
@@ -235,7 +261,11 @@ mod tests {
     #[test]
     fn test_apply_dynamic_pen_pressure_with_jitter() {
         // Control=PenPressure, jitter=0.5: pressure sets base, jitter adds randomness
-        let param = DynamicParam { jitter: 0.5, control: DynamicControl::PenPressure, minimum: 0.0 };
+        let param = DynamicParam {
+            jitter: 0.5,
+            control: DynamicControl::PenPressure,
+            minimum: 0.0,
+        };
         let mut rng = Rng::from_coords(1.0, 1.0);
 
         // Full pressure: controlled=1.0, then jitter reduces by up to 50%
@@ -246,7 +276,11 @@ mod tests {
     #[test]
     fn test_apply_dynamic_with_minimum() {
         // Minimum=0.5 means the value never goes below 50% of base
-        let param = DynamicParam { jitter: 0.0, control: DynamicControl::PenPressure, minimum: 0.5 };
+        let param = DynamicParam {
+            jitter: 0.0,
+            control: DynamicControl::PenPressure,
+            minimum: 0.5,
+        };
         let mut rng = Rng::from_coords(1.0, 1.0);
 
         // Zero pressure -> base * minimum = 10 * 0.5 = 5.0
@@ -258,17 +292,28 @@ mod tests {
 
     #[test]
     fn test_apply_dynamic_random_control() {
-        let param = DynamicParam { jitter: 0.0, control: DynamicControl::Random, minimum: 0.0 };
+        let param = DynamicParam {
+            jitter: 0.0,
+            control: DynamicControl::Random,
+            minimum: 0.0,
+        };
         let mut rng = Rng::from_coords(1.0, 1.0);
 
         let v = apply_dynamic(&param, 10.0, 1.0, &mut rng, 0.0);
-        assert!(v >= 0.0 && v <= 10.0, "random dynamic should be in [0, base]: {v}");
+        assert!(
+            v >= 0.0 && v <= 10.0,
+            "random dynamic should be in [0, base]: {v}"
+        );
     }
 
     #[test]
     fn test_apply_dynamic_direction_control() {
         // Direction control maps direction angle [0,360] to [0,1] scaling factor
-        let param = DynamicParam { jitter: 0.0, control: DynamicControl::Direction, minimum: 0.0 };
+        let param = DynamicParam {
+            jitter: 0.0,
+            control: DynamicControl::Direction,
+            minimum: 0.0,
+        };
         let mut rng = Rng::from_coords(1.0, 1.0);
 
         // Direction=0 -> factor=0.0 -> base*0 = 0
@@ -283,7 +328,11 @@ mod tests {
 
     #[test]
     fn test_apply_angle_dynamic_off_no_jitter() {
-        let param = DynamicParam { jitter: 0.0, control: DynamicControl::Off, minimum: 0.0 };
+        let param = DynamicParam {
+            jitter: 0.0,
+            control: DynamicControl::Off,
+            minimum: 0.0,
+        };
         let mut rng = Rng::from_coords(1.0, 1.0);
         assert_eq!(apply_angle_dynamic(&param, 45.0, 0.5, &mut rng, 0.0), 45.0);
     }
@@ -291,7 +340,11 @@ mod tests {
     #[test]
     fn test_apply_angle_dynamic_off_with_jitter() {
         // Control=Off, jitter=1.0: random angle offset up to +/-180
-        let param = DynamicParam { jitter: 1.0, control: DynamicControl::Off, minimum: 0.0 };
+        let param = DynamicParam {
+            jitter: 1.0,
+            control: DynamicControl::Off,
+            minimum: 0.0,
+        };
         let mut rng = Rng::from_coords(1.0, 1.0);
         let v = apply_angle_dynamic(&param, 0.0, 0.5, &mut rng, 0.0);
         assert!(v >= -180.0 && v <= 180.0, "should be in [-180, 180]: {v}");
@@ -300,7 +353,11 @@ mod tests {
     #[test]
     fn test_apply_angle_dynamic_pen_pressure() {
         // Control=PenPressure, jitter=0: angle offset purely from pressure
-        let param = DynamicParam { jitter: 0.0, control: DynamicControl::PenPressure, minimum: 0.0 };
+        let param = DynamicParam {
+            jitter: 0.0,
+            control: DynamicControl::PenPressure,
+            minimum: 0.0,
+        };
         let mut rng = Rng::from_coords(1.0, 1.0);
 
         // Full pressure -> base + 180
@@ -312,18 +369,29 @@ mod tests {
 
     #[test]
     fn test_apply_angle_dynamic_random() {
-        let param = DynamicParam { jitter: 1.0, control: DynamicControl::Random, minimum: 0.0 };
+        let param = DynamicParam {
+            jitter: 1.0,
+            control: DynamicControl::Random,
+            minimum: 0.0,
+        };
         let mut rng = Rng::from_coords(1.0, 1.0);
 
         let v = apply_angle_dynamic(&param, 0.0, 1.0, &mut rng, 0.0);
         // Control adds [-180, 180] and jitter adds [-180, 180], total [-360, 360]
-        assert!(v >= -360.0 && v <= 360.0, "angle with random control+jitter should be in [-360, 360]: {v}");
+        assert!(
+            v >= -360.0 && v <= 360.0,
+            "angle with random control+jitter should be in [-360, 360]: {v}"
+        );
     }
 
     #[test]
     fn test_apply_angle_dynamic_direction() {
         // Direction control: brush angle follows stroke direction
-        let param = DynamicParam { jitter: 0.0, control: DynamicControl::Direction, minimum: 0.0 };
+        let param = DynamicParam {
+            jitter: 0.0,
+            control: DynamicControl::Direction,
+            minimum: 0.0,
+        };
         let mut rng = Rng::from_coords(1.0, 1.0);
 
         // Stroke going at 45 degrees -> base + 45
@@ -336,7 +404,11 @@ mod tests {
     #[test]
     fn test_apply_angle_dynamic_initial_direction() {
         // InitialDirection uses the same mechanism as Direction (caller provides the captured angle)
-        let param = DynamicParam { jitter: 0.0, control: DynamicControl::InitialDirection, minimum: 0.0 };
+        let param = DynamicParam {
+            jitter: 0.0,
+            control: DynamicControl::InitialDirection,
+            minimum: 0.0,
+        };
         let mut rng = Rng::from_coords(1.0, 1.0);
 
         assert!((apply_angle_dynamic(&param, 0.0, 1.0, &mut rng, 30.0) - 30.0).abs() < 0.01);
@@ -349,7 +421,6 @@ mod tests {
         assert_eq!(sd.angle.control, DynamicControl::Off);
         assert_eq!(sd.roundness.control, DynamicControl::Off);
     }
-
 
     #[test]
     fn test_dynamic_control_from_u8() {

@@ -149,7 +149,6 @@ impl Operation {
     }
 }
 
-
 /// Magic byte prefix indicating a versioned format.
 /// 0xFF is chosen because postcard varint uses the high bit as a continuation
 /// flag, so a Vec with 127+ elements would need multiple bytes. This makes
@@ -191,7 +190,10 @@ mod tests {
     use super::*;
 
     fn round_trip(op: Operation) {
-        let site_op = SiteOperation { site: 0, op: op.clone() };
+        let site_op = SiteOperation {
+            site: 0,
+            op: op.clone(),
+        };
         let bytes = postcard::to_allocvec(&site_op).unwrap();
         let decoded: SiteOperation = postcard::from_bytes(&bytes).unwrap();
         assert_eq!(site_op, decoded);
@@ -379,9 +381,16 @@ mod tests {
 
     #[test]
     fn test_stroke_end_compact() {
-        let site_op = SiteOperation { site: 0, op: Operation::StrokeEnd };
+        let site_op = SiteOperation {
+            site: 0,
+            op: Operation::StrokeEnd,
+        };
         let bytes = postcard::to_allocvec(&site_op).unwrap();
-        assert!(bytes.len() <= 4, "SiteOperation(StrokeEnd) should be compact, got {} bytes", bytes.len());
+        assert!(
+            bytes.len() <= 4,
+            "SiteOperation(StrokeEnd) should be compact, got {} bytes",
+            bytes.len()
+        );
     }
 
     #[test]
@@ -400,7 +409,10 @@ mod tests {
                 pressure: 0.9,
             },
             Operation::StrokeEnd,
-        ].into_iter().map(|op| SiteOperation { site: 0, op }).collect();
+        ]
+        .into_iter()
+        .map(|op| SiteOperation { site: 0, op })
+        .collect();
         let bytes = serialize_operations(&ops);
         let decoded = deserialize_operations(&bytes).unwrap();
         assert_eq!(ops, decoded);
@@ -408,9 +420,18 @@ mod tests {
 
     #[test]
     fn test_site_operation_with_different_sites() {
-        let op1 = SiteOperation { site: 0, op: Operation::SetBrushSize(10.0) };
-        let op2 = SiteOperation { site: 1, op: Operation::SetBrushSize(10.0) };
-        assert_ne!(op1, op2, "Same operation from different sites should not be equal");
+        let op1 = SiteOperation {
+            site: 0,
+            op: Operation::SetBrushSize(10.0),
+        };
+        let op2 = SiteOperation {
+            site: 1,
+            op: Operation::SetBrushSize(10.0),
+        };
+        assert_ne!(
+            op1, op2,
+            "Same operation from different sites should not be equal"
+        );
     }
 
     #[test]
@@ -426,7 +447,10 @@ mod tests {
 
     #[test]
     fn test_serialization_has_version_header() {
-        let ops = vec![SiteOperation { site: 0, op: Operation::StrokeEnd }];
+        let ops = vec![SiteOperation {
+            site: 0,
+            op: Operation::StrokeEnd,
+        }];
         let bytes = serialize_operations(&ops);
         assert_eq!(bytes[0], 0xFF, "First byte should be version magic");
         assert_eq!(bytes[1], 1, "Second byte should be version 1");
@@ -435,7 +459,10 @@ mod tests {
     #[test]
     fn test_deserialize_legacy_format() {
         // Legacy format: no version header, raw postcard bytes
-        let ops = vec![SiteOperation { site: 0, op: Operation::StrokeEnd }];
+        let ops = vec![SiteOperation {
+            site: 0,
+            op: Operation::StrokeEnd,
+        }];
         let legacy_bytes = postcard::to_allocvec(&ops).unwrap();
         // Should still deserialize successfully (fallback)
         let decoded = deserialize_operations(&legacy_bytes).unwrap();

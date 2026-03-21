@@ -98,27 +98,33 @@ impl BlendMode {
 /// All inputs/outputs are in 0.0–1.0 premultiplied space.
 /// Returns (r, g, b, a).
 pub fn porter_duff_composite(
-    sr: f32, sg: f32, sb: f32, sa: f32,
-    dr: f32, dg: f32, db: f32, da: f32,
+    sr: f32,
+    sg: f32,
+    sb: f32,
+    sa: f32,
+    dr: f32,
+    dg: f32,
+    db: f32,
+    da: f32,
     mode: BlendMode,
 ) -> (f32, f32, f32, f32) {
     // Porter-Duff factor pairs: (Fa, Fb) where result = src * Fa + dst * Fb
     let (fa, fb) = match mode {
-        BlendMode::Clear       => (0.0, 0.0),
-        BlendMode::Copy        => (1.0, 0.0),
+        BlendMode::Clear => (0.0, 0.0),
+        BlendMode::Copy => (1.0, 0.0),
         BlendMode::Destination => (0.0, 1.0),
-        BlendMode::SrcOver     => (1.0, 1.0 - sa),
-        BlendMode::DstOver     => (1.0 - da, 1.0),
-        BlendMode::SrcIn       => (da, 0.0),
-        BlendMode::DstIn       => (0.0, sa),
-        BlendMode::SrcOut      => (1.0 - da, 0.0),
-        BlendMode::DstOut      => (0.0, 1.0 - sa),
-        BlendMode::SrcAtop     => (da, 1.0 - sa),
-        BlendMode::DstAtop     => (1.0 - da, sa),
-        BlendMode::Xor         => (1.0 - da, 1.0 - sa),
-        BlendMode::Plus        => (1.0, 1.0),
+        BlendMode::SrcOver => (1.0, 1.0 - sa),
+        BlendMode::DstOver => (1.0 - da, 1.0),
+        BlendMode::SrcIn => (da, 0.0),
+        BlendMode::DstIn => (0.0, sa),
+        BlendMode::SrcOut => (1.0 - da, 0.0),
+        BlendMode::DstOut => (0.0, 1.0 - sa),
+        BlendMode::SrcAtop => (da, 1.0 - sa),
+        BlendMode::DstAtop => (1.0 - da, sa),
+        BlendMode::Xor => (1.0 - da, 1.0 - sa),
+        BlendMode::Plus => (1.0, 1.0),
         // Photoshop modes use SrcOver compositing
-        _                      => (1.0, 1.0 - sa),
+        _ => (1.0, 1.0 - sa),
     };
 
     let r = (sr * fa + dr * fb).clamp(0.0, 1.0);
@@ -190,21 +196,15 @@ mod tests {
 
     #[test]
     fn test_clear_composite() {
-        let (r, g, b, a) = porter_duff_composite(
-            1.0, 0.0, 0.0, 1.0,
-            0.0, 1.0, 0.0, 1.0,
-            BlendMode::Clear,
-        );
+        let (r, g, b, a) =
+            porter_duff_composite(1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, BlendMode::Clear);
         assert_eq!((r, g, b, a), (0.0, 0.0, 0.0, 0.0));
     }
 
     #[test]
     fn test_copy_composite() {
-        let (r, _g, _b, a) = porter_duff_composite(
-            0.5, 0.0, 0.0, 0.5,
-            0.0, 1.0, 0.0, 1.0,
-            BlendMode::Copy,
-        );
+        let (r, _g, _b, a) =
+            porter_duff_composite(0.5, 0.0, 0.0, 0.5, 0.0, 1.0, 0.0, 1.0, BlendMode::Copy);
         assert!((r - 0.5).abs() < 0.001);
         assert!((a - 0.5).abs() < 0.001);
     }
@@ -212,32 +212,26 @@ mod tests {
     #[test]
     fn test_dst_out_erases() {
         // Fully opaque source should completely erase destination
-        let (_, _, _, a) = porter_duff_composite(
-            0.0, 0.0, 0.0, 1.0,
-            0.0, 0.5, 0.0, 0.5,
-            BlendMode::DstOut,
-        );
+        let (_, _, _, a) =
+            porter_duff_composite(0.0, 0.0, 0.0, 1.0, 0.0, 0.5, 0.0, 0.5, BlendMode::DstOut);
         assert!(a.abs() < 0.001, "DstOut with sa=1.0 should erase: a={a}");
     }
 
     #[test]
     fn test_dst_out_partial_erase() {
         // Half-opaque source should halve destination alpha
-        let (_, _, _, a) = porter_duff_composite(
-            0.0, 0.0, 0.0, 0.5,
-            0.0, 1.0, 0.0, 1.0,
-            BlendMode::DstOut,
+        let (_, _, _, a) =
+            porter_duff_composite(0.0, 0.0, 0.0, 0.5, 0.0, 1.0, 0.0, 1.0, BlendMode::DstOut);
+        assert!(
+            (a - 0.5).abs() < 0.001,
+            "DstOut with sa=0.5 should halve: a={a}"
         );
-        assert!((a - 0.5).abs() < 0.001, "DstOut with sa=0.5 should halve: a={a}");
     }
 
     #[test]
     fn test_src_over_matches_normal_compositing() {
-        let (r, g, _b, a) = porter_duff_composite(
-            0.5, 0.0, 0.0, 0.5,
-            0.0, 0.25, 0.0, 0.5,
-            BlendMode::SrcOver,
-        );
+        let (r, g, _b, a) =
+            porter_duff_composite(0.5, 0.0, 0.0, 0.5, 0.0, 0.25, 0.0, 0.5, BlendMode::SrcOver);
         // SrcOver: result = src + dst * (1 - sa)
         assert!((r - 0.5).abs() < 0.001);
         assert!((g - 0.125).abs() < 0.001);
@@ -246,11 +240,8 @@ mod tests {
 
     #[test]
     fn test_plus_additive() {
-        let (r, _, _, a) = porter_duff_composite(
-            0.3, 0.0, 0.0, 0.3,
-            0.4, 0.0, 0.0, 0.5,
-            BlendMode::Plus,
-        );
+        let (r, _, _, a) =
+            porter_duff_composite(0.3, 0.0, 0.0, 0.3, 0.4, 0.0, 0.0, 0.5, BlendMode::Plus);
         assert!((r - 0.7).abs() < 0.001);
         assert!((a - 0.8).abs() < 0.001);
     }

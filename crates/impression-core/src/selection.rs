@@ -50,30 +50,6 @@ impl SelectionMask {
         }
     }
 
-    /// Get the selection value at (x, y).
-    #[allow(dead_code)]
-    pub fn get(&self, x: u32, y: u32) -> u8 {
-        if x >= self.width || y >= self.height {
-            return 0;
-        }
-        self.data[(y * self.width + x) as usize]
-    }
-
-    /// Set the selection value at (x, y).
-    #[allow(dead_code)]
-    pub fn set(&mut self, x: u32, y: u32, value: u8) {
-        if x < self.width && y < self.height {
-            self.data[(y * self.width + x) as usize] = value;
-        }
-    }
-
-    /// Fill the entire mask with 255 (select all).
-    #[allow(dead_code)]
-    pub fn select_all(&mut self) {
-        self.data.fill(255);
-        self.dirty = true;
-    }
-
     /// Fill a rectangle into the mask with the given combine mode.
     pub fn fill_rect(&mut self, x: u32, y: u32, w: u32, h: u32, mode: CombineMode) {
         // Build temporary rect mask
@@ -180,6 +156,14 @@ impl SelectionMask {
 mod tests {
     use super::*;
 
+    fn get_pixel(mask: &SelectionMask, x: u32, y: u32) -> u8 {
+        if x >= mask.width || y >= mask.height {
+            0
+        } else {
+            mask.data[(y * mask.width + x) as usize]
+        }
+    }
+
     #[test]
     fn test_new_mask_is_empty() {
         let mask = SelectionMask::new(10, 10);
@@ -193,22 +177,14 @@ mod tests {
     }
 
     #[test]
-    fn test_select_all() {
-        let mut mask = SelectionMask::new(10, 10);
-        mask.select_all();
-        assert!(mask.data.iter().all(|&v| v == 255));
-        assert!(mask.dirty);
-    }
-
-    #[test]
     fn test_fill_rect_replace() {
         let mut mask = SelectionMask::new(10, 10);
         mask.fill_rect(2, 3, 4, 5, CombineMode::Replace);
 
-        assert_eq!(mask.get(2, 3), 255);
-        assert_eq!(mask.get(5, 7), 255);
-        assert_eq!(mask.get(0, 0), 0);
-        assert_eq!(mask.get(6, 3), 0); // x=6 is outside (2+4=6, exclusive)
+        assert_eq!(get_pixel(&mask, 2, 3), 255);
+        assert_eq!(get_pixel(&mask, 5, 7), 255);
+        assert_eq!(get_pixel(&mask, 0, 0), 0);
+        assert_eq!(get_pixel(&mask, 6, 3), 0); // x=6 is outside (2+4=6, exclusive)
     }
 
     #[test]
@@ -218,21 +194,22 @@ mod tests {
         mask.fill_rect(3, 3, 5, 5, CombineMode::Add);
 
         // Original area should still be selected
-        assert_eq!(mask.get(1, 1), 255);
+        assert_eq!(get_pixel(&mask, 1, 1), 255);
         // New area should also be selected
-        assert_eq!(mask.get(6, 6), 255);
+        assert_eq!(get_pixel(&mask, 6, 6), 255);
         // Overlap area should be selected
-        assert_eq!(mask.get(4, 4), 255);
+        assert_eq!(get_pixel(&mask, 4, 4), 255);
     }
 
     #[test]
     fn test_fill_rect_subtract() {
         let mut mask = SelectionMask::new(10, 10);
-        mask.select_all();
+        mask.data.fill(255);
+        mask.dirty = true;
         mask.fill_rect(2, 2, 3, 3, CombineMode::Subtract);
 
-        assert_eq!(mask.get(0, 0), 255);
-        assert_eq!(mask.get(3, 3), 0);
+        assert_eq!(get_pixel(&mask, 0, 0), 255);
+        assert_eq!(get_pixel(&mask, 3, 3), 0);
     }
 
     #[test]
@@ -242,9 +219,9 @@ mod tests {
         mask.fill_rect(3, 3, 6, 6, CombineMode::Intersect);
 
         // Only the overlap (3..6, 3..6) should remain
-        assert_eq!(mask.get(1, 1), 0); // was in first rect but not second
-        assert_eq!(mask.get(7, 7), 0); // was in second rect but not first
-        assert_eq!(mask.get(4, 4), 255); // overlap
+        assert_eq!(get_pixel(&mask, 1, 1), 0); // was in first rect but not second
+        assert_eq!(get_pixel(&mask, 7, 7), 0); // was in second rect but not first
+        assert_eq!(get_pixel(&mask, 4, 4), 255); // overlap
     }
 
     #[test]
@@ -254,9 +231,9 @@ mod tests {
         mask.fill_polygon(&points, CombineMode::Replace);
 
         // Center should be selected
-        assert_eq!(mask.get(10, 10), 255);
+        assert_eq!(get_pixel(&mask, 10, 10), 255);
         // Corner should not be
-        assert_eq!(mask.get(0, 0), 0);
+        assert_eq!(get_pixel(&mask, 0, 0), 0);
     }
 
     #[test]
@@ -276,8 +253,8 @@ mod tests {
         mask.fill_polygon(&points, CombineMode::Add);
 
         // Both areas selected
-        assert_eq!(mask.get(2, 2), 255);
-        assert_eq!(mask.get(10, 15), 255);
+        assert_eq!(get_pixel(&mask, 2, 2), 255);
+        assert_eq!(get_pixel(&mask, 10, 15), 255);
     }
 
     #[test]

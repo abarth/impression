@@ -50,17 +50,25 @@ impl Canvas {
 
     /// Register a custom brush tip image in the tip registry.
     pub fn register_brush_tip(&mut self, id: String, pixels: Vec<u8>, width: u32, height: u32) {
-        self.tip_registry.insert(id, BrushTip { pixels, width, height });
+        self.tip_registry.insert(
+            id,
+            BrushTip {
+                pixels,
+                width,
+                height,
+            },
+        );
     }
 
     /// Get the active site's state.
-    #[allow(dead_code)]
     pub(crate) fn site(&self) -> &SiteState {
-        self.sites.get(&self.active_site).expect("active site must exist")
+        self.sites
+            .get(&self.active_site)
+            .expect("active site must exist")
     }
 
     /// Get the active site's state mutably.
-    fn site_mut(&mut self) -> &mut SiteState {
+    pub(crate) fn site_mut(&mut self) -> &mut SiteState {
         self.sites.entry(self.active_site).or_default()
     }
 
@@ -95,7 +103,10 @@ impl Canvas {
         if op.starts_undo_group() {
             self.begin_group();
         }
-        let site_op = SiteOperation { site: self.active_site, op };
+        let site_op = SiteOperation {
+            site: self.active_site,
+            op,
+        };
         self.oplog.push(site_op.clone());
         self.execute_op(site_op);
     }
@@ -294,7 +305,12 @@ impl Canvas {
             Some(l) => l.id,
             None => return,
         };
-        self.apply(Operation::StrokeBegin { layer: layer_id, x, y, pressure });
+        self.apply(Operation::StrokeBegin {
+            layer: layer_id,
+            x,
+            y,
+            pressure,
+        });
     }
 
     pub fn stroke_move(&mut self, _layer_index: u32, x: f32, y: f32, pressure: f32) {
@@ -366,7 +382,9 @@ impl Canvas {
             None
         } else {
             // Build the list without the source to find what's at to_index
-            let without_src: Vec<LayerId> = self.layers.iter()
+            let without_src: Vec<LayerId> = self
+                .layers
+                .iter()
                 .filter(|l| l.id != layer_id)
                 .map(|l| l.id)
                 .collect();
@@ -377,7 +395,10 @@ impl Canvas {
                 None
             }
         };
-        self.apply(Operation::MoveLayer { layer: layer_id, before });
+        self.apply(Operation::MoveLayer {
+            layer: layer_id,
+            before,
+        });
     }
 
     // -- Undo/Redo (per-site) --
@@ -542,9 +563,20 @@ mod tests {
         let ops = canvas.oplog.active_operations();
         assert_eq!(ops.len(), 4);
         assert!(matches!(ops[0].op, Operation::AddLayer { .. }));
-        assert!(matches!(ops[1].op, Operation::SetLayerOpacity { opacity, .. } if (opacity - 0.5).abs() < 0.001));
-        assert!(matches!(ops[2].op, Operation::SetLayerBlendMode { mode: BlendMode::Multiply, .. }));
-        assert!(matches!(ops[3].op, Operation::SetLayerVisible { visible: false, .. }));
+        assert!(
+            matches!(ops[1].op, Operation::SetLayerOpacity { opacity, .. } if (opacity - 0.5).abs() < 0.001)
+        );
+        assert!(matches!(
+            ops[2].op,
+            Operation::SetLayerBlendMode {
+                mode: BlendMode::Multiply,
+                ..
+            }
+        ));
+        assert!(matches!(
+            ops[3].op,
+            Operation::SetLayerVisible { visible: false, .. }
+        ));
     }
 
     #[test]
@@ -627,7 +659,10 @@ mod tests {
         canvas.undo();
 
         let px1 = canvas.layer(0).unwrap().pixel(50, 50).unwrap();
-        assert!(px1[3] > 0, "First stroke should remain after undoing second");
+        assert!(
+            px1[3] > 0,
+            "First stroke should remain after undoing second"
+        );
 
         let px2 = canvas.layer(0).unwrap().pixel(80, 80).unwrap();
         assert_eq!(px2[3], 0, "Second stroke should be gone after undo");
@@ -651,8 +686,14 @@ mod tests {
 
         canvas.undo();
 
-        assert!(!canvas.layers[0].dirty, "Unchanged layer should not be dirty after undo");
-        assert!(canvas.layers[1].dirty, "Changed layer should be dirty after undo");
+        assert!(
+            !canvas.layers[0].dirty,
+            "Unchanged layer should not be dirty after undo"
+        );
+        assert!(
+            canvas.layers[1].dirty,
+            "Changed layer should be dirty after undo"
+        );
     }
 
     #[test]
@@ -672,8 +713,14 @@ mod tests {
 
         canvas.redo();
 
-        assert!(!canvas.layers[0].dirty, "Unchanged layer should not be dirty after redo");
-        assert!(canvas.layers[1].dirty, "Changed layer should be dirty after redo");
+        assert!(
+            !canvas.layers[0].dirty,
+            "Unchanged layer should not be dirty after redo"
+        );
+        assert!(
+            canvas.layers[1].dirty,
+            "Changed layer should be dirty after redo"
+        );
     }
 
     #[test]
@@ -733,7 +780,10 @@ mod tests {
         let ops = canvas.oplog.active_operations();
         match &ops[1].op {
             Operation::SetLayerOpacity { layer, .. } => {
-                assert_eq!(*layer, layer_id, "Operation should reference LayerId, not index");
+                assert_eq!(
+                    *layer, layer_id,
+                    "Operation should reference LayerId, not index"
+                );
             }
             _ => panic!("Expected SetLayerOpacity"),
         }
@@ -795,7 +845,10 @@ mod tests {
         assert!(canvas.undo());
 
         let px0 = canvas.layer(0).unwrap().pixel(10, 10).unwrap();
-        assert!(px0[3] > 0, "Site 0's stroke should remain after site 1 undo");
+        assert!(
+            px0[3] > 0,
+            "Site 0's stroke should remain after site 1 undo"
+        );
 
         let px1 = canvas.layer(1).unwrap().pixel(50, 50).unwrap();
         assert_eq!(px1[3], 0, "Site 1's stroke should be gone after undo");
@@ -818,12 +871,16 @@ mod tests {
         canvas.undo();
 
         // Site 0 should revert to default
-        assert!((canvas.sites.get(&0).unwrap().brush.size - 10.0).abs() < 0.01,
-            "Site 0 brush should revert to default");
+        assert!(
+            (canvas.sites.get(&0).unwrap().brush.size - 10.0).abs() < 0.01,
+            "Site 0 brush should revert to default"
+        );
 
         // Site 1 should be unaffected
-        assert!((canvas.sites.get(&1).unwrap().brush.size - 50.0).abs() < 0.01,
-            "Site 1 brush should remain at 50");
+        assert!(
+            (canvas.sites.get(&1).unwrap().brush.size - 50.0).abs() < 0.01,
+            "Site 1 brush should remain at 50"
+        );
     }
 
     #[test]
@@ -846,11 +903,23 @@ mod tests {
         let idx_15_15 = (15 * 100 + 15) as usize;
         let idx_55_55 = (55 * 100 + 55) as usize;
 
-        assert!(sel0.data[idx_15_15] > 0, "Site 0 should have selection at (15,15)");
-        assert_eq!(sel0.data[idx_55_55], 0, "Site 0 should not have selection at (55,55)");
+        assert!(
+            sel0.data[idx_15_15] > 0,
+            "Site 0 should have selection at (15,15)"
+        );
+        assert_eq!(
+            sel0.data[idx_55_55], 0,
+            "Site 0 should not have selection at (55,55)"
+        );
 
-        assert_eq!(sel1.data[idx_15_15], 0, "Site 1 should not have selection at (15,15)");
-        assert!(sel1.data[idx_55_55] > 0, "Site 1 should have selection at (55,55)");
+        assert_eq!(
+            sel1.data[idx_15_15], 0,
+            "Site 1 should not have selection at (15,15)"
+        );
+        assert!(
+            sel1.data[idx_55_55] > 0,
+            "Site 1 should have selection at (55,55)"
+        );
     }
 
     #[test]
@@ -879,8 +948,10 @@ mod tests {
         assert!(px[3] > 0, "Loaded canvas should have site 0's stroke");
 
         // Site 1's brush size should be restored
-        assert!((canvas2.sites.get(&1).unwrap().brush.size - 42.0).abs() < 0.01,
-            "Site 1's brush size should be loaded");
+        assert!(
+            (canvas2.sites.get(&1).unwrap().brush.size - 42.0).abs() < 0.01,
+            "Site 1's brush size should be loaded"
+        );
     }
 
     #[test]
@@ -931,7 +1002,10 @@ mod tests {
 
         let px = canvas.layer(0).unwrap().pixel(5, 5).unwrap();
         assert_eq!(px, [0, 0, 0, 0], "Pixel should be cleared");
-        assert!(canvas.layer(0).unwrap().dirty, "Layer should be dirty after clear");
+        assert!(
+            canvas.layer(0).unwrap().dirty,
+            "Layer should be dirty after clear"
+        );
     }
 
     #[test]
@@ -950,10 +1024,18 @@ mod tests {
         canvas.clear_layer(0);
 
         let px_outside = canvas.layer(0).unwrap().pixel(2, 2).unwrap();
-        assert_eq!(px_outside, [255, 0, 0, 255], "Pixel outside selection should be untouched");
+        assert_eq!(
+            px_outside,
+            [255, 0, 0, 255],
+            "Pixel outside selection should be untouched"
+        );
 
         let px_inside = canvas.layer(0).unwrap().pixel(5, 5).unwrap();
-        assert_eq!(px_inside, [0, 0, 0, 0], "Pixel inside selection should be cleared");
+        assert_eq!(
+            px_inside,
+            [0, 0, 0, 0],
+            "Pixel inside selection should be cleared"
+        );
     }
 
     #[test]
@@ -1150,12 +1232,30 @@ mod tests {
         canvas.reset_brush();
 
         let site = canvas.site_for_mut(0);
-        assert!(site.brush.active_tip_id.is_none(), "reset should clear active tip ID");
-        assert!(site.brush.secondary_tip_id.is_none(), "reset should clear secondary tip ID");
-        assert!(site.brush.texture_tip_id.is_none(), "reset should clear texture tip ID");
-        assert!(site.active_tip.is_none(), "reset should clear cached active tip");
-        assert!(site.secondary_tip.is_none(), "reset should clear cached secondary tip");
-        assert!(site.texture_tip.is_none(), "reset should clear cached texture tip");
+        assert!(
+            site.brush.active_tip_id.is_none(),
+            "reset should clear active tip ID"
+        );
+        assert!(
+            site.brush.secondary_tip_id.is_none(),
+            "reset should clear secondary tip ID"
+        );
+        assert!(
+            site.brush.texture_tip_id.is_none(),
+            "reset should clear texture tip ID"
+        );
+        assert!(
+            site.active_tip.is_none(),
+            "reset should clear cached active tip"
+        );
+        assert!(
+            site.secondary_tip.is_none(),
+            "reset should clear cached secondary tip"
+        );
+        assert!(
+            site.texture_tip.is_none(),
+            "reset should clear cached texture tip"
+        );
     }
 
     #[test]
@@ -1189,8 +1289,12 @@ mod tests {
         // Both should have the same brush size (default after reset)
         let site1 = canvas1.site_for_mut(0);
         let site2 = canvas2.site_for_mut(0);
-        assert!((site1.brush.size - site2.brush.size).abs() < 0.01,
-            "Replay brush size ({}) should match live ({})", site2.brush.size, site1.brush.size);
+        assert!(
+            (site1.brush.size - site2.brush.size).abs() < 0.01,
+            "Replay brush size ({}) should match live ({})",
+            site2.brush.size,
+            site1.brush.size
+        );
     }
 
     #[test]
@@ -1204,7 +1308,10 @@ mod tests {
 
         let layer = &canvas.layers[0];
         assert!(layer.is_adjustment());
-        assert!(layer.pixels.is_empty(), "Adjustment layers should have no pixel buffer");
+        assert!(
+            layer.pixels.is_empty(),
+            "Adjustment layers should have no pixel buffer"
+        );
         assert_eq!(layer.name, "Gradient Map");
 
         match &layer.kind {
@@ -1222,9 +1329,12 @@ mod tests {
             gradient_id: "grad-1".to_string(),
         });
 
-        canvas.set_adjustment_data(0, AdjustmentKind::GradientMap {
-            gradient_id: "grad-2".to_string(),
-        });
+        canvas.set_adjustment_data(
+            0,
+            AdjustmentKind::GradientMap {
+                gradient_id: "grad-2".to_string(),
+            },
+        );
 
         match &canvas.layers[0].kind {
             LayerKind::Adjustment(AdjustmentKind::GradientMap { gradient_id }) => {
