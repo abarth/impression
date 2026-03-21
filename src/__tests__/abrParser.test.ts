@@ -525,13 +525,23 @@ describe("abrParser", () => {
       { width: 2, height: 2, pixels: [255, 255, 255, 255], uuid: "tip-1" },
     ], 2);
 
-    // Build a nested dualBrush Objc descriptor — useDualBrush lives inside it
+    // Build a nested dualBrush Objc descriptor — useDualBrush is inside it,
+    // and the secondary tip shape (Dmtr, Hrdn) is nested inside dualBrush.Brsh
+    const dualBrshItems = [
+      untfItem("Dmtr", "#Pxl", 25),
+      untfItem("Hrdn", "#Prc", 80),
+    ];
+    const dualBrshDesc = new BinaryBuilder()
+      .unicodeString("")
+      .classId("computedBrush")
+      .u32(dualBrshItems.length);
+    for (const item of dualBrshItems) dualBrshDesc.append(item);
+
     const dualItems = [
       boolItem("useDualBrush", true),
       enumItem("Md  ", "BlnM", "Drkn"),
-      untfItem("Dmtr", "#Pxl", 25),
+      new BinaryBuilder().key("Brsh").tag("Objc").append(dualBrshDesc),
       untfItem("Spcn", "#Prc", 50),
-      untfItem("Hrdn", "#Prc", 80),
     ];
     const dualDesc = new BinaryBuilder()
       .unicodeString("")

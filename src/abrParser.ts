@@ -549,15 +549,19 @@ function extractPresetParams(presetItems: Map<string, DescriptorValue>): AbrBrus
     };
   }
 
-  // Dual brush — useDualBrush lives inside the dualBrush sub-descriptor
+  // Dual brush — useDualBrush lives inside the dualBrush sub-descriptor.
+  // The secondary tip shape (Dmtr, Hrdn, etc.) is nested in dualBrush.Brsh.
   const dualItems = getObjc(presetItems, "dualBrush");
   if (dualItems) {
     const useDualBrush = getBool(dualItems, "useDualBrush");
     if (useDualBrush) {
       const mode = mapDualBrushMode(getEnum(dualItems, "Md  "));
-      const dualDiameter = getNumber(dualItems, "Dmtr");
+      // Secondary tip shape is inside the nested Brsh descriptor
+      const dualBrshItems = getObjc(dualItems, "Brsh");
+      const dualDiameter = dualBrshItems ? getNumber(dualBrshItems, "Dmtr") : undefined;
+      const dualHardness = dualBrshItems ? getNumber(dualBrshItems, "Hrdn") : undefined;
+      // Spacing is at the dual brush level, not inside Brsh
       const dualSpacing = getNumber(dualItems, "Spcn");
-      const dualHardness = getNumber(dualItems, "Hrdn");
       params.dualBrush = {
         enabled: true,
         mode,
