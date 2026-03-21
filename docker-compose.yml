@@ -5,10 +5,9 @@ services:
       - .:/workspace
       # Map SSH keys and Git config to the container (read-only)
       - ~/.ssh:/root/.ssh:rw
-      - ~/.gitconfig:/root/.gitconfig:ro
+      - ~/.gitconfig:/root/.gitconfig:rw
       - ~/.claude.json:/root/.claude.json
       - ~/.copilot:/root/.copilot:rw
-      - ~/.config/gh:/root/.config/gh:ro
-      - ~/.config/github-copilot:/root/.config/github-copilot:ro
+      - ~/.config/gh:/root/.config/gh:rw
     # The container will stay awake so you can 'docker-compose exec dev bash'
     # and run your coding agents or the development server inside it.
