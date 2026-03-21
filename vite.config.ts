@@ -38,6 +38,9 @@ function wasmPackWatch(): Plugin {
 export default defineConfig({
   base: "/impression/",
   plugins: [wasmPackWatch(), react(), wasm(), topLevelAwait(), tailwindcss()],
+  server: {
+    host: true,
+  },
   build: {
     target: "esnext",
   },
