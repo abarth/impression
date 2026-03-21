@@ -1,6 +1,8 @@
+import { useMemo } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { OklchColorPicker } from "./OklchColorPicker";
 import { RefreshCw } from "lucide-react";
+import { generateHarmony } from "../lib/colorHarmony";
 
 interface ColorDisplayProps {
   foreground: string;
@@ -55,6 +57,8 @@ export function ColorDisplay({
   onBackgroundChange,
   onSwap,
 }: ColorDisplayProps) {
+  const harmonies = useMemo(() => generateHarmony(foreground), [foreground]);
+
   return (
     <div className="flex flex-col gap-3 px-4 py-4 border-t border-graphite-850">
       <div className="flex items-center">
@@ -88,6 +92,22 @@ export function ColorDisplay({
           className="absolute top-0 left-0 w-11 h-11 z-10"
         />
       </div>
+
+      {/* Harmonious color swatches */}
+      <div className="flex flex-wrap gap-1.5">
+        {harmonies.map((hex, i) => (
+          <button
+            key={i}
+            title={hex}
+            onClick={() => onForegroundChange(hex)}
+            className="w-5 h-5 rounded-full border border-graphite-750
+              hover:border-cream-muted hover:scale-110
+              transition-all duration-150 ease-out cursor-pointer"
+            style={{ backgroundColor: hex }}
+          />
+        ))}
+      </div>
     </div>
   );
 }
+
