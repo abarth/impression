@@ -1,4 +1,4 @@
-FROM rust:1.80-bullseye
+FROM rust:1.85-bullseye
 
 # Install basic tools
 RUN apt-get update && apt-get install -y \
@@ -21,6 +21,10 @@ RUN curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
 # Add WebAssembly target for Rust
 RUN rustup target add wasm32-unknown-unknown
+
+# Install wasm-bindgen-cli from source (matching Cargo.lock version)
+# so it works on bullseye's glibc, since wasm-pack's prebuilt binary needs glibc 2.32+
+RUN cargo install wasm-bindgen-cli@0.2.114
 
 # Install Node.js 22
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
