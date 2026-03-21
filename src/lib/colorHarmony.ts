@@ -2,9 +2,10 @@ import { hexToOklch, oklchToHex, maxChroma } from "./oklch";
 
 /**
  * Classic color harmony hue offsets (degrees from base hue).
- * Produces 8 swatches: complementary, triadic ×2, split-complementary ×2, analogous ×4.
+ * Row 1 (nearby): analogous colors at ±30° and ±60°
+ * Row 2 (contrast): triadic, split-complementary, and complementary
  */
-const HARMONY_OFFSETS = [30, -30, 60, -60, 120, 150, 180, 210];
+const HARMONY_OFFSETS = [-60, -30, 30, 60, 120, 150, 180, 210];
 
 /**
  * Lightness steps used for achromatic fallback when the source color has no hue.

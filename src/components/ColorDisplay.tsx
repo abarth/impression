@@ -94,14 +94,14 @@ export function ColorDisplay({
       </div>
 
       {/* Harmonious color swatches */}
-      <div className="flex flex-wrap gap-1.5">
+      <div className="grid grid-cols-4 gap-1.5">
         {harmonies.map((hex, i) => (
           <button
             key={i}
             title={hex}
             onClick={() => onForegroundChange(hex)}
-            className="w-5 h-5 rounded-full border border-graphite-750
-              hover:border-cream-muted hover:scale-110
+            className="h-5 rounded-md border border-graphite-750
+              hover:border-cream-muted hover:scale-105
               transition-all duration-150 ease-out cursor-pointer"
             style={{ backgroundColor: hex }}
           />
