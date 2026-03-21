@@ -22,10 +22,9 @@ interface BrushSettingsPanelProps {
   ) => void;
 }
 
-const CONTROL_LABELS: Record<DynamicControl, string> = {
+const CONTROL_LABELS: Record<number, string> = {
   0: "Off",
   1: "Pen Pressure",
-  2: "Random",
 };
 
 function DynamicParamControl({
@@ -52,32 +51,27 @@ function DynamicParamControl({
         >
           <option value={0}>{CONTROL_LABELS[0]}</option>
           <option value={1}>{CONTROL_LABELS[1]}</option>
-          <option value={2}>{CONTROL_LABELS[2]}</option>
         </select>
       </div>
-      {param.control !== 0 && (
-        <>
-          <SliderControl
-            label="Jitter"
-            value={param.jitter}
-            min={0}
-            max={1.0}
-            step={0.01}
-            displayValue={`${Math.round(param.jitter * 100)}%`}
-            onChange={(v) => onChange({ ...param, jitter: v })}
-          />
-          {showMinimum !== false && (
-            <SliderControl
-              label="Minimum"
-              value={param.minimum}
-              min={0}
-              max={1.0}
-              step={0.01}
-              displayValue={`${Math.round(param.minimum * 100)}%`}
-              onChange={(v) => onChange({ ...param, minimum: v })}
-            />
-          )}
-        </>
+      <SliderControl
+        label="Jitter"
+        value={param.jitter}
+        min={0}
+        max={1.0}
+        step={0.01}
+        displayValue={`${Math.round(param.jitter * 100)}%`}
+        onChange={(v) => onChange({ ...param, jitter: v })}
+      />
+      {showMinimum !== false && param.control === 1 && (
+        <SliderControl
+          label="Minimum"
+          value={param.minimum}
+          min={0}
+          max={1.0}
+          step={0.01}
+          displayValue={`${Math.round(param.minimum * 100)}%`}
+          onChange={(v) => onChange({ ...param, minimum: v })}
+        />
       )}
     </div>
   );
