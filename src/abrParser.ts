@@ -596,6 +596,9 @@ function extractPresetParams(presetItems: Map<string, DescriptorValue>): AbrBrus
       const dualDiameter = dualBrshItems ? getNumber(dualBrshItems, "Dmtr") : undefined;
       const dualHardness = dualBrshItems ? getNumber(dualBrshItems, "Hrdn") : undefined;
       const dualSpacing = dualBrshItems ? getNumber(dualBrshItems, "Spcn") : undefined;
+      const dualCount = getNumber(dualItems, "Cnt ");
+      const dualScatter = getNumber(dualItems, "Sctr");
+      const dualBothAxes = getBool(dualItems, "BthA");
       params.dualBrush = {
         enabled: true,
         mode,
@@ -603,6 +606,9 @@ function extractPresetParams(presetItems: Map<string, DescriptorValue>): AbrBrus
         hardness: dualHardness !== undefined ? dualHardness / 100 : 1.0,
         size: dualDiameter ?? 20,
         spacing: dualSpacing !== undefined ? dualSpacing / 100 : 0.25,
+        count: dualCount ?? 1,
+        scatter: dualScatter !== undefined ? dualScatter / 100 : 0,
+        bothAxes: dualBothAxes ?? false,
       };
     }
   }

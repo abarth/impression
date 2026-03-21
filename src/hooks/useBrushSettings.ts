@@ -46,6 +46,9 @@ export interface DualBrushSettings {
   hardness: number;
   size: number;
   spacing: number;
+  count: number;
+  scatter: number;
+  bothAxes: boolean;
 }
 
 export interface TextureSettings {
@@ -118,6 +121,9 @@ const DEFAULT_DUAL_BRUSH: DualBrushSettings = {
   hardness: 1.0,
   size: 20,
   spacing: 0.25,
+  count: 1,
+  scatter: 0,
+  bothAxes: false,
 };
 
 const DEFAULT_TEXTURE: TextureSettings = {
@@ -220,7 +226,7 @@ export function useBrushSettings(engine: Engine | null, activeTool: Tool) {
     const sc = s.scatterSettings;
     eng.setScatter(sc.scatter, sc.bothAxes, sc.count, sc.countJitter);
     const db = s.dualBrush;
-    eng.setDualBrush(db.enabled, db.mode, db.useComputed, db.hardness, db.size, db.spacing);
+    eng.setDualBrush(db.enabled, db.mode, db.useComputed, db.hardness, db.size, db.spacing, db.count, db.scatter, db.bothAxes);
     const tx = s.texture;
     eng.setTexture(tx.enabled, tx.scale, tx.depth, tx.textureEachTip);
   }, []);

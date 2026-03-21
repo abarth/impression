@@ -312,6 +312,9 @@ mod tests {
             hardness: 0.5,
             size: 30.0,
             spacing: 0.15,
+            count: 2,
+            scatter: 1.5,
+            both_axes: true,
         }));
     }
 

@@ -329,6 +329,34 @@ function DualBrushPane({ settings, onUpdate }: BrushSettingsPanelProps) {
             displayValue={`${Math.round(db.hardness * 100)}%`}
             onChange={(v) => update({ hardness: v })}
           />
+          <SliderControl
+            label="Scatter"
+            value={db.scatter}
+            min={0}
+            max={10.0}
+            step={0.01}
+            displayValue={`${Math.round(db.scatter * 100)}%`}
+            onChange={(v) => update({ scatter: v })}
+          />
+          <button
+            onClick={() => update({ bothAxes: !db.bothAxes })}
+            className={`px-2 py-1.5 text-[11px] rounded border transition-colors duration-150
+              ${db.bothAxes
+                ? "bg-graphite-800 border-graphite-700 text-cream"
+                : "bg-graphite-850 border-graphite-800 text-cream-muted hover:bg-graphite-800"
+              }`}
+          >
+            Both Axes
+          </button>
+          <SliderControl
+            label="Count"
+            value={db.count}
+            min={1}
+            max={16}
+            step={1}
+            displayValue={`${db.count}`}
+            onChange={(v) => update({ count: Math.round(v) })}
+          />
         </>
       )}
     </div>

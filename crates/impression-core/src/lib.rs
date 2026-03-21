@@ -189,6 +189,9 @@ impl ImpressionCanvas {
         hardness: f32,
         size: f32,
         spacing: f32,
+        count: u32,
+        scatter: f32,
+        both_axes: bool,
     ) {
         self.inner.set_dual_brush(brush::DualBrushSettings {
             enabled,
@@ -197,6 +200,9 @@ impl ImpressionCanvas {
             hardness,
             size,
             spacing,
+            count,
+            scatter,
+            both_axes,
         });
     }
 

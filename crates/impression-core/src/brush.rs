@@ -107,6 +107,12 @@ pub struct DualBrushSettings {
     pub size: f32,
     /// Spacing for the secondary tip.
     pub spacing: f32,
+    /// Number of secondary stamps per primary stamp position.
+    pub count: u32,
+    /// Scatter amount for secondary stamps (as a multiple of size).
+    pub scatter: f32,
+    /// Whether scatter applies to both axes or just perpendicular.
+    pub both_axes: bool,
 }
 
 impl Default for DualBrushSettings {
@@ -118,6 +124,9 @@ impl Default for DualBrushSettings {
             hardness: 1.0,
             size: 20.0,
             spacing: 0.25,
+            count: 1,
+            scatter: 0.0,
+            both_axes: false,
         }
     }
 }
