@@ -61,7 +61,7 @@ export function GradientPanel({
 }: GradientPanelProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importError, setImportError] = useState<string | null>(null);
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
   const groupNames = Object.keys(groups);
   if (groupNames.length === 0 && !onImportGrd) return null;
 
