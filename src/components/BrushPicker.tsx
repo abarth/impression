@@ -59,7 +59,9 @@ export function BrushPicker({
   return (
     <div className="flex flex-col gap-3 px-4 pt-4 pb-3 border-t border-graphite-850">
       <h3 className="text-[11px] font-medium text-cream-muted tracking-wide uppercase">
-        Brush Picker
+        {activePresetId
+          ? Object.values(groups).flat().find((p) => p.id === activePresetId)?.name ?? "Brush Picker"
+          : "Brush Picker"}
       </h3>
       {groupNames.map((group) => (
         <div key={group} className="flex flex-col gap-1.5">
