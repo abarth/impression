@@ -71,6 +71,14 @@ export function useBrushPresets({
         }
         eng.registerBrushTip(tipId, tip.pixels, tip.width, tip.height);
         registeredTipsRef.current.add(tipId);
+        // Embed the brush tip into document resources so the document
+        // is self-contained and survives global preset deletion.
+        eng.embedResource("brush-tip", tipId, {
+          id: tipId,
+          pixels: tip.pixels,
+          width: tip.width,
+          height: tip.height,
+        });
       }
       eng.setBrushTip(tipId);
     } else {

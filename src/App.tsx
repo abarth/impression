@@ -15,11 +15,11 @@ export function App() {
         width: docManager.currentDocument.width,
         height: docManager.currentDocument.height,
       },
-      chunks: docManager.currentChunks,
+      opLogEntries: docManager.currentOpLogEntries,
       storage: docManager.storage,
       documentMeta: docManager.currentDocument,
     };
-  }, [docManager.currentDocument, docManager.currentChunks, docManager.storage]);
+  }, [docManager.currentDocument, docManager.currentOpLogEntries, docManager.storage]);
 
   if (!docManager.ready) {
     return (

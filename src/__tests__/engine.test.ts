@@ -331,15 +331,20 @@ describe("Engine", () => {
   describe("persistence", () => {
     function createMockStorage() {
       return {
-        appendChunk: vi.fn().mockResolvedValue(undefined),
+        appendOpLogEntry: vi.fn().mockResolvedValue(undefined),
         updateDocument: vi.fn().mockResolvedValue(undefined),
-        getChunks: vi.fn().mockResolvedValue([]),
-        getChunkCount: vi.fn().mockResolvedValue(0),
+        getOpLog: vi.fn().mockResolvedValue([]),
+        getOpLogAfter: vi.fn().mockResolvedValue([]),
+        getOpLogCount: vi.fn().mockResolvedValue(0),
+        getMaxSequence: vi.fn().mockResolvedValue(-1),
+        getDocumentResources: vi.fn().mockResolvedValue([]),
+        getDocumentResource: vi.fn().mockResolvedValue(undefined),
+        saveDocumentResource: vi.fn().mockResolvedValue(undefined),
         createDocument: vi.fn().mockResolvedValue(undefined),
         getDocument: vi.fn().mockResolvedValue(undefined),
         listDocuments: vi.fn().mockResolvedValue([]),
         deleteDocument: vi.fn().mockResolvedValue(undefined),
-        deleteChunks: vi.fn().mockResolvedValue(undefined),
+        listTips: vi.fn().mockResolvedValue([]),
         close: vi.fn(),
       };
     }
@@ -354,34 +359,20 @@ describe("Engine", () => {
       modified_at: 1000,
     };
 
-    it("should not flush when below batch size", async () => {
+    it("should flush with correct sequence numbers", async () => {
       const mockStorage = createMockStorage();
       engine.enablePersistence({
         storage: mockStorage as never,
         documentMeta: { ...docMeta },
-        batchSize: 100,
       });
 
-      mockCanvas.pending_operation_count.mockReturnValue(50);
-      await engine.maybeFlush();
-      expect(mockCanvas.flush_pending_operations).not.toHaveBeenCalled();
-    });
-
-    it("should flush when batch size is reached", async () => {
-      const mockStorage = createMockStorage();
-      engine.enablePersistence({
-        storage: mockStorage as never,
-        documentMeta: { ...docMeta },
-        batchSize: 100,
-      });
-
-      mockCanvas.pending_operation_count.mockReturnValue(100);
+      mockCanvas.pending_operation_count.mockReturnValue(5);
       mockCanvas.flush_pending_operations.mockReturnValue(8);
       mockCanvas.flush_data_ptr.mockReturnValue(0);
 
-      await engine.maybeFlush();
+      await engine.flushAll();
       expect(mockCanvas.flush_pending_operations).toHaveBeenCalled();
-      expect(mockStorage.appendChunk).toHaveBeenCalledWith(
+      expect(mockStorage.appendOpLogEntry).toHaveBeenCalledWith(
         "test-doc",
         0,
         expect.any(Uint8Array),
@@ -389,12 +380,11 @@ describe("Engine", () => {
       expect(mockStorage.updateDocument).toHaveBeenCalled();
     });
 
-    it("should increment chunk index on successive flushes", async () => {
+    it("should increment sequence on successive flushes", async () => {
       const mockStorage = createMockStorage();
       engine.enablePersistence({
         storage: mockStorage as never,
         documentMeta: { ...docMeta },
-        batchSize: 1,
       });
 
       mockCanvas.pending_operation_count.mockReturnValue(1);
@@ -402,11 +392,7 @@ describe("Engine", () => {
       mockCanvas.flush_data_ptr.mockReturnValue(0);
 
       await engine.flushAll();
-      await engine.flushAll();
-
-      // First call uses index 0, but second has pending=0 after first flush
-      // so only one appendChunk call
-      expect(mockStorage.appendChunk).toHaveBeenCalledWith(
+      expect(mockStorage.appendOpLogEntry).toHaveBeenCalledWith(
         "test-doc",
         0,
         expect.any(Uint8Array),
@@ -418,7 +404,6 @@ describe("Engine", () => {
       engine.enablePersistence({
         storage: mockStorage as never,
         documentMeta: { ...docMeta },
-        batchSize: 10000,
       });
 
       mockCanvas.pending_operation_count.mockReturnValue(5);
@@ -427,13 +412,95 @@ describe("Engine", () => {
 
       await engine.flushAll();
       expect(mockCanvas.flush_pending_operations).toHaveBeenCalled();
-      expect(mockStorage.appendChunk).toHaveBeenCalled();
+      expect(mockStorage.appendOpLogEntry).toHaveBeenCalled();
     });
 
     it("should not flush when no storage is configured", async () => {
       mockCanvas.pending_operation_count.mockReturnValue(9999);
-      await engine.maybeFlush();
+      await engine.flushAll();
       expect(mockCanvas.flush_pending_operations).not.toHaveBeenCalled();
+    });
+
+    it("should track dirty state", async () => {
+      const mockStorage = createMockStorage();
+      engine.enablePersistence({
+        storage: mockStorage as never,
+        documentMeta: { ...docMeta },
+      });
+
+      expect(engine.dirty).toBe(false);
+
+      // strokeBegin should mark dirty
+      engine.addLayer();
+      mockCanvas.is_layer_dirty.mockReturnValue(true);
+      engine.strokeBegin(0, 10, 20, 1.0);
+      expect(engine.dirty).toBe(true);
+
+      // flushAll should clear dirty
+      mockCanvas.pending_operation_count.mockReturnValue(1);
+      mockCanvas.flush_pending_operations.mockReturnValue(4);
+      mockCanvas.flush_data_ptr.mockReturnValue(0);
+      await engine.flushAll();
+      expect(engine.dirty).toBe(false);
+    });
+
+    it("should use startSequence to continue numbering", async () => {
+      const mockStorage = createMockStorage();
+      engine.enablePersistence({
+        storage: mockStorage as never,
+        documentMeta: { ...docMeta },
+        startSequence: 5,
+      });
+
+      mockCanvas.pending_operation_count.mockReturnValue(1);
+      mockCanvas.flush_pending_operations.mockReturnValue(4);
+      mockCanvas.flush_data_ptr.mockReturnValue(0);
+
+      await engine.flushAll();
+      expect(mockStorage.appendOpLogEntry).toHaveBeenCalledWith(
+        "test-doc",
+        5,
+        expect.any(Uint8Array),
+      );
+    });
+
+    it("should embed a document resource", async () => {
+      const mockStorage = createMockStorage();
+      engine.enablePersistence({
+        storage: mockStorage as never,
+        documentMeta: { ...docMeta },
+      });
+
+      const tipData = { id: "tip-1", pixels: [1, 2], width: 1, height: 1 };
+      await engine.embedResource("brush-tip", "tip-1", tipData);
+
+      expect(mockStorage.getDocumentResource).toHaveBeenCalledWith(
+        "test-doc", "brush-tip", "tip-1",
+      );
+      expect(mockStorage.saveDocumentResource).toHaveBeenCalledWith({
+        document_id: "test-doc",
+        resource_type: "brush-tip",
+        resource_id: "tip-1",
+        data: tipData,
+      });
+    });
+
+    it("should not embed a resource that already exists", async () => {
+      const mockStorage = createMockStorage();
+      mockStorage.getDocumentResource.mockResolvedValue({
+        document_id: "test-doc",
+        resource_type: "brush-tip",
+        resource_id: "tip-1",
+        data: { id: "tip-1" },
+      });
+      engine.enablePersistence({
+        storage: mockStorage as never,
+        documentMeta: { ...docMeta },
+      });
+
+      await engine.embedResource("brush-tip", "tip-1", { id: "tip-1" });
+
+      expect(mockStorage.saveDocumentResource).not.toHaveBeenCalled();
     });
   });
 });

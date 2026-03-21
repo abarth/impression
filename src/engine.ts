@@ -16,7 +16,6 @@ import type { Storage, DocumentMeta } from "./storage";
 export interface PersistenceOptions {
   storage: Storage;
   documentMeta: DocumentMeta;
-  batchSize?: number;
 }
 
 export class Engine {
@@ -29,8 +28,9 @@ export class Engine {
 
   private storage: Storage | null = null;
   private documentMeta: DocumentMeta | null = null;
-  private nextChunkIndex: number = 0;
-  private batchSize: number = 1000;
+  private nextSequence: number = 0;
+  /** True when there are unflushed operations in the oplog. */
+  private _dirty: boolean = false;
 
   constructor(
     canvas: ImpressionCanvas,
@@ -42,11 +42,15 @@ export class Engine {
     this.wasmMemory = wasmMemory;
   }
 
-  enablePersistence(opts: PersistenceOptions & { startChunkIndex?: number }): void {
+  enablePersistence(opts: PersistenceOptions & { startSequence?: number }): void {
     this.storage = opts.storage;
     this.documentMeta = opts.documentMeta;
-    this.batchSize = opts.batchSize ?? 1000;
-    this.nextChunkIndex = opts.startChunkIndex ?? 0;
+    this.nextSequence = opts.startSequence ?? 0;
+  }
+
+  /** Whether there are unflushed operations that would be lost on tab close. */
+  get dirty(): boolean {
+    return this._dirty;
   }
 
   getActiveLayer(): number {
@@ -60,6 +64,7 @@ export class Engine {
   addLayer(): number {
     const layerIndex = this.canvas.add_layer();
     createLayerTexture(this.gpu, this.canvas.width(), this.canvas.height());
+    this._dirty = true;
     this.flushAll();
     return layerIndex;
   }
@@ -72,6 +77,7 @@ export class Engine {
         this.activeLayer = Math.max(0, this.canvas.layer_count() - 1);
       }
       this.needsRender = true;
+      this._dirty = true;
       this.flushAll();
     }
     return removed;
@@ -83,6 +89,7 @@ export class Engine {
     const layerIndex = this.canvas.add_adjustment_layer(0, gradientId);
     createGradientLayerTexture(this.gpu);
     this.needsRender = true;
+    this._dirty = true;
     this.flushAll();
     return layerIndex;
   }
@@ -103,6 +110,7 @@ export class Engine {
   setGradientMapGradient(layer: number, gradientId: string): void {
     this.canvas.set_gradient_map_gradient(layer, gradientId);
     this.needsRender = true;
+    this._dirty = true;
     this.flushAll();
   }
 
@@ -114,11 +122,13 @@ export class Engine {
 
   strokeBegin(layer: number, x: number, y: number, pressure: number): void {
     this.canvas.stroke_begin(layer, x, y, pressure);
+    this._dirty = true;
     this.syncLayer(layer);
   }
 
   strokeMove(layer: number, x: number, y: number, pressure: number): void {
     this.canvas.stroke_move(layer, x, y, pressure);
+    this._dirty = true;
     this.syncLayer(layer);
   }
 
@@ -321,6 +331,7 @@ export class Engine {
     this.canvas.set_layer_opacity(layer, opacity);
     updateLayerOpacity(this.gpu, layer, opacity);
     this.needsRender = true;
+    this._dirty = true;
     this.flushAll();
   }
 
@@ -336,6 +347,7 @@ export class Engine {
     this.canvas.set_layer_blend_mode(layer, mode);
     updateLayerBlendMode(this.gpu, layer, mode);
     this.needsRender = true;
+    this._dirty = true;
     this.flushAll();
   }
 
@@ -349,18 +361,21 @@ export class Engine {
 
   renameLayer(layer: number, name: string): void {
     this.canvas.rename_layer(layer, name);
+    this._dirty = true;
     this.flushAll();
   }
 
   setLayerVisible(layer: number, visible: boolean): void {
     this.canvas.set_layer_visible(layer, visible);
     this.needsRender = true;
+    this._dirty = true;
     this.flushAll();
   }
 
   moveLayer(fromIndex: number, toIndex: number): void {
     this.canvas.move_layer(fromIndex, toIndex);
     this.syncAllLayers();
+    this._dirty = true;
     this.flushAll();
   }
 
@@ -496,12 +511,6 @@ export class Engine {
     return this.canvas.pending_operation_count();
   }
 
-  async maybeFlush(): Promise<void> {
-    if (!this.storage || !this.documentMeta) return;
-    if (this.canvas.pending_operation_count() < this.batchSize) return;
-    await this.flush();
-  }
-
   async flushAll(): Promise<void> {
     if (!this.storage || !this.documentMeta) return;
     if (this.canvas.pending_operation_count() === 0) return;
@@ -515,13 +524,35 @@ export class Engine {
 
     const ptr = this.canvas.flush_data_ptr();
     const data = new Uint8Array(this.wasmMemory.buffer, ptr, len).slice();
-    await this.storage.appendChunk(
+    await this.storage.appendOpLogEntry(
       this.documentMeta.id,
-      this.nextChunkIndex++,
+      this.nextSequence++,
       data,
     );
     this.documentMeta.modified_at = Date.now();
     await this.storage.updateDocument(this.documentMeta);
+    this._dirty = false;
+  }
+
+  /** Embed a document resource (brush tip or gradient) if not already saved. */
+  async embedResource(
+    resourceType: "brush-tip" | "gradient",
+    resourceId: string,
+    data: unknown,
+  ): Promise<void> {
+    if (!this.storage || !this.documentMeta) return;
+    const existing = await this.storage.getDocumentResource(
+      this.documentMeta.id,
+      resourceType,
+      resourceId,
+    );
+    if (existing) return;
+    await this.storage.saveDocumentResource({
+      document_id: this.documentMeta.id,
+      resource_type: resourceType,
+      resource_id: resourceId,
+      data,
+    });
   }
 
   /** Load a serialized chunk of operations into the canvas. */

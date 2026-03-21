@@ -86,86 +86,209 @@ describe("Storage: document operations", () => {
   });
 });
 
-describe("Storage: operation chunks", () => {
-  it("appends and retrieves chunks in order", async () => {
+describe("Storage: operation log", () => {
+  it("appends and retrieves entries in sequence order", async () => {
     const storage = await openTestStorage();
     await storage.createDocument(makeMeta());
 
-    const chunk0 = new Uint8Array([1, 2, 3]);
-    const chunk1 = new Uint8Array([4, 5, 6]);
-    const chunk2 = new Uint8Array([7, 8, 9]);
+    const entry0 = new Uint8Array([1, 2, 3]);
+    const entry1 = new Uint8Array([4, 5, 6]);
+    const entry2 = new Uint8Array([7, 8, 9]);
 
     // Append out of order to verify sorting
-    await storage.appendChunk("doc-1", 2, chunk2);
-    await storage.appendChunk("doc-1", 0, chunk0);
-    await storage.appendChunk("doc-1", 1, chunk1);
+    await storage.appendOpLogEntry("doc-1", 2, entry2);
+    await storage.appendOpLogEntry("doc-1", 0, entry0);
+    await storage.appendOpLogEntry("doc-1", 1, entry1);
 
-    const chunks = await storage.getChunks("doc-1");
-    expect(chunks).toHaveLength(3);
-    expect(Array.from(chunks[0])).toEqual([1, 2, 3]);
-    expect(Array.from(chunks[1])).toEqual([4, 5, 6]);
-    expect(Array.from(chunks[2])).toEqual([7, 8, 9]);
+    const entries = await storage.getOpLog("doc-1");
+    expect(entries).toHaveLength(3);
+    expect(Array.from(entries[0].data)).toEqual([1, 2, 3]);
+    expect(Array.from(entries[1].data)).toEqual([4, 5, 6]);
+    expect(Array.from(entries[2].data)).toEqual([7, 8, 9]);
+    expect(entries[0].sequence).toBe(0);
+    expect(entries[1].sequence).toBe(1);
+    expect(entries[2].sequence).toBe(2);
   });
 
-  it("counts chunks for a document", async () => {
+  it("counts entries for a document", async () => {
     const storage = await openTestStorage();
     await storage.createDocument(makeMeta());
 
-    await storage.appendChunk("doc-1", 0, new Uint8Array([1]));
-    await storage.appendChunk("doc-1", 1, new Uint8Array([2]));
+    await storage.appendOpLogEntry("doc-1", 0, new Uint8Array([1]));
+    await storage.appendOpLogEntry("doc-1", 1, new Uint8Array([2]));
 
-    const count = await storage.getChunkCount("doc-1");
+    const count = await storage.getOpLogCount("doc-1");
     expect(count).toBe(2);
   });
 
-  it("returns empty array for document with no chunks", async () => {
+  it("returns empty array for document with no entries", async () => {
     const storage = await openTestStorage();
-    const chunks = await storage.getChunks("nonexistent");
-    expect(chunks).toEqual([]);
+    const entries = await storage.getOpLog("nonexistent");
+    expect(entries).toEqual([]);
   });
 
-  it("deletes chunks when document is deleted", async () => {
+  it("deletes op_log when document is deleted", async () => {
     const storage = await openTestStorage();
     await storage.createDocument(makeMeta());
-    await storage.appendChunk("doc-1", 0, new Uint8Array([1, 2, 3]));
-    await storage.appendChunk("doc-1", 1, new Uint8Array([4, 5, 6]));
+    await storage.appendOpLogEntry("doc-1", 0, new Uint8Array([1, 2, 3]));
+    await storage.appendOpLogEntry("doc-1", 1, new Uint8Array([4, 5, 6]));
 
     await storage.deleteDocument("doc-1");
 
-    const chunks = await storage.getChunks("doc-1");
-    expect(chunks).toEqual([]);
+    const entries = await storage.getOpLog("doc-1");
+    expect(entries).toEqual([]);
   });
 
   it("round-trips binary data correctly", async () => {
     const storage = await openTestStorage();
     await storage.createDocument(makeMeta());
 
-    // Create a larger buffer with varied byte values
     const original = new Uint8Array(256);
     for (let i = 0; i < 256; i++) original[i] = i;
 
-    await storage.appendChunk("doc-1", 0, original);
+    await storage.appendOpLogEntry("doc-1", 0, original);
 
-    const chunks = await storage.getChunks("doc-1");
-    expect(chunks).toHaveLength(1);
-    expect(Array.from(chunks[0])).toEqual(Array.from(original));
+    const entries = await storage.getOpLog("doc-1");
+    expect(entries).toHaveLength(1);
+    expect(Array.from(entries[0].data)).toEqual(Array.from(original));
   });
 
-  it("keeps chunks from different documents separate", async () => {
+  it("keeps entries from different documents separate", async () => {
     const storage = await openTestStorage();
     await storage.createDocument(makeMeta({ id: "a" }));
     await storage.createDocument(makeMeta({ id: "b" }));
 
-    await storage.appendChunk("a", 0, new Uint8Array([10]));
-    await storage.appendChunk("b", 0, new Uint8Array([20]));
-    await storage.appendChunk("a", 1, new Uint8Array([11]));
+    await storage.appendOpLogEntry("a", 0, new Uint8Array([10]));
+    await storage.appendOpLogEntry("b", 0, new Uint8Array([20]));
+    await storage.appendOpLogEntry("a", 1, new Uint8Array([11]));
 
-    const chunksA = await storage.getChunks("a");
-    const chunksB = await storage.getChunks("b");
+    const entriesA = await storage.getOpLog("a");
+    const entriesB = await storage.getOpLog("b");
 
-    expect(chunksA).toHaveLength(2);
-    expect(chunksB).toHaveLength(1);
-    expect(Array.from(chunksA[0])).toEqual([10]);
-    expect(Array.from(chunksB[0])).toEqual([20]);
+    expect(entriesA).toHaveLength(2);
+    expect(entriesB).toHaveLength(1);
+    expect(Array.from(entriesA[0].data)).toEqual([10]);
+    expect(Array.from(entriesB[0].data)).toEqual([20]);
+  });
+
+  it("getOpLogAfter filters by sequence", async () => {
+    const storage = await openTestStorage();
+    await storage.createDocument(makeMeta());
+
+    await storage.appendOpLogEntry("doc-1", 0, new Uint8Array([10]));
+    await storage.appendOpLogEntry("doc-1", 1, new Uint8Array([20]));
+    await storage.appendOpLogEntry("doc-1", 2, new Uint8Array([30]));
+
+    const after0 = await storage.getOpLogAfter("doc-1", 0);
+    expect(after0).toHaveLength(2);
+    expect(after0[0].sequence).toBe(1);
+    expect(after0[1].sequence).toBe(2);
+
+    const after1 = await storage.getOpLogAfter("doc-1", 1);
+    expect(after1).toHaveLength(1);
+    expect(after1[0].sequence).toBe(2);
+  });
+
+  it("getMaxSequence returns highest sequence or -1", async () => {
+    const storage = await openTestStorage();
+    await storage.createDocument(makeMeta());
+
+    expect(await storage.getMaxSequence("doc-1")).toBe(-1);
+
+    await storage.appendOpLogEntry("doc-1", 0, new Uint8Array([1]));
+    await storage.appendOpLogEntry("doc-1", 5, new Uint8Array([2]));
+
+    expect(await storage.getMaxSequence("doc-1")).toBe(5);
+  });
+});
+
+describe("Storage: document resources", () => {
+  it("saves and retrieves a document resource", async () => {
+    const storage = await openTestStorage();
+    await storage.createDocument(makeMeta());
+
+    await storage.saveDocumentResource({
+      document_id: "doc-1",
+      resource_type: "brush-tip",
+      resource_id: "tip-1",
+      data: { id: "tip-1", pixels: [1, 2, 3], width: 2, height: 2 },
+    });
+
+    const resource = await storage.getDocumentResource("doc-1", "brush-tip", "tip-1");
+    expect(resource).toBeDefined();
+    expect(resource!.resource_id).toBe("tip-1");
+    expect((resource!.data as { id: string }).id).toBe("tip-1");
+  });
+
+  it("lists all resources for a document", async () => {
+    const storage = await openTestStorage();
+    await storage.createDocument(makeMeta());
+
+    await storage.saveDocumentResource({
+      document_id: "doc-1",
+      resource_type: "brush-tip",
+      resource_id: "tip-1",
+      data: { id: "tip-1" },
+    });
+    await storage.saveDocumentResource({
+      document_id: "doc-1",
+      resource_type: "gradient",
+      resource_id: "grad-1",
+      data: { id: "grad-1" },
+    });
+
+    const resources = await storage.getDocumentResources("doc-1");
+    expect(resources).toHaveLength(2);
+    const types = resources.map(r => r.resource_type).sort();
+    expect(types).toEqual(["brush-tip", "gradient"]);
+  });
+
+  it("deletes resources when document is deleted", async () => {
+    const storage = await openTestStorage();
+    await storage.createDocument(makeMeta());
+
+    await storage.saveDocumentResource({
+      document_id: "doc-1",
+      resource_type: "gradient",
+      resource_id: "grad-1",
+      data: { id: "grad-1" },
+    });
+
+    await storage.deleteDocument("doc-1");
+
+    const resources = await storage.getDocumentResources("doc-1");
+    expect(resources).toEqual([]);
+  });
+
+  it("keeps resources from different documents separate", async () => {
+    const storage = await openTestStorage();
+    await storage.createDocument(makeMeta({ id: "a" }));
+    await storage.createDocument(makeMeta({ id: "b" }));
+
+    await storage.saveDocumentResource({
+      document_id: "a",
+      resource_type: "brush-tip",
+      resource_id: "tip-1",
+      data: { id: "tip-1" },
+    });
+    await storage.saveDocumentResource({
+      document_id: "b",
+      resource_type: "brush-tip",
+      resource_id: "tip-2",
+      data: { id: "tip-2" },
+    });
+
+    const resA = await storage.getDocumentResources("a");
+    const resB = await storage.getDocumentResources("b");
+    expect(resA).toHaveLength(1);
+    expect(resB).toHaveLength(1);
+    expect(resA[0].resource_id).toBe("tip-1");
+    expect(resB[0].resource_id).toBe("tip-2");
+  });
+
+  it("returns undefined for missing resource", async () => {
+    const storage = await openTestStorage();
+    const result = await storage.getDocumentResource("doc-1", "brush-tip", "nope");
+    expect(result).toBeUndefined();
   });
 });

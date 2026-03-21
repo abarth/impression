@@ -12,7 +12,8 @@ export interface DocumentSize {
 
 export interface EngineInitOptions {
   documentSize: DocumentSize;
-  chunks?: Uint8Array[];
+  /** Pre-loaded op_log entries for this document (ordered by sequence). */
+  opLogEntries?: Uint8Array[];
   storage: Storage | null;
   documentMeta?: DocumentMeta | null;
 }
@@ -31,12 +32,17 @@ export function useEngine(
   const gpuRef = useRef<GPUContext | null>(null);
   const initStarted = useRef(false);
   const renderRunning = useRef(false);
+  const cleanupRef = useRef<(() => void) | null>(null);
 
   // Reset when options become null (document closed)
   useEffect(() => {
     if (!options) {
       renderRunning.current = false;
       initStarted.current = false;
+      if (cleanupRef.current) {
+        cleanupRef.current();
+        cleanupRef.current = null;
+      }
       if (gpuRef.current) {
         destroyGPU(gpuRef.current);
         gpuRef.current = null;
@@ -51,7 +57,7 @@ export function useEngine(
     initStarted.current = true;
 
     const canvas = canvasRef.current;
-    const { documentSize, chunks, storage, documentMeta } = options;
+    const { documentSize, opLogEntries, storage, documentMeta } = options;
     canvas.width = documentSize.width;
     canvas.height = documentSize.height;
 
@@ -67,9 +73,21 @@ export function useEngine(
         );
         const eng = new Engine(impressionCanvas, gpu, wasmModule.memory);
 
-        if (chunks && chunks.length > 0) {
-          // Pre-register all brush tip images so SetBrushTip operations
+        if (opLogEntries && opLogEntries.length > 0) {
+          // Load document-scoped brush tips so SetBrushTip operations
           // find their tips in the registry during replay
+          if (storage && documentMeta) {
+            const resources = await storage.getDocumentResources(documentMeta.id);
+            for (const res of resources) {
+              if (res.resource_type === "brush-tip") {
+                const tip = res.data as { id: string; pixels: Uint8Array; width: number; height: number };
+                eng.registerBrushTip(tip.id, tip.pixels, tip.width, tip.height);
+              }
+            }
+          }
+
+          // Also load global tips as a fallback for legacy docs or
+          // tips not yet embedded
           if (storage) {
             const tips = await storage.listTips();
             for (const tip of tips) {
@@ -77,9 +95,9 @@ export function useEngine(
             }
           }
 
-          // Load saved operations from storage
-          for (const chunk of chunks) {
-            eng.loadChunk(chunk);
+          // Replay operations from storage
+          for (const entry of opLogEntries) {
+            eng.loadChunk(entry);
           }
         } else {
           // New document: add initial layer and set defaults
@@ -91,16 +109,38 @@ export function useEngine(
           eng.setBrushFlow(0.8);
         }
 
-        // Enable persistence so future strokes are saved
+        // Enable persistence so future operations are saved
         if (storage && documentMeta) {
           eng.enablePersistence({
             storage,
             documentMeta,
-            startChunkIndex: chunks?.length ?? 0,
+            startSequence: opLogEntries?.length ?? 0,
           });
         }
 
         setEngine(eng);
+
+        // Flush pending ops when the tab goes to background to prevent data loss
+        const handleVisibilityChange = () => {
+          if (document.visibilityState === "hidden" && eng.dirty) {
+            eng.flushAll();
+          }
+        };
+        document.addEventListener("visibilitychange", handleVisibilityChange);
+
+        // Warn user if there are unflushed ops when closing the tab
+        const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+          if (eng.dirty) {
+            e.preventDefault();
+          }
+        };
+        window.addEventListener("beforeunload", handleBeforeUnload);
+
+        // Store cleanup references
+        cleanupRef.current = () => {
+          document.removeEventListener("visibilitychange", handleVisibilityChange);
+          window.removeEventListener("beforeunload", handleBeforeUnload);
+        };
 
         // Render loop
         renderRunning.current = true;

@@ -4,7 +4,7 @@ import type { Gradient } from "./gradient";
 import { DEFAULT_GRADIENTS } from "./gradient";
 
 const DB_NAME = "impression";
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 export interface DocumentMeta {
   id: string;
@@ -16,10 +16,19 @@ export interface DocumentMeta {
   modified_at: number;
 }
 
-interface OperationChunk {
+/** A single entry in the append-only operation log. */
+export interface OpLogEntry {
   document_id: string;
-  chunk_index: number;
+  sequence: number;
   data: Uint8Array;
+}
+
+/** A resource (brush tip or gradient) embedded in a document. */
+export interface DocumentResource {
+  document_id: string;
+  resource_type: "brush-tip" | "gradient";
+  resource_id: string;
+  data: unknown;
 }
 
 export class Storage {
@@ -33,17 +42,35 @@ export class Storage {
     return new Promise((resolve, reject) => {
       const request = indexedDB.open(DB_NAME, DB_VERSION);
 
-      request.onupgradeneeded = () => {
+      request.onupgradeneeded = (event) => {
         const db = request.result;
+        const oldVersion = event.oldVersion;
+
         if (!db.objectStoreNames.contains("documents")) {
           db.createObjectStore("documents", { keyPath: "id" });
         }
-        if (!db.objectStoreNames.contains("operation_chunks")) {
-          const chunks = db.createObjectStore("operation_chunks", {
-            keyPath: ["document_id", "chunk_index"],
-          });
-          chunks.createIndex("by_document", "document_id", { unique: false });
+
+        // v3 → v4: Replace operation_chunks with op_log + document_resources
+        if (oldVersion < 4) {
+          if (db.objectStoreNames.contains("operation_chunks")) {
+            db.deleteObjectStore("operation_chunks");
+          }
         }
+
+        if (!db.objectStoreNames.contains("op_log")) {
+          const opLog = db.createObjectStore("op_log", {
+            keyPath: ["document_id", "sequence"],
+          });
+          opLog.createIndex("by_document", "document_id", { unique: false });
+        }
+
+        if (!db.objectStoreNames.contains("document_resources")) {
+          const resources = db.createObjectStore("document_resources", {
+            keyPath: ["document_id", "resource_type", "resource_id"],
+          });
+          resources.createIndex("by_document", "document_id", { unique: false });
+        }
+
         if (!db.objectStoreNames.contains("brush_presets")) {
           const presets = db.createObjectStore("brush_presets", { keyPath: "id" });
           presets.createIndex("by_group", "group", { unique: false });
@@ -86,44 +113,64 @@ export class Storage {
   }
 
   async deleteDocument(id: string): Promise<void> {
-    await this.deleteChunks(id);
+    await this.deleteOpLog(id);
+    await this.deleteDocumentResources(id);
     return this.delete("documents", id);
   }
 
-  async appendChunk(
+  // -- Operation Log --
+
+  async appendOpLogEntry(
     documentId: string,
-    chunkIndex: number,
+    sequence: number,
     data: Uint8Array,
   ): Promise<void> {
-    const chunk: OperationChunk = {
+    const entry: OpLogEntry = {
       document_id: documentId,
-      chunk_index: chunkIndex,
+      sequence,
       data,
     };
-    return this.put("operation_chunks", chunk);
+    return this.put("op_log", entry);
   }
 
-  async getChunks(documentId: string): Promise<Uint8Array[]> {
+  /** Get all op_log entries for a document, ordered by sequence. */
+  async getOpLog(documentId: string): Promise<OpLogEntry[]> {
     return new Promise((resolve, reject) => {
-      const tx = this.db.transaction("operation_chunks", "readonly");
-      const store = tx.objectStore("operation_chunks");
+      const tx = this.db.transaction("op_log", "readonly");
+      const store = tx.objectStore("op_log");
       const index = store.index("by_document");
       const request = index.getAll(documentId);
 
       request.onsuccess = () => {
-        const chunks = (request.result as OperationChunk[]).sort(
-          (a, b) => a.chunk_index - b.chunk_index,
+        const entries = (request.result as OpLogEntry[]).sort(
+          (a, b) => a.sequence - b.sequence,
         );
-        resolve(chunks.map((c) => c.data));
+        resolve(entries);
       };
       request.onerror = () => reject(request.error);
     });
   }
 
-  async getChunkCount(documentId: string): Promise<number> {
+  /** Get op_log entries with sequence > afterSequence, ordered by sequence. */
+  async getOpLogAfter(
+    documentId: string,
+    afterSequence: number,
+  ): Promise<OpLogEntry[]> {
+    const all = await this.getOpLog(documentId);
+    return all.filter((e) => e.sequence > afterSequence);
+  }
+
+  /** Get the highest sequence number in the op_log for a document, or -1 if empty. */
+  async getMaxSequence(documentId: string): Promise<number> {
+    const entries = await this.getOpLog(documentId);
+    if (entries.length === 0) return -1;
+    return entries[entries.length - 1].sequence;
+  }
+
+  async getOpLogCount(documentId: string): Promise<number> {
     return new Promise((resolve, reject) => {
-      const tx = this.db.transaction("operation_chunks", "readonly");
-      const store = tx.objectStore("operation_chunks");
+      const tx = this.db.transaction("op_log", "readonly");
+      const store = tx.objectStore("op_log");
       const index = store.index("by_document");
       const request = index.count(documentId);
 
@@ -132,10 +179,58 @@ export class Storage {
     });
   }
 
-  async deleteChunks(documentId: string): Promise<void> {
+  private async deleteOpLog(documentId: string): Promise<void> {
     return new Promise((resolve, reject) => {
-      const tx = this.db.transaction("operation_chunks", "readwrite");
-      const store = tx.objectStore("operation_chunks");
+      const tx = this.db.transaction("op_log", "readwrite");
+      const store = tx.objectStore("op_log");
+      const index = store.index("by_document");
+      const request = index.openCursor(documentId);
+
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (cursor) {
+          cursor.delete();
+          cursor.continue();
+        }
+      };
+
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  // -- Document Resources --
+
+  async saveDocumentResource(resource: DocumentResource): Promise<void> {
+    return this.put("document_resources", resource);
+  }
+
+  /** Get all resources for a document. */
+  async getDocumentResources(documentId: string): Promise<DocumentResource[]> {
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction("document_resources", "readonly");
+      const store = tx.objectStore("document_resources");
+      const index = store.index("by_document");
+      const request = index.getAll(documentId);
+
+      request.onsuccess = () => resolve(request.result as DocumentResource[]);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /** Get a specific resource for a document. */
+  async getDocumentResource(
+    documentId: string,
+    resourceType: string,
+    resourceId: string,
+  ): Promise<DocumentResource | undefined> {
+    return this.get("document_resources", [documentId, resourceType, resourceId]);
+  }
+
+  private async deleteDocumentResources(documentId: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction("document_resources", "readwrite");
+      const store = tx.objectStore("document_resources");
       const index = store.index("by_document");
       const request = index.openCursor(documentId);
 

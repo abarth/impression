@@ -101,18 +101,40 @@ export function DocumentViewer({
 
   useSelection(engine, activeIndex, { onExport: handleExport });
 
-  // Upload rasterized gradient data to a gradient map layer
-  const uploadGradientToLayer = useCallback(
-    (layerIndex: number, gradientId: string) => {
+  // Embed gradient into document resources so the document is self-contained
+  const embedGradient = useCallback(
+    (gradientId: string) => {
       if (!engine) return;
       const allGradients = Object.values(gradientGroups).flat();
       const gradient = allGradients.find((g) => g.id === gradientId);
+      if (gradient) {
+        engine.embedResource("gradient", gradientId, gradient);
+      }
+    },
+    [engine, gradientGroups],
+  );
+
+  // Upload rasterized gradient data to a gradient map layer.
+  // Falls back to document_resources if the gradient preset was deleted globally.
+  const uploadGradientToLayer = useCallback(
+    async (layerIndex: number, gradientId: string) => {
+      if (!engine) return;
+      const allGradients = Object.values(gradientGroups).flat();
+      let gradient = allGradients.find((g) => g.id === gradientId);
+      if (!gradient && storage && engineOptions.documentMeta) {
+        const res = await storage.getDocumentResource(
+          engineOptions.documentMeta.id,
+          "gradient",
+          gradientId,
+        );
+        if (res) gradient = res.data as typeof gradient;
+      }
       if (gradient) {
         const data = rasterizeGradient(gradient, colors.foreground, colors.background);
         engine.uploadGradientData(layerIndex, data);
       }
     },
-    [engine, gradientGroups, colors.foreground, colors.background],
+    [engine, gradientGroups, colors.foreground, colors.background, storage, engineOptions.documentMeta],
   );
 
   // Re-upload gradient data when foreground/background colors change
@@ -133,9 +155,10 @@ export function DocumentViewer({
       if (engine && layers[activeIndex]?.kind === "gradient-map") {
         setGradientMapGradient(activeIndex, gradientId);
         uploadGradientToLayer(activeIndex, gradientId);
+        embedGradient(gradientId);
       }
     },
-    [engine, activeIndex, layers, selectGradient, setGradientMapGradient, uploadGradientToLayer],
+    [engine, activeIndex, layers, selectGradient, setGradientMapGradient, uploadGradientToLayer, embedGradient],
   );
 
   // When adding a gradient map, use the active gradient
@@ -144,16 +167,18 @@ export function DocumentViewer({
     const idx = addGradientMapLayer(gid);
     if (idx !== undefined) {
       uploadGradientToLayer(idx, gid);
+      embedGradient(gid);
     }
-  }, [activeGradientId, addGradientMapLayer, uploadGradientToLayer]);
+  }, [activeGradientId, addGradientMapLayer, uploadGradientToLayer, embedGradient]);
 
   // Handle gradient change from LayerPanel gradient picker
   const handleLayerGradientChange = useCallback(
     (layerIndex: number, gradientId: string) => {
       setGradientMapGradient(layerIndex, gradientId);
       uploadGradientToLayer(layerIndex, gradientId);
+      embedGradient(gradientId);
     },
-    [setGradientMapGradient, uploadGradientToLayer],
+    [setGradientMapGradient, uploadGradientToLayer, embedGradient],
   );
 
   return (

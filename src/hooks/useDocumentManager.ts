@@ -8,8 +8,8 @@ export interface DocumentManagerState {
   ready: boolean;
   /** The currently open document, or null if none is open. */
   currentDocument: DocumentMeta | null;
-  /** Saved chunks for the current document (loaded on open, empty for new docs). */
-  currentChunks: Uint8Array[];
+  /** Operation log entries for the current document (loaded on open, empty for new docs). */
+  currentOpLogEntries: Uint8Array[];
   /** Storage instance (null until initialized). */
   storage: Storage | null;
 }
@@ -43,7 +43,7 @@ export function useDocumentManager(): DocumentManagerState & DocumentManagerActi
   const [documents, setDocuments] = useState<DocumentMeta[]>([]);
   const [ready, setReady] = useState(false);
   const [currentDocument, setCurrentDocument] = useState<DocumentMeta | null>(null);
-  const [currentChunks, setCurrentChunks] = useState<Uint8Array[]>([]);
+  const [currentOpLogEntries, setCurrentOpLogEntries] = useState<Uint8Array[]>([]);
   const [storage, setStorage] = useState<Storage | null>(null);
 
   // Refs for popstate handler to avoid stale closures
@@ -68,9 +68,9 @@ export function useDocumentManager(): DocumentManagerState & DocumentManagerActi
       if (routeDocId) {
         const doc = docs.find(d => d.id === routeDocId);
         if (doc) {
-          const chunks = await s.getChunks(routeDocId);
+          const entries = await s.getOpLog(routeDocId);
           if (cancelled) return;
-          setCurrentChunks(chunks);
+          setCurrentOpLogEntries(entries.map(e => e.data));
           setCurrentDocument(doc);
         }
       }
@@ -96,7 +96,7 @@ export function useDocumentManager(): DocumentManagerState & DocumentManagerActi
     };
     await storage.createDocument(meta);
     setDocuments(prev => [meta, ...prev]);
-    setCurrentChunks([]);
+    setCurrentOpLogEntries([]);
     setCurrentDocument(meta);
     pushRoute(`#/painting/${meta.id}`);
     return meta;
@@ -106,8 +106,8 @@ export function useDocumentManager(): DocumentManagerState & DocumentManagerActi
     if (!storage) return;
     const doc = documents.find(d => d.id === id);
     if (!doc) return;
-    const chunks = await storage.getChunks(id);
-    setCurrentChunks(chunks);
+    const entries = await storage.getOpLog(id);
+    setCurrentOpLogEntries(entries.map(e => e.data));
     setCurrentDocument(doc);
     pushRoute(`#/painting/${id}`);
   }, [storage, documents]);
@@ -118,7 +118,7 @@ export function useDocumentManager(): DocumentManagerState & DocumentManagerActi
     setDocuments(prev => prev.filter(d => d.id !== id));
     if (currentDocument?.id === id) {
       setCurrentDocument(null);
-      setCurrentChunks([]);
+      setCurrentOpLogEntries([]);
       replaceRoute("#/");
     }
   }, [storage, currentDocument]);
@@ -147,13 +147,13 @@ export function useDocumentManager(): DocumentManagerState & DocumentManagerActi
         const s = storageRef.current;
         const doc = documentsRef.current.find(d => d.id === docId);
         if (s && doc) {
-          const chunks = await s.getChunks(docId);
-          setCurrentChunks(chunks);
+          const entries = await s.getOpLog(docId);
+          setCurrentOpLogEntries(entries.map(e => e.data));
           setCurrentDocument(doc);
         }
       } else {
         setCurrentDocument(null);
-        setCurrentChunks([]);
+        setCurrentOpLogEntries([]);
       }
     };
     window.addEventListener("popstate", handlePopState);
@@ -162,7 +162,7 @@ export function useDocumentManager(): DocumentManagerState & DocumentManagerActi
 
   const closeDocument = useCallback(() => {
     setCurrentDocument(null);
-    setCurrentChunks([]);
+    setCurrentOpLogEntries([]);
     pushRoute("#/");
   }, []);
 
@@ -170,7 +170,7 @@ export function useDocumentManager(): DocumentManagerState & DocumentManagerActi
     documents,
     ready,
     currentDocument,
-    currentChunks,
+    currentOpLogEntries,
     storage,
     createDocument,
     openDocument,
