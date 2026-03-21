@@ -65,6 +65,11 @@ function createMockCanvas() {
     clear_brush_tip: vi.fn(),
     set_brush_flip_x: vi.fn(),
     set_brush_flip_y: vi.fn(),
+    is_adjustment_layer: vi.fn().mockReturnValue(false),
+    layer_kind: vi.fn().mockReturnValue(0),
+    add_adjustment_layer: vi.fn().mockReturnValue(0),
+    gradient_map_gradient_id: vi.fn().mockReturnValue(undefined),
+    set_gradient_map_gradient: vi.fn(),
   };
 }
 

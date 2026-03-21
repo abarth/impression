@@ -3,6 +3,8 @@ import type { GPUContext } from "./gpu";
 import {
   uploadLayerTexture,
   createLayerTexture,
+  createGradientLayerTexture,
+  uploadGradientTexture,
   updateLayerOpacity,
   updateLayerBlendMode,
   removeLayerTexture,
@@ -73,6 +75,39 @@ export class Engine {
     return removed;
   }
 
+  // Adjustment layer methods
+
+  addGradientMapLayer(gradientId: string): number {
+    const layerIndex = this.canvas.add_adjustment_layer(0, gradientId);
+    createGradientLayerTexture(this.gpu);
+    this.needsRender = true;
+    return layerIndex;
+  }
+
+  isAdjustmentLayer(layer: number): boolean {
+    return this.canvas.is_adjustment_layer(layer);
+  }
+
+  /** Layer kind: 0 = Raster, 1 = GradientMap */
+  getLayerKind(layer: number): number {
+    return this.canvas.layer_kind(layer);
+  }
+
+  getGradientMapGradientId(layer: number): string | undefined {
+    return this.canvas.gradient_map_gradient_id(layer);
+  }
+
+  setGradientMapGradient(layer: number, gradientId: string): void {
+    this.canvas.set_gradient_map_gradient(layer, gradientId);
+    this.needsRender = true;
+  }
+
+  /** Upload rasterized gradient data (256×1 RGBA) for an adjustment layer. */
+  uploadGradientData(layer: number, data: Uint8Array): void {
+    uploadGradientTexture(this.gpu, layer, data);
+    this.needsRender = true;
+  }
+
   strokeBegin(layer: number, x: number, y: number, pressure: number): void {
     this.canvas.stroke_begin(layer, x, y, pressure);
     this.syncLayer(layer);
@@ -90,6 +125,11 @@ export class Engine {
 
   private syncLayer(layer: number): void {
     if (!this.canvas.is_layer_dirty(layer)) return;
+    if (this.canvas.is_adjustment_layer(layer)) {
+      this.canvas.clear_layer_dirty(layer);
+      this.needsRender = true;
+      return;
+    }
 
     const ptr = this.canvas.layer_pixels_ptr(layer);
     const len = this.canvas.layer_pixels_len(layer);
@@ -400,16 +440,28 @@ export class Engine {
     const width = this.canvas.width();
     const height = this.canvas.height();
 
-    // Ensure GPU has enough layer textures
+    // Ensure GPU has the right number of layer texture slots
     while (this.gpu.layerTextures.length > count) {
       removeLayerTexture(this.gpu, this.gpu.layerTextures.length - 1);
     }
     while (this.gpu.layerTextures.length < count) {
-      createLayerTexture(this.gpu, width, height);
+      const idx = this.gpu.layerTextures.length;
+      if (this.canvas.is_adjustment_layer(idx)) {
+        createGradientLayerTexture(this.gpu);
+      } else {
+        createLayerTexture(this.gpu, width, height);
+      }
     }
 
-    // Upload only layers whose pixels actually changed
     for (let i = 0; i < count; i++) {
+      if (this.canvas.is_adjustment_layer(i)) {
+        // Adjustment layers: sync opacity/blend, skip pixel upload
+        updateLayerOpacity(this.gpu, i, this.canvas.layer_opacity(i));
+        updateLayerBlendMode(this.gpu, i, this.canvas.layer_blend_mode(i));
+        this.canvas.clear_layer_dirty(i);
+        continue;
+      }
+
       if (this.canvas.is_layer_dirty(i)) {
         const ptr = this.canvas.layer_pixels_ptr(i);
         const len = this.canvas.layer_pixels_len(i);
