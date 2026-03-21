@@ -164,74 +164,75 @@ export function LayerPanel({
   );
   return (
     <div className="flex flex-col flex-1 border-t border-graphite-850">
-      <button
-        className="flex items-center gap-1.5 px-4 pt-4 pb-2 cursor-pointer hover:bg-graphite-850/50 transition-all duration-150"
-        onClick={() => setCollapsed(!collapsed)}
-      >
-        {collapsed ? (
-          <ChevronRight size={12} strokeWidth={2} className="text-cream-muted shrink-0" />
-        ) : (
-          <ChevronDown size={12} strokeWidth={2} className="text-cream-muted shrink-0" />
+      <div className="flex items-center px-4 pt-4 pb-2">
+        <button
+          className="flex items-center gap-1.5 cursor-pointer hover:bg-graphite-850/50 transition-all duration-150 rounded px-1 -ml-1"
+          onClick={() => setCollapsed(!collapsed)}
+        >
+          {collapsed ? (
+            <ChevronRight size={12} strokeWidth={2} className="text-cream-muted shrink-0" />
+          ) : (
+            <ChevronDown size={12} strokeWidth={2} className="text-cream-muted shrink-0" />
+          )}
+          <h3 className="text-[11px] font-medium text-cream-muted tracking-wide uppercase">
+            Layers
+          </h3>
+        </button>
+        {!collapsed && (
+          <div className="flex gap-0.5 ml-auto">
+            <button
+              onClick={onAdd}
+              title="New layer"
+              className="p-1.5 rounded-lg text-cream-muted hover:text-cream
+                hover:bg-graphite-800 transition-all duration-150 cursor-pointer"
+            >
+              <Plus size={14} strokeWidth={2} />
+            </button>
+            <Popover.Root>
+              <Popover.Trigger asChild>
+                <button
+                  title="Add adjustment layer"
+                  className="p-1.5 rounded-lg text-cream-muted hover:text-cream
+                    hover:bg-graphite-800 transition-all duration-150 cursor-pointer"
+                >
+                  <Blend size={14} strokeWidth={2} />
+                </button>
+              </Popover.Trigger>
+              <Popover.Portal>
+                <Popover.Content
+                  side="left"
+                  sideOffset={8}
+                  className="z-50 rounded-xl bg-graphite-900 border border-graphite-750
+                    p-1 shadow-panel min-w-[160px]"
+                >
+                  <button
+                    onClick={onAddGradientMap}
+                    className="w-full text-left px-3 py-1.5 rounded-lg text-[12px] text-cream-dim
+                      hover:bg-graphite-800 hover:text-cream transition-all duration-150 cursor-pointer
+                      flex items-center gap-2"
+                  >
+                    <Blend size={12} strokeWidth={1.75} />
+                    Gradient Map
+                  </button>
+                  <Popover.Arrow className="fill-graphite-750" />
+                </Popover.Content>
+              </Popover.Portal>
+            </Popover.Root>
+            <button
+              onClick={() => onRemove(activeIndex)}
+              disabled={layers.length <= 1}
+              title="Remove layer"
+              className="p-1.5 rounded-lg text-cream-muted hover:text-cream
+                hover:bg-graphite-800 transition-all duration-150
+                disabled:opacity-25 disabled:cursor-not-allowed cursor-pointer"
+            >
+              <Trash2 size={14} strokeWidth={2} />
+            </button>
+          </div>
         )}
-        <h3 className="text-[11px] font-medium text-cream-muted tracking-wide uppercase">
-          Layers
-        </h3>
-      </button>
+      </div>
       {!collapsed && (
       <div className="flex flex-col gap-2 px-4 pb-4">
-      <div className="flex items-center justify-between">
-        <div />
-        <div className="flex gap-0.5">
-          <button
-            onClick={onAdd}
-            title="New layer"
-            className="p-1.5 rounded-lg text-cream-muted hover:text-cream
-              hover:bg-graphite-800 transition-all duration-150 cursor-pointer"
-          >
-            <Plus size={14} strokeWidth={2} />
-          </button>
-          <Popover.Root>
-            <Popover.Trigger asChild>
-              <button
-                title="Add adjustment layer"
-                className="p-1.5 rounded-lg text-cream-muted hover:text-cream
-                  hover:bg-graphite-800 transition-all duration-150 cursor-pointer"
-              >
-                <Blend size={14} strokeWidth={2} />
-              </button>
-            </Popover.Trigger>
-            <Popover.Portal>
-              <Popover.Content
-                side="left"
-                sideOffset={8}
-                className="z-50 rounded-xl bg-graphite-900 border border-graphite-750
-                  p-1 shadow-panel min-w-[160px]"
-              >
-                <button
-                  onClick={onAddGradientMap}
-                  className="w-full text-left px-3 py-1.5 rounded-lg text-[12px] text-cream-dim
-                    hover:bg-graphite-800 hover:text-cream transition-all duration-150 cursor-pointer
-                    flex items-center gap-2"
-                >
-                  <Blend size={12} strokeWidth={1.75} />
-                  Gradient Map
-                </button>
-                <Popover.Arrow className="fill-graphite-750" />
-              </Popover.Content>
-            </Popover.Portal>
-          </Popover.Root>
-          <button
-            onClick={() => onRemove(activeIndex)}
-            disabled={layers.length <= 1}
-            title="Remove layer"
-            className="p-1.5 rounded-lg text-cream-muted hover:text-cream
-              hover:bg-graphite-800 transition-all duration-150
-              disabled:opacity-25 disabled:cursor-not-allowed cursor-pointer"
-          >
-            <Trash2 size={14} strokeWidth={2} />
-          </button>
-        </div>
-      </div>
 
       {activeLayer && (
         <div className="flex flex-col gap-1.5">
