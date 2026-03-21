@@ -289,6 +289,45 @@ describe("Engine", () => {
     expect(mockCanvas.clear_brush_tip).toHaveBeenCalled();
   });
 
+  // Adjustment layer tests
+  describe("adjustment layers", () => {
+    it("should create a gradient map layer", () => {
+      mockCanvas.add_adjustment_layer.mockReturnValue(1);
+      mockCanvas.layer_count.mockReturnValue(2);
+      const idx = engine.addGradientMapLayer("my-gradient");
+      expect(mockCanvas.add_adjustment_layer).toHaveBeenCalledWith(0, "my-gradient");
+      expect(idx).toBe(1);
+    });
+
+    it("should report adjustment layer status", () => {
+      mockCanvas.is_adjustment_layer.mockReturnValue(true);
+      expect(engine.isAdjustmentLayer(0)).toBe(true);
+    });
+
+    it("should get layer kind", () => {
+      mockCanvas.layer_kind.mockReturnValue(1);
+      expect(engine.getLayerKind(0)).toBe(1);
+    });
+
+    it("should get gradient map gradient id", () => {
+      mockCanvas.gradient_map_gradient_id.mockReturnValue("grad-1");
+      expect(engine.getGradientMapGradientId(0)).toBe("grad-1");
+    });
+
+    it("should set gradient map gradient", () => {
+      engine.setGradientMapGradient(0, "grad-2");
+      expect(mockCanvas.set_gradient_map_gradient).toHaveBeenCalledWith(0, "grad-2");
+    });
+
+    it("should skip pixel sync for adjustment layers", () => {
+      mockCanvas.is_adjustment_layer.mockReturnValue(true);
+      mockCanvas.is_layer_dirty.mockReturnValue(true);
+      // strokeBegin calls syncLayer internally
+      engine.strokeBegin(0, 10, 10, 1.0);
+      expect(mockCanvas.layer_pixels_ptr).not.toHaveBeenCalled();
+    });
+  });
+
   describe("persistence", () => {
     function createMockStorage() {
       return {
