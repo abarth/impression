@@ -1,17 +1,23 @@
 import type { GPUContext } from "./gpu";
 
+/** Layer kind constants matching Rust layer_kind() return values */
+export const LAYER_KIND_RASTER = 0;
+export const LAYER_KIND_GRADIENT_MAP = 1;
+
 export interface CompositeOptions {
   backgroundColor: [number, number, number];
   canvasVisible?: boolean;
   layerCount: number;
   getLayerVisible?: (index: number) => boolean;
   getLayerBlendMode?: (index: number) => number;
+  getLayerKind?: (index: number) => number;
   time?: number;
 }
 
 export function composite(gpu: GPUContext, options: CompositeOptions): void {
   const { backgroundColor, layerCount } = options;
   const getVisible = options.getLayerVisible ?? (() => true);
+  const getKind = options.getLayerKind ?? (() => LAYER_KIND_RASTER);
 
   const encoder = gpu.device.createCommandEncoder();
   const bg = backgroundColor;
@@ -54,9 +60,14 @@ export function composite(gpu: GPUContext, options: CompositeOptions): void {
       ],
     });
 
-    pass.setPipeline(gpu.compositePipeline);
-    pass.setBindGroup(0, gpu.layerBindGroups[i]); // layer texture + uniforms
-    pass.setBindGroup(1, gpu.dstBindGroups[srcIdx]); // dst accumulation texture
+    const kind = getKind(i);
+    if (kind === LAYER_KIND_GRADIENT_MAP) {
+      pass.setPipeline(gpu.gradientMapPipeline);
+    } else {
+      pass.setPipeline(gpu.compositePipeline);
+    }
+    pass.setBindGroup(0, gpu.layerBindGroups[i]);
+    pass.setBindGroup(1, gpu.dstBindGroups[srcIdx]);
     pass.draw(3, 1, 0, 0);
     pass.end();
 

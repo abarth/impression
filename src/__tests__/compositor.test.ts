@@ -26,6 +26,7 @@ function createMockGPUContext(layerCount: number): GPUContext {
       }),
     },
     compositePipeline: {},
+    gradientMapPipeline: {},
     blitPipeline: {},
     layerBindGroups: bindGroups,
     accumViews: [{}, {}],

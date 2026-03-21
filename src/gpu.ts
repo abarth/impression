@@ -1,5 +1,6 @@
 import compositeShaderSource from "../shaders/composite.wgsl?raw";
 import selectionShaderSource from "../shaders/selection.wgsl?raw";
+import gradientMapShaderSource from "../shaders/gradient_map.wgsl?raw";
 
 export interface GPUContext {
   device: GPUDevice;
@@ -21,6 +22,7 @@ export interface GPUContext {
 
   // Pipelines
   compositePipeline: GPURenderPipeline;
+  gradientMapPipeline: GPURenderPipeline;
   blitPipeline: GPURenderPipeline;
   blitBindGroupLayout: GPUBindGroupLayout;
   blitBindGroups: [GPUBindGroup, GPUBindGroup];
@@ -108,6 +110,28 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
       module: shaderModule,
       entryPoint: "fs",
       targets: [{ format: "rgba8unorm" }], // writes to accum texture
+    },
+    primitive: { topology: "triangle-list" },
+  });
+
+  // --- Gradient Map pipeline (same bind group layouts, different shader) ---
+
+  const gradientMapModule = device.createShaderModule({
+    code: gradientMapShaderSource,
+  });
+
+  const gradientMapPipeline = device.createRenderPipeline({
+    layout: device.createPipelineLayout({
+      bindGroupLayouts: [layerBindGroupLayout, dstBindGroupLayout],
+    }),
+    vertex: {
+      module: gradientMapModule,
+      entryPoint: "vs",
+    },
+    fragment: {
+      module: gradientMapModule,
+      entryPoint: "fs",
+      targets: [{ format: "rgba8unorm" }],
     },
     primitive: { topology: "triangle-list" },
   });
@@ -280,6 +304,7 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
     dstBindGroupLayout,
     dstBindGroups,
     compositePipeline,
+    gradientMapPipeline,
     blitPipeline,
     blitBindGroupLayout,
     blitBindGroups,
@@ -443,6 +468,62 @@ export function clearSelectionTexture(gpu: GPUContext): void {
     gpu.selectionTexture = null;
     gpu.selectionBindGroup = null;
   }
+}
+
+/**
+ * Create a gradient texture slot for an adjustment layer.
+ * Uses a 256×1 rgba8unorm texture with linear filtering.
+ * Occupies the same layer slot arrays as a raster layer.
+ */
+export function createGradientLayerTexture(gpu: GPUContext): number {
+  const texture = gpu.device.createTexture({
+    size: { width: 256, height: 1 },
+    format: "rgba8unorm",
+    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+  });
+
+  const uniformBuffer = gpu.device.createBuffer({
+    size: 8,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+  gpu.device.queue.writeBuffer(
+    uniformBuffer,
+    0,
+    new Uint32Array([floatToUint32(1.0), 0]),
+  );
+
+  const bindGroup = gpu.device.createBindGroup({
+    layout: gpu.layerBindGroupLayout,
+    entries: [
+      { binding: 0, resource: texture.createView() },
+      { binding: 1, resource: gpu.sampler },
+      { binding: 2, resource: { buffer: uniformBuffer } },
+    ],
+  });
+
+  const index = gpu.layerTextures.length;
+  gpu.layerTextures.push(texture);
+  gpu.layerBindGroups.push(bindGroup);
+  gpu.layerUniformBuffers.push(uniformBuffer);
+  return index;
+}
+
+/**
+ * Upload rasterized gradient data (256×1 RGBA) to a gradient layer texture.
+ */
+export function uploadGradientTexture(
+  gpu: GPUContext,
+  layerIndex: number,
+  data: Uint8Array,
+): void {
+  const texture = gpu.layerTextures[layerIndex];
+  if (!texture) return;
+  gpu.device.queue.writeTexture(
+    { texture },
+    data,
+    { bytesPerRow: 256 * 4, rowsPerImage: 1 },
+    { width: 256, height: 1 },
+  );
 }
 
 export function updateLayerOpacity(
