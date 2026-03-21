@@ -1,4 +1,4 @@
-FROM rust:1.85-bullseye
+FROM rust:1.88-bullseye
 
 # Install basic tools
 RUN apt-get update && apt-get install -y \
@@ -24,7 +24,7 @@ RUN rustup target add wasm32-unknown-unknown
 
 # Install wasm-bindgen-cli from source (matching Cargo.lock version)
 # so it works on bullseye's glibc, since wasm-pack's prebuilt binary needs glibc 2.32+
-RUN cargo install wasm-bindgen-cli@0.2.114
+RUN cargo install wasm-bindgen-cli@0.2.114 --locked
 
 # Install Node.js 22
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
