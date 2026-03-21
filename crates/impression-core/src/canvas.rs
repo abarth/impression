@@ -89,16 +89,11 @@ impl Canvas {
         }
     }
 
-    /// Record an operation as a new undo group and execute it.
+    /// Record an operation and execute it, starting a new undo group if appropriate.
     fn apply(&mut self, op: Operation) {
-        let site_op = SiteOperation { site: self.active_site, op };
-        self.begin_group();
-        self.oplog.push(site_op.clone());
-        self.execute_op(site_op);
-    }
-
-    /// Record an operation in the current undo group and execute it.
-    fn apply_continue(&mut self, op: Operation) {
+        if op.starts_undo_group() {
+            self.begin_group();
+        }
         let site_op = SiteOperation { site: self.active_site, op };
         self.oplog.push(site_op.clone());
         self.execute_op(site_op);
@@ -302,11 +297,11 @@ impl Canvas {
     }
 
     pub fn stroke_move(&mut self, _layer_index: u32, x: f32, y: f32, pressure: f32) {
-        self.apply_continue(Operation::StrokeMove { x, y, pressure });
+        self.apply(Operation::StrokeMove { x, y, pressure });
     }
 
     pub fn stroke_end(&mut self) {
-        self.apply_continue(Operation::StrokeEnd);
+        self.apply(Operation::StrokeEnd);
     }
 
     // -- Selection operations --
@@ -417,48 +412,8 @@ impl Canvas {
     pub fn load_chunk(&mut self, data: &[u8]) -> Result<(), postcard::Error> {
         let ops = crate::operation::deserialize_operations(data)?;
         for site_op in ops {
-            match &site_op.op {
-                Operation::StrokeBegin { .. }
-                | Operation::AddLayer { .. }
-                | Operation::RemoveLayer(_)
-                | Operation::SetBrushSize(_)
-                | Operation::SetBrushSpacing(_)
-                | Operation::SetBrushColor { .. }
-                | Operation::SetBrushOpacity(_)
-                | Operation::SetBrushFlow(_)
-                | Operation::SetBrushBlendMode(_)
-                | Operation::SetBrushHardness(_)
-                | Operation::SetBrushRoundness(_)
-                | Operation::SetBrushAngle(_)
-                | Operation::SetBrushTip(_)
-                | Operation::SetLayerOpacity { .. }
-                | Operation::SetLayerBlendMode { .. }
-                | Operation::SetLayerVisible { .. }
-                | Operation::SetBackgroundColor { .. }
-                | Operation::SetCanvasVisible(_)
-                | Operation::SelectionRect { .. }
-                | Operation::SelectionLasso { .. }
-                | Operation::SelectAll
-                | Operation::Deselect
-                | Operation::ClearLayer { .. }
-                | Operation::RenameLayer { .. }
-                | Operation::MoveLayer { .. }
-                | Operation::SetShapeDynamics(_)
-                | Operation::SetTransferDynamics(_)
-                | Operation::SetBrushFlipX(_)
-                | Operation::SetBrushFlipY(_)
-                | Operation::SetScatter(_)
-                | Operation::SetDualBrush(_)
-                | Operation::SetSecondaryBrushTip(_)
-                | Operation::SetTexture(_)
-                | Operation::SetTextureTip(_)
-                | Operation::ResetBrush
-                | Operation::AddAdjustmentLayer { .. }
-                | Operation::SetAdjustmentData { .. }
-                | Operation::CreateCanvas { .. } => {
-                    self.oplog.begin_undo_group(site_op.site);
-                }
-                Operation::StrokeMove { .. } | Operation::StrokeEnd => {}
+            if site_op.op.starts_undo_group() {
+                self.oplog.begin_undo_group(site_op.site);
             }
             self.oplog.push(site_op.clone());
             self.execute_op(site_op);

@@ -4,6 +4,7 @@ mod canvas;
 mod color;
 pub mod document;
 mod dynamics;
+mod execute;
 mod layer;
 pub mod operation;
 pub mod oplog;

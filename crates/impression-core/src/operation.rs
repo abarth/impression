@@ -140,6 +140,16 @@ pub enum Operation {
     },
 }
 
+impl Operation {
+    /// Returns true if this operation should start a new undo group when appended
+    /// to the op log. Most operations start a group, but stroke continuations
+    /// default to extending the active group.
+    pub fn starts_undo_group(&self) -> bool {
+        !matches!(self, Operation::StrokeMove { .. } | Operation::StrokeEnd)
+    }
+}
+
+
 /// Magic byte prefix indicating a versioned format.
 /// 0xFF is chosen because postcard varint uses the high bit as a continuation
 /// flag, so a Vec with 127+ elements would need multiple bytes. This makes
