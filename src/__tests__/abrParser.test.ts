@@ -530,6 +530,7 @@ describe("abrParser", () => {
     const dualBrshItems = [
       untfItem("Dmtr", "#Pxl", 25),
       untfItem("Hrdn", "#Prc", 80),
+      untfItem("Spcn", "#Prc", 50),
     ];
     const dualBrshDesc = new BinaryBuilder()
       .unicodeString("")
@@ -541,7 +542,6 @@ describe("abrParser", () => {
       boolItem("useDualBrush", true),
       enumItem("Md  ", "BlnM", "Drkn"),
       new BinaryBuilder().key("Brsh").tag("Objc").append(dualBrshDesc),
-      untfItem("Spcn", "#Prc", 50),
     ];
     const dualDesc = new BinaryBuilder()
       .unicodeString("")

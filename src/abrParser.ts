@@ -560,8 +560,7 @@ function extractPresetParams(presetItems: Map<string, DescriptorValue>): AbrBrus
       const dualBrshItems = getObjc(dualItems, "Brsh");
       const dualDiameter = dualBrshItems ? getNumber(dualBrshItems, "Dmtr") : undefined;
       const dualHardness = dualBrshItems ? getNumber(dualBrshItems, "Hrdn") : undefined;
-      // Spacing is at the dual brush level, not inside Brsh
-      const dualSpacing = getNumber(dualItems, "Spcn");
+      const dualSpacing = dualBrshItems ? getNumber(dualBrshItems, "Spcn") : undefined;
       params.dualBrush = {
         enabled: true,
         mode,
