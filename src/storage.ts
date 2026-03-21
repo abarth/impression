@@ -1,8 +1,10 @@
 import type { BrushPreset, StoredBrushTip } from "./brushPresets";
 import { DEFAULT_PRESETS } from "./brushPresets";
+import type { Gradient } from "./gradient";
+import { DEFAULT_GRADIENTS } from "./gradient";
 
 const DB_NAME = "impression";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 export interface DocumentMeta {
   id: string;
@@ -52,6 +54,13 @@ export class Storage {
         }
         if (!db.objectStoreNames.contains("brush_tips")) {
           db.createObjectStore("brush_tips", { keyPath: "id" });
+        }
+        if (!db.objectStoreNames.contains("gradient_presets")) {
+          const gradients = db.createObjectStore("gradient_presets", { keyPath: "id" });
+          gradients.createIndex("by_group", "group", { unique: false });
+          for (const gradient of DEFAULT_GRADIENTS) {
+            gradients.put(gradient);
+          }
         }
       };
 
@@ -207,6 +216,24 @@ export class Storage {
 
   async deleteTip(id: string): Promise<void> {
     return this.delete("brush_tips", id);
+  }
+
+  // -- Gradient Presets --
+
+  async listGradients(): Promise<Gradient[]> {
+    return this.getAll("gradient_presets");
+  }
+
+  async getGradient(id: string): Promise<Gradient | undefined> {
+    return this.get("gradient_presets", id);
+  }
+
+  async saveGradient(gradient: Gradient): Promise<void> {
+    return this.put("gradient_presets", gradient);
+  }
+
+  async deleteGradient(id: string): Promise<void> {
+    return this.delete("gradient_presets", id);
   }
 
   close(): void {
