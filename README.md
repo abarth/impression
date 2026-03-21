@@ -1,94 +1,39 @@
 # Impression
 
-A browser-based painting application built with WebGPU and Rust.
+A high-performance, browser-based painting application built with WebGPU and Rust.
 
-Impression combines a Rust drawing engine compiled to WebAssembly with a WebGPU rendering pipeline and a React interface. The brush engine runs entirely in WASM — interpolating pen strokes, rasterizing anti-aliased circles with pressure sensitivity, and managing layer pixel buffers — while the TypeScript frontend handles compositing those layers onto the screen through WebGPU and provides the interface for the artist.
+[Try it live here!](https://abarth.github.io/impression/)
+
+Impression uses a hybrid architecture: a powerful Rust drawing engine running in WebAssembly handles brush dynamics and pixel rendering, while a TypeScript/WebGPU frontend provides a modern UI and fast layer compositing.
 
 ## Features
 
-- **Pressure-sensitive brush** with configurable size, spacing, flow, and opacity
-- **Layered canvas** — add, remove, and select layers for non-destructive painting
-- **Pan and zoom** — navigate the canvas with dedicated tools or scroll gestures
-- **Foreground/background colors** with a visual picker and swap control
-- **WebGPU accelerated** compositing with per-layer alpha blending
+- **Pressure-sensitive brush engine** with fine-tuned dynamics (size, opacity, flow, hardness, roundness, angle).
+- **Custom brush tips** via Photoshop .abr file import.
+- **Layer management** with support for multiple blending modes, adjustment layers, and non-destructive editing.
+- **High-performance compositing** powered by WebGPU alpha blending.
+- **Selection tools** (marquee, lasso) with advanced boolean operations (add, subtract, intersect).
+- **Infinite pan and zoom** canvas navigation.
 
 ## Visual Design
 
-Impression uses the **Soft Graphite** design language — a warm, muted dark theme inspired by paper and pencil. Warm grays with brown undertones replace the cold blue-grays typical of developer tools. Text is rendered in cream and off-white tones. Controls use generous padding, rounded corners, and soft shadows rather than hard borders, creating a tactile, approachable feel. The color swatches overlap in the classic foreground-over-background arrangement. Sliders have thick painterly tracks with large circular thumbs. The overall aesthetic prioritizes the artwork by keeping the interface quiet and unobtrusive.
+Impression features a highly customized **Soft Graphite** user interface. Designed specifically to look like a premium creative tool rather than standard developer software, it uses warm grays, cream tones, and shadow-based elevation to create a "tactile" and un-distracting environment that focuses attention on your artwork. 
 
-**Design stack:** React 19, Radix UI primitives, Tailwind CSS 4, Lucide icons, react-colorful.
+## How to Use
 
-## Getting Started
+The interface works similarly to standard professional image editing software:
+- Select tools from the left toolbar.
+- You can use standard keyboard shortcuts like `B` for Brush, `I` for Eyedropper, `Space` to Pan, or `Alt` with Brush to temporarily sample a color.
+- Create and manage layers from the right-hand panel.
+- Right-click or use the layer panel menu for layer operations (duplicate, merge, mask).
+- Your paintings and brush presets are automatically saved locally in your browser so you don't lose any progress.
 
-### Container-Based Development (Recommended)
+## For Developers
 
-This project includes a Docker Compose and VS Code Devcontainer setup for isolated development. This environment is pre-configured with Node, Rust, and Claude Code.
+Want to contribute or learn how Impression works? Please see the documentation for AI coding agents and human developers:
 
-**1. Using Docker Compose:**
-Build and start the container, then open a shell inside it:
-```bash
-docker-compose up -d --build
-docker-compose exec dev bash
-```
-
-Once inside the container, install dependencies and start the development server:
-```bash
-npm install
-npm run dev -- --host 0.0.0.0
-```
-Open `http://localhost:5173` on your host machine to view the app. 
-
-*Note: Your `~/.ssh`, `~/.gitconfig`, and `~/.claude.json` credentials are automatically mapped to the container so Git and Claude Code will work transparently.*
-
-**2. Using VS Code Devcontainers:**
-Open the project in VS Code and click "Reopen in Container" when prompted. It automatically manages port forwarding and installs required extensions (like rust-analyzer).
-
----
-
-### Native Development
-
-If you prefer developing directly on your host machine:
-
-**Prerequisites:**
-- Node.js 22+
-- Rust toolchain with `wasm32-unknown-unknown` target (`rustup target add wasm32-unknown-unknown`)
-- [wasm-pack](https://rustwasm.github.io/wasm-pack/) (`cargo install wasm-pack`)
-
-**Run the development server:**
-
-```bash
-npm install
-npm run dev
-```
-
-This compiles the Rust crate to WASM and starts a Vite dev server. Open the app in a WebGPU-capable browser (Chrome 113+, Edge 113+, Safari 18+).
-
-**Run tests:**
-
-```bash
-npm run test:all     # Rust + TypeScript tests
-npm run test:rust    # Rust unit tests only
-npm run test         # TypeScript tests only
-```
-
-## Architecture
-
-```
-Pointer events → React (CanvasViewport)
-                    ↓ coordinate transform (pan/zoom)
-                 Engine (TypeScript)
-                    ↓ wasm_bindgen calls
-                 Brush engine (Rust/WASM)
-                    ↓ rasterize into layer pixel buffers
-                 Engine reads WASM memory
-                    ↓ upload textures
-                 WebGPU compositor
-                    ↓ alpha-blend layers
-                 Screen
-```
-
-The Rust crate (`crates/impression-core`) owns all drawing logic. The TypeScript `Engine` class bridges WASM and WebGPU. React owns the UI but never touches the canvas directly — it calls imperative engine methods through callbacks.
-
-## License
-
-This project is not yet licensed. All rights reserved.
+- Interested in submitting patches? Check out [CLAUDE.md](./CLAUDE.md) for engineering practices.
+- Deep architectural explanation: [docs/architecture.md](./docs/architecture.md)
+- Development environment and build setup: [docs/development.md](./docs/development.md)
+- Feature implementation details: [docs/features.md](./docs/features.md)
+- Multiplayer/sync design concepts: [docs/multiplayer-design.md](./docs/multiplayer-design.md)
