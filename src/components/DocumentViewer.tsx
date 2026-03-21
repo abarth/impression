@@ -106,12 +106,23 @@ export function DocumentViewer({
       const allGradients = Object.values(gradientGroups).flat();
       const gradient = allGradients.find((g) => g.id === gradientId);
       if (gradient) {
-        const data = rasterizeGradient(gradient);
+        const data = rasterizeGradient(gradient, colors.foreground, colors.background);
         engine.uploadGradientData(layerIndex, data);
       }
     },
-    [engine, gradientGroups],
+    [engine, gradientGroups, colors.foreground, colors.background],
   );
+
+  // Re-upload gradient data when foreground/background colors change
+  useEffect(() => {
+    if (!engine) return;
+    for (let i = 0; i < layers.length; i++) {
+      const layer = layers[i];
+      if (layer.kind === "gradient-map" && layer.gradientId) {
+        uploadGradientToLayer(i, layer.gradientId);
+      }
+    }
+  }, [engine, colors.foreground, colors.background, layers, uploadGradientToLayer]);
 
   // When the active gradient changes, update the active layer if it's a gradient map
   const handleGradientSelect = useCallback(
@@ -133,6 +144,15 @@ export function DocumentViewer({
       uploadGradientToLayer(idx, gid);
     }
   }, [activeGradientId, addGradientMapLayer, uploadGradientToLayer]);
+
+  // Handle gradient change from LayerPanel gradient picker
+  const handleLayerGradientChange = useCallback(
+    (layerIndex: number, gradientId: string) => {
+      setGradientMapGradient(layerIndex, gradientId);
+      uploadGradientToLayer(layerIndex, gradientId);
+    },
+    [setGradientMapGradient, uploadGradientToLayer],
+  );
 
   return (
     <div className="flex flex-col h-screen w-screen bg-graphite-950">
@@ -174,6 +194,7 @@ export function DocumentViewer({
           brushSize={settings.size}
           smoothing={settings.smoothing}
           transform={transform}
+          activeLayerKind={layers[activeIndex]?.kind}
           pan={pan}
           zoom={zoom}
           onColorPick={setForeground}
@@ -203,6 +224,7 @@ export function DocumentViewer({
             activeIndex={activeIndex}
             canvasColor={canvasColor}
             canvasVisible={canvasVisible}
+            gradientGroups={gradientGroups}
             onAdd={addLayer}
             onAddGradientMap={handleAddGradientMap}
             onRemove={removeLayer}
@@ -214,6 +236,7 @@ export function DocumentViewer({
             onToggleLayerVisible={toggleLayerVisible}
             onCanvasColorChange={setCanvasColor}
             onToggleCanvasVisible={toggleCanvasVisible}
+            onGradientMapGradientChange={handleLayerGradientChange}
           />
         </div>
       </div>

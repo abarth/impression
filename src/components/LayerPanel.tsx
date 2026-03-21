@@ -1,15 +1,80 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { Plus, Trash2, Eye, EyeOff, GripVertical, Blend } from "lucide-react";
 import * as Popover from "@radix-ui/react-popover";
 import { OklchColorPicker } from "./OklchColorPicker";
 import type { LayerInfo } from "../hooks/useLayerManager";
+import type { Gradient } from "../gradient";
+import { rasterizeGradient } from "../gradient";
 import { BLEND_MODE_GROUPS } from "../blendModes";
+
+function GradientPickerThumbnail({ gradient, isActive, onSelect }: {
+  gradient: Gradient;
+  isActive: boolean;
+  onSelect: () => void;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const data = rasterizeGradient(gradient);
+    const imageData = new ImageData(new Uint8ClampedArray(data.buffer as ArrayBuffer), 256, 1);
+    ctx.putImageData(imageData, 0, 0);
+  }, [gradient]);
+
+  return (
+    <button
+      className={`w-full h-4 rounded shrink-0 overflow-hidden transition-all duration-150 cursor-pointer ${
+        isActive
+          ? "ring-1 ring-cream-muted ring-offset-1 ring-offset-graphite-900"
+          : "hover:ring-1 hover:ring-graphite-600"
+      }`}
+      onClick={onSelect}
+      title={gradient.name}
+    >
+      <canvas
+        ref={canvasRef}
+        width={256}
+        height={1}
+        className="w-full h-full"
+        style={{ imageRendering: "auto" }}
+      />
+    </button>
+  );
+}
+
+function GradientPickerInlinePreview({ gradient }: { gradient: Gradient }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const data = rasterizeGradient(gradient);
+    const imageData = new ImageData(new Uint8ClampedArray(data.buffer as ArrayBuffer), 256, 1);
+    ctx.putImageData(imageData, 0, 0);
+  }, [gradient]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      width={256}
+      height={1}
+      className="w-full h-full"
+      style={{ imageRendering: "auto" }}
+    />
+  );
+}
 
 interface LayerPanelProps {
   layers: LayerInfo[];
   activeIndex: number;
   canvasColor: string;
   canvasVisible: boolean;
+  gradientGroups?: Record<string, Gradient[]>;
   onAdd: () => void;
   onAddGradientMap: () => void;
   onRemove: (index: number) => void;
@@ -21,6 +86,7 @@ interface LayerPanelProps {
   onToggleLayerVisible: (index: number) => void;
   onCanvasColorChange: (hex: string) => void;
   onToggleCanvasVisible: () => void;
+  onGradientMapGradientChange?: (layerIndex: number, gradientId: string) => void;
 }
 
 export function LayerPanel({
@@ -39,6 +105,8 @@ export function LayerPanel({
   onToggleLayerVisible,
   onCanvasColorChange,
   onToggleCanvasVisible,
+  gradientGroups,
+  onGradientMapGradientChange,
 }: LayerPanelProps) {
   const activeLayer = layers[activeIndex];
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
@@ -188,6 +256,57 @@ export function LayerPanel({
               className="flex-1 accent-cream-muted h-1.5 min-w-0"
             />
           </div>
+          {activeLayer.kind === "gradient-map" && gradientGroups && onGradientMapGradientChange && (
+            <div className="flex items-center gap-2">
+              <label className="text-[11px] text-cream-muted whitespace-nowrap">
+                Gradient
+              </label>
+              <Popover.Root>
+                <Popover.Trigger asChild>
+                  <button className="flex-1 h-5 rounded-md overflow-hidden cursor-pointer ring-1 ring-graphite-750 hover:ring-cream-muted transition-all duration-150">
+                    {(() => {
+                      const allGradients = Object.values(gradientGroups).flat();
+                      const active = allGradients.find((g) => g.id === activeLayer.gradientId);
+                      if (!active) return <span className="text-[10px] text-cream-muted px-2">Select...</span>;
+                      return <GradientPickerInlinePreview gradient={active} />;
+                    })()}
+                  </button>
+                </Popover.Trigger>
+                <Popover.Portal>
+                  <Popover.Content
+                    side="left"
+                    sideOffset={12}
+                    className="z-50 rounded-xl bg-graphite-900 border border-graphite-750
+                      p-3 shadow-panel w-52"
+                  >
+                    <div className="flex flex-col gap-2 max-h-64 overflow-y-auto">
+                      {Object.entries(gradientGroups).map(([group, gradients]) => (
+                        <div key={group} className="flex flex-col gap-1">
+                          {Object.keys(gradientGroups).length > 1 && (
+                            <span className="text-[10px] text-cream-muted tracking-wide sticky top-0 bg-graphite-900 py-0.5">
+                              {group}
+                            </span>
+                          )}
+                          {gradients.map((gradient) => (
+                            <Popover.Close key={gradient.id} asChild>
+                              <div>
+                                <GradientPickerThumbnail
+                                  gradient={gradient}
+                                  isActive={gradient.id === activeLayer.gradientId}
+                                  onSelect={() => onGradientMapGradientChange(activeIndex, gradient.id)}
+                                />
+                              </div>
+                            </Popover.Close>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                    <Popover.Arrow className="fill-graphite-750" />
+                  </Popover.Content>
+                </Popover.Portal>
+              </Popover.Root>
+            </div>
+          )}
         </div>
       )}
 

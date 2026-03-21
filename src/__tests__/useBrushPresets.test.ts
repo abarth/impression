@@ -4,6 +4,7 @@ import { useBrushPresets } from "../hooks/useBrushPresets";
 import type { Engine } from "../engine";
 import type { Storage } from "../storage";
 import type { BrushPreset } from "../brushPresets";
+import type { Tool } from "../hooks/useTool";
 
 function createMockEngine(): Engine {
   return {
@@ -143,6 +144,9 @@ describe("useBrushPresets selectPreset applies all fields", () => {
         hardness: 0.8,
         size: 25,
         spacing: 0.5,
+        count: 1,
+        scatter: 0,
+        bothAxes: false,
       },
     };
     const engine = createMockEngine();
@@ -263,7 +267,7 @@ describe("useBrushPresets tip lifecycle", () => {
     const { result, rerender } = renderHook(
       ({ tool }) =>
         useBrushPresets({ engine, storage, activeTool: tool, onApplyPreset }),
-      { initialProps: { tool: "brush" as const } },
+      { initialProps: { tool: "brush" as Tool } },
     );
 
     await vi.waitFor(() => {

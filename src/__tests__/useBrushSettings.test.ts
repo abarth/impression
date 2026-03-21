@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { useBrushSettings } from "../hooks/useBrushSettings";
 import type { Engine } from "../engine";
+import type { Tool } from "../hooks/useTool";
 
 function fireKeyDown(key: string, options: Partial<KeyboardEventInit> = {}) {
   window.dispatchEvent(
@@ -218,7 +219,7 @@ describe("useBrushSettings shape dynamics", () => {
     const engine = createMockEngine();
     const { result, rerender } = renderHook(
       ({ tool }) => useBrushSettings(engine, tool),
-      { initialProps: { tool: "brush" as const } },
+      { initialProps: { tool: "brush" as Tool } },
     );
 
     // Set pressure-driven size on brush
@@ -284,7 +285,7 @@ describe("useBrushSettings transfer dynamics", () => {
     const engine = createMockEngine();
     const { result, rerender } = renderHook(
       ({ tool }) => useBrushSettings(engine, tool),
-      { initialProps: { tool: "brush" as const } },
+      { initialProps: { tool: "brush" as Tool } },
     );
 
     // Set pressure-driven opacity on brush

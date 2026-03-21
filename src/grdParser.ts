@@ -215,7 +215,12 @@ function parseGradientDescriptor(
       const midpoint = mdpn !== undefined ? mdpn / 100 : 0.5;
       const color = colorObj ? extractColor(colorObj) : "#000000";
 
-      colorStops.push({ position, color, midpoint });
+      // Color stop type: "UsrS" = user, "FrgC" = foreground, "BckC" = background
+      const typeEnum = getEnum(stopItems, "Type");
+      const colorType: "user" | "foreground" | "background" =
+        typeEnum === "FrgC" ? "foreground" : typeEnum === "BckC" ? "background" : "user";
+
+      colorStops.push({ position, color, midpoint, colorType });
     }
   }
 

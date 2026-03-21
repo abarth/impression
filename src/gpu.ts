@@ -520,7 +520,7 @@ export function uploadGradientTexture(
   if (!texture) return;
   gpu.device.queue.writeTexture(
     { texture },
-    data,
+    data as unknown as BufferSource,
     { bytesPerRow: 256 * 4, rowsPerImage: 1 },
     { width: 256, height: 1 },
   );

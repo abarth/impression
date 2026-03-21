@@ -19,6 +19,7 @@ interface CanvasViewportProps {
   brushSize: number;
   smoothing: number;
   transform: ViewTransform;
+  activeLayerKind?: "raster" | "gradient-map";
   pan: (dx: number, dy: number) => void;
   zoom: (delta: number, cx: number, cy: number) => void;
   onColorPick?: (hex: string) => void;
@@ -63,6 +64,7 @@ export function CanvasViewport({
   brushSize,
   smoothing,
   transform,
+  activeLayerKind,
   pan,
   zoom,
   onColorPick,
@@ -74,12 +76,17 @@ export function CanvasViewport({
     null,
   );
 
+  const canPaint = activeLayerKind === "raster" || activeLayerKind === undefined;
+
   const cursor = useMemo(() => {
+    if ((activeTool === "brush" || activeTool === "eraser") && !canPaint) {
+      return "not-allowed";
+    }
     if (activeTool === "brush" || activeTool === "eraser") {
       return buildCircleCursor(brushSize, transform.scale);
     }
     return cursorMap[activeTool];
-  }, [activeTool, brushSize, transform.scale]);
+  }, [activeTool, brushSize, transform.scale, canPaint]);
   const dragStart = useRef<{ x: number; y: number } | null>(null);
   const zoomAnchor = useRef<{ x: number; y: number } | null>(null);
   const marqueeStart = useRef<{ x: number; y: number } | null>(null);
@@ -88,6 +95,8 @@ export function CanvasViewport({
   const lassoPreviewPoints = useRef<{ x: number; y: number }[]>([]);
   const toolRef = useRef(activeTool);
   toolRef.current = activeTool;
+  const layerKindRef = useRef(activeLayerKind);
+  layerKindRef.current = activeLayerKind;
   const smootherRef = useRef(new StrokeSmoother());
   const smoothingRef = useRef(smoothing);
   smoothingRef.current = smoothing;
@@ -176,6 +185,7 @@ export function CanvasViewport({
         engine.selectionLassoPoint(x, y);
         lassoPreviewPoints.current.push({ x, y });
       } else if ((tool === "brush" || tool === "eraser") && engine) {
+        if (layerKindRef.current !== "raster" && layerKindRef.current !== undefined) return;
         viewport.setPointerCapture(e.pointerId);
         const { x, y } = screenToCanvas(e.clientX, e.clientY);
         const pressure = e.pointerType === "pen" ? e.pressure : 1.0;

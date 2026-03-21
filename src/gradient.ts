@@ -10,6 +10,7 @@ export interface ColorStop {
   position: number; // 0.0 - 1.0
   color: string; // hex color, e.g. "#ff0000"
   midpoint: number; // 0.0 - 1.0, relative between this stop and the next (default 0.5)
+  colorType?: "user" | "foreground" | "background"; // default "user"
 }
 
 export interface OpacityStop {
@@ -120,8 +121,15 @@ function findInterpolation<T extends { position: number; midpoint: number }>(
 /**
  * Rasterize a gradient to a 256×1 RGBA pixel buffer (1024 bytes).
  * Each pixel is [R, G, B, A] with values 0-255.
+ *
+ * If foreground/background hex colors are provided, color stops with
+ * colorType "foreground" or "background" will use those colors.
  */
-export function rasterizeGradient(gradient: Gradient): Uint8Array {
+export function rasterizeGradient(
+  gradient: Gradient,
+  foreground?: string,
+  background?: string,
+): Uint8Array {
   const width = 256;
   const buffer = new Uint8Array(width * 4);
 
@@ -133,8 +141,12 @@ export function rasterizeGradient(gradient: Gradient): Uint8Array {
     (a, b) => a.position - b.position,
   );
 
-  // Pre-parse colors
-  const colorRgb = colorStops.map((s) => hexToRgb(s.color));
+  // Pre-parse colors, substituting fg/bg as needed
+  const colorRgb = colorStops.map((s) => {
+    if (s.colorType === "foreground" && foreground) return hexToRgb(foreground);
+    if (s.colorType === "background" && background) return hexToRgb(background);
+    return hexToRgb(s.color);
+  });
 
   for (let i = 0; i < width; i++) {
     const pos = i / (width - 1);

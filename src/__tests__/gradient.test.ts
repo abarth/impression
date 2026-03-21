@@ -259,4 +259,81 @@ describe("rasterizeGradient", () => {
     expect(buffer.length).toBe(1024);
     expect(buffer).toBeInstanceOf(Uint8Array);
   });
+
+  it("substitutes foreground color for foreground-type stops", () => {
+    const gradient: Gradient = {
+      id: "test-fg",
+      name: "FG to White",
+      group: "test",
+      colorStops: [
+        { position: 0, color: "#000000", midpoint: 0.5, colorType: "foreground" },
+        { position: 1, color: "#ffffff", midpoint: 0.5 },
+      ],
+      opacityStops: [
+        { position: 0, opacity: 1, midpoint: 0.5 },
+        { position: 1, opacity: 1, midpoint: 0.5 },
+      ],
+      smoothness: 0,
+      sort_order: 0,
+    };
+
+    // Without fg color, uses the stored #000000
+    const bufDefault = rasterizeGradient(gradient);
+    expect(bufDefault[0]).toBe(0); // R at position 0
+
+    // With red fg color, position 0 should be red
+    const bufRed = rasterizeGradient(gradient, "#ff0000");
+    expect(bufRed[0]).toBe(255); // R
+    expect(bufRed[1]).toBe(0);   // G
+    expect(bufRed[2]).toBe(0);   // B
+  });
+
+  it("substitutes background color for background-type stops", () => {
+    const gradient: Gradient = {
+      id: "test-bg",
+      name: "Black to BG",
+      group: "test",
+      colorStops: [
+        { position: 0, color: "#000000", midpoint: 0.5 },
+        { position: 1, color: "#ffffff", midpoint: 0.5, colorType: "background" },
+      ],
+      opacityStops: [
+        { position: 0, opacity: 1, midpoint: 0.5 },
+        { position: 1, opacity: 1, midpoint: 0.5 },
+      ],
+      smoothness: 0,
+      sort_order: 0,
+    };
+
+    // With blue bg, position 255 should be blue
+    const buf = rasterizeGradient(gradient, undefined, "#0000ff");
+    const lastPixel = 255 * 4;
+    expect(buf[lastPixel + 0]).toBe(0);   // R
+    expect(buf[lastPixel + 1]).toBe(0);   // G
+    expect(buf[lastPixel + 2]).toBe(255); // B
+  });
+
+  it("user-type stops ignore foreground/background overrides", () => {
+    const gradient: Gradient = {
+      id: "test-user",
+      name: "Red to Blue",
+      group: "test",
+      colorStops: [
+        { position: 0, color: "#ff0000", midpoint: 0.5, colorType: "user" },
+        { position: 1, color: "#0000ff", midpoint: 0.5, colorType: "user" },
+      ],
+      opacityStops: [
+        { position: 0, opacity: 1, midpoint: 0.5 },
+        { position: 1, opacity: 1, midpoint: 0.5 },
+      ],
+      smoothness: 0,
+      sort_order: 0,
+    };
+
+    const buf = rasterizeGradient(gradient, "#00ff00", "#ffff00");
+    // Position 0 should still be red (user type, not substituted)
+    expect(buf[0]).toBe(255);
+    expect(buf[1]).toBe(0);
+    expect(buf[2]).toBe(0);
+  });
 });
