@@ -91,7 +91,7 @@ export function BrushPicker({
             {groupNames.map((group) => (
               <div key={group} className="flex flex-col gap-1.5">
                 {groupNames.length > 1 && (
-                  <span className="text-[10px] text-cream-muted tracking-wide sticky top-0 bg-graphite-900 py-0.5">
+                  <span className="text-[10px] text-cream-muted tracking-wide sticky top-0 bg-graphite-900 py-0.5 z-10">
                     {group}
                   </span>
                 )}
