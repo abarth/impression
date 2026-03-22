@@ -190,14 +190,17 @@ export function useBrushSettings(engine: Engine | null, activeTool: Tool) {
 
   /** Push all brush settings to the Rust engine. Resets to defaults first
    *  to ensure no stale state leaks between brush presets. */
-  const syncToEngine = useCallback((s: BrushSettings, tool: ToolWithSettings) => {
+  const syncToEngine = useCallback((s: BrushSettings, tool: ToolWithSettings, reset = false) => {
     const eng = engineRef.current;
     if (!eng) return;
 
-    // Reset engine brush state to known defaults before applying new values.
-    // This prevents stale settings (e.g., scatter, dual brush, texture) from
-    // leaking across preset changes.
-    eng.resetBrush();
+    // Only reset when applying a full preset so stale settings don't leak.
+    // Individual setting changes must NOT reset because resetBrush clears
+    // the active brush tip on the engine side, causing sampled tips to be
+    // lost (the tip is managed by useBrushPresets, not re-applied here).
+    if (reset) {
+      eng.resetBrush();
+    }
 
     // Tool options
     eng.setBrushSize(s.size);
@@ -339,7 +342,7 @@ export function useBrushSettings(engine: Engine | null, activeTool: Tool) {
       const next = { ...prev, [tool]: merged };
       perToolRef.current = next;
       setPerTool(next);
-      syncToEngine(next[tool], tool);
+      syncToEngine(next[tool], tool, true);
     },
     [syncToEngine],
   );

@@ -417,7 +417,7 @@ describe("useBrushSettings applyPreset with dynamics", () => {
     expect(result.current.settings.flow).toBe(0.1);
   });
 
-  it("should call resetBrush before syncing to engine", () => {
+  it("should call resetBrush before syncing to engine on applyPreset", () => {
     const engine = createMockEngine();
     const { result } = renderHook(() => useBrushSettings(engine, "brush"));
 
@@ -433,6 +433,21 @@ describe("useBrushSettings applyPreset with dynamics", () => {
     const resetOrder = resetBrush.mock.invocationCallOrder[0];
     const sizeOrder = (engine.setBrushSize as ReturnType<typeof vi.fn>).mock.invocationCallOrder.pop()!;
     expect(resetOrder).toBeLessThan(sizeOrder);
+  });
+
+  it("should NOT call resetBrush when updating an individual setting", () => {
+    const engine = createMockEngine();
+    const { result } = renderHook(() => useBrushSettings(engine, "brush"));
+
+    const resetBrush = engine.resetBrush as ReturnType<typeof vi.fn>;
+    resetBrush.mockClear();
+
+    act(() => {
+      result.current.updateSetting("opacity", 0.5);
+    });
+
+    expect(resetBrush).not.toHaveBeenCalled();
+    expect(engine.setBrushOpacity).toHaveBeenCalledWith(0.5);
   });
 });
 
