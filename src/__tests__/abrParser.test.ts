@@ -605,6 +605,67 @@ describe("abrParser", () => {
     expect(db.size).toBe(25);
     expect(db.spacing).toBeCloseTo(0.5);
     expect(db.hardness).toBeCloseTo(0.8);
+    expect(db.useComputed).toBe(true); // No sampledData → computed tip
+  });
+
+  it("extracts sampled dual brush tip image", () => {
+    const header = new BinaryBuilder().u16(6).u16(2);
+    const samp = buildSampSection([
+      { width: 3, height: 3, pixels: [100,100,100,100,100,100,100,100,100], uuid: "primary-tip" },
+      { width: 2, height: 2, pixels: [200, 200, 200, 200], uuid: "dual-tip" },
+    ], 2);
+
+    // Build dualBrush descriptor with a sampledData reference
+    const dualBrshItems = [
+      untfItem("Dmtr", "#Pxl", 15),
+      untfItem("Hrdn", "#Prc", 50),
+      untfItem("Spcn", "#Prc", 30),
+      new BinaryBuilder().key("sampledData").tag("TEXT").unicodeString("dual-tip"),
+    ];
+    const dualBrshDesc = new BinaryBuilder()
+      .unicodeString("")
+      .classId("sampledBrush")
+      .u32(dualBrshItems.length);
+    for (const item of dualBrshItems) dualBrshDesc.append(item);
+
+    const dualItems = [
+      boolItem("useDualBrush", true),
+      enumItem("BlnM", "BlnM", "Mltp"),
+      new BinaryBuilder().key("Brsh").tag("Objc").append(dualBrshDesc),
+    ];
+    const dualDesc = new BinaryBuilder()
+      .unicodeString("")
+      .classId("dualBrush")
+      .u32(dualItems.length);
+    for (const item of dualItems) dualDesc.append(item);
+
+    const desc = buildDescSection([{
+      name: "Spongy",
+      tipUuid: "primary-tip",
+      presetItems: [
+        new BinaryBuilder().key("dualBrush").tag("Objc").append(dualDesc),
+      ],
+    }]);
+
+    const data = new BinaryBuilder().append(header).append(samp).append(desc);
+    const buf = new Uint8Array(data.toArray()).buffer;
+    const result = parseAbrFile(buf);
+
+    expect(result.length).toBe(1);
+    // Primary tip
+    expect(result[0].imageData).toBeDefined();
+    expect(result[0].width).toBe(3);
+    expect(result[0].height).toBe(3);
+    // Dual brush tip
+    expect(result[0].dualImageData).toBeDefined();
+    expect(result[0].dualWidth).toBe(2);
+    expect(result[0].dualHeight).toBe(2);
+    expect(result[0].dualImageData![0]).toBe(200);
+    // Settings should reflect sampled tip
+    const db = result[0].params!.dualBrush!;
+    expect(db.enabled).toBe(true);
+    expect(db.useComputed).toBe(false);
+    expect(db.size).toBe(15);
   });
 
   it("extracts smoothing from toolOptions", () => {

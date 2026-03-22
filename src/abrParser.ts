@@ -57,6 +57,12 @@ export interface ParsedAbrBrush {
   width?: number;
   /** Height of the tip image (only set for sampled tips). */
   height?: number;
+  /** Image data for a sampled dual brush tip. */
+  dualImageData?: Uint8Array;
+  /** Width of the dual brush tip image. */
+  dualWidth?: number;
+  /** Height of the dual brush tip image. */
+  dualHeight?: number;
   /** Brush parameters extracted from ABR descriptor section. */
   params?: AbrBrushParams;
 }
@@ -291,6 +297,8 @@ interface ParsedPresetInfo {
   params: AbrBrushParams;
   /** UUID of the sampled tip, or undefined for computed tips. */
   tipUuid?: string;
+  /** UUID of the dual brush's sampled tip, or undefined when computed. */
+  dualTipUuid?: string;
 }
 
 interface ParsedDescSection {
@@ -377,13 +385,14 @@ function extractPresetParams(presetItems: Map<string, DescriptorValue>): AbrBrus
       const dualDiameter = dualBrshItems ? getNumber(dualBrshItems, "Dmtr") : undefined;
       const dualHardness = dualBrshItems ? getNumber(dualBrshItems, "Hrdn") : undefined;
       const dualSpacing = dualBrshItems ? getNumber(dualBrshItems, "Spcn") : undefined;
+      const dualHasSampledTip = dualBrshItems ? getText(dualBrshItems, "sampledData") !== undefined : false;
       const dualCount = getNumber(dualItems, "Cnt ");
       const dualScatter = getNumber(dualItems, "Sctr");
       const dualBothAxes = getBool(dualItems, "BthA");
       params.dualBrush = {
         enabled: true,
         mode,
-        useComputed: true, // ABR dual brushes use computed tips by default
+        useComputed: !dualHasSampledTip,
         hardness: dualHardness !== undefined ? dualHardness / 100 : 1.0,
         size: dualDiameter ?? 20,
         spacing: dualSpacing !== undefined ? dualSpacing / 100 : 0.25,
@@ -424,10 +433,22 @@ function parseDescSection(
         const name = getText(item.items, "Nm  ") || `Brush ${presets.length + 1}`;
         const brsh = getObjc(item.items, "Brsh");
         const tipUuid = brsh ? getText(brsh, "sampledData") : undefined;
+
+        // Dual brush may also reference a sampled tip
+        const dualItems = getObjc(item.items, "dualBrush");
+        let dualTipUuid: string | undefined;
+        if (dualItems) {
+          const dualBrsh = getObjc(dualItems, "Brsh");
+          if (dualBrsh) {
+            dualTipUuid = getText(dualBrsh, "sampledData");
+          }
+        }
+
         presets.push({
           name,
           params: extractPresetParams(item.items),
           tipUuid,
+          dualTipUuid,
         });
       }
     }
@@ -500,6 +521,14 @@ export function parseAbrFile(buffer: ArrayBuffer): ParsedAbrBrush[] {
           brush.imageData = samp.imageData;
           brush.width = samp.width;
           brush.height = samp.height;
+        }
+      }
+      if (preset.dualTipUuid) {
+        const dualSamp = sampByUuid.get(preset.dualTipUuid);
+        if (dualSamp) {
+          brush.dualImageData = dualSamp.imageData;
+          brush.dualWidth = dualSamp.width;
+          brush.dualHeight = dualSamp.height;
         }
       }
       brushes.push(brush);

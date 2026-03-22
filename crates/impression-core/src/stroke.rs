@@ -143,16 +143,6 @@ fn place_stamp(
     secondary_tip: Option<&BrushTip>,
     texture: Option<(&crate::brush::TextureSettings, &BrushTip)>,
 ) {
-    crate::console_log!(
-        "place_stamp: sp={:?}, brush.color={:?}, brush.size={}, selection.is_some={}, dual_instances.len={}, secondary_tip.is_some={}, texture.is_some={}",
-        sp,
-        brush.color,
-        brush.size,
-        selection.is_some(),
-        dual_instances.len(),
-        secondary_tip.is_some(),
-        texture.is_some()
-    );
     let dual = if !dual_instances.is_empty() {
         let sec_state = match secondary_tip {
             Some(t) => SecondaryTipState::Image(t),

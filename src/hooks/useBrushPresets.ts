@@ -53,38 +53,57 @@ export function useBrushPresets({
   const activePresetId = activePresetIds[currentTool];
 
   /** Load and activate a brush tip image for the given preset. */
+  /** Register and activate a sampled tip on the engine if needed. */
+  const ensureTipRegistered = useCallback(async (tipId: string, presetName: string): Promise<boolean> => {
+    const eng = engineRef.current;
+    if (!eng) return false;
+    if (registeredTipsRef.current.has(tipId)) return true;
+    const s = storageRef.current;
+    if (!s) return false;
+    const tip = await s.getTip(tipId);
+    if (!tip) {
+      console.warn(`Brush tip "${presetName}" (${tipId}) not found in storage.`);
+      return false;
+    }
+    eng.registerBrushTip(tipId, tip.pixels, tip.width, tip.height);
+    registeredTipsRef.current.add(tipId);
+    eng.embedResource("brush-tip", tipId, {
+      id: tipId,
+      pixels: tip.pixels,
+      width: tip.width,
+      height: tip.height,
+    });
+    return true;
+  }, []);
+
   const activateTip = useCallback(async (preset: BrushPreset) => {
     const eng = engineRef.current;
     if (!eng) return;
 
+    // Primary tip
     if (preset.tip.type === "image") {
-      const tipId = preset.tip.tipId;
-      // Register the tip if not already done
-      if (!registeredTipsRef.current.has(tipId)) {
-        const s = storageRef.current;
-        if (!s) return;
-        const tip = await s.getTip(tipId);
-        if (!tip) {
-          console.warn(`Brush tip "${preset.name}" not found in storage — using computed circle instead.`);
-          eng.clearBrushTip();
-          return;
-        }
-        eng.registerBrushTip(tipId, tip.pixels, tip.width, tip.height);
-        registeredTipsRef.current.add(tipId);
-        // Embed the brush tip into document resources so the document
-        // is self-contained and survives global preset deletion.
-        eng.embedResource("brush-tip", tipId, {
-          id: tipId,
-          pixels: tip.pixels,
-          width: tip.width,
-          height: tip.height,
-        });
+      const ok = await ensureTipRegistered(preset.tip.tipId, preset.name);
+      if (ok) {
+        eng.setBrushTip(preset.tip.tipId);
+      } else {
+        eng.clearBrushTip();
       }
-      eng.setBrushTip(tipId);
     } else {
       eng.clearBrushTip();
     }
-  }, []);
+
+    // Secondary (dual brush) tip
+    if (preset.dualBrush?.tipId) {
+      const ok = await ensureTipRegistered(preset.dualBrush.tipId, `${preset.name} (dual)`);
+      if (ok) {
+        eng.setSecondaryBrushTip(preset.dualBrush.tipId);
+      } else {
+        eng.clearSecondaryBrushTip();
+      }
+    } else {
+      eng.clearSecondaryBrushTip();
+    }
+  }, [ensureTipRegistered]);
 
   // Re-activate the current tool's brush tip when switching tools
   const prevToolRef = useRef(currentTool);
@@ -224,6 +243,18 @@ export function useBrushPresets({
           tip = { type: "image", tipId };
         } else {
           tip = { type: "computed", hardness: p?.hardness ?? 1.0 };
+        }
+
+        // Save dual brush tip if present
+        if (brush.dualImageData && brush.dualWidth && brush.dualHeight && p?.dualBrush) {
+          const dualTipId = crypto.randomUUID();
+          await s.saveTip({
+            id: dualTipId,
+            pixels: brush.dualImageData,
+            width: brush.dualWidth,
+            height: brush.dualHeight,
+          });
+          p.dualBrush = { ...p.dualBrush, tipId: dualTipId, useComputed: false };
         }
 
         const preset: BrushPreset = {

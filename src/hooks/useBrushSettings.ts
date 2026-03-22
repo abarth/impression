@@ -49,6 +49,8 @@ export interface DualBrushSettings {
   count: number;
   scatter: number;
   bothAxes: boolean;
+  /** Tip ID for a sampled dual brush tip, stored in brush_tips. */
+  tipId?: string;
 }
 
 export interface TextureSettings {
