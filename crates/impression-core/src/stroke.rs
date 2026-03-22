@@ -1,6 +1,6 @@
 use crate::brush::{
-    recomposite_region, stamp_bounds, stamp_ellipse, stamp_tip, BrushSettings, BrushTip,
-    SecondaryTipState,
+    compute_dual_stamps, recomposite_region, stamp_bounds, stamp_ellipse, stamp_tip,
+    BrushSettings, BrushTip, DualStampInstance, SecondaryTipState,
 };
 use crate::dynamics::{self, Rng};
 use crate::layer::Layer;
@@ -26,6 +26,10 @@ pub struct StrokeState {
     pub rng: Option<Rng>,
     /// Direction angle (degrees) captured on the first stroke_move, used by InitialDirection control.
     pub initial_direction: Option<f32>,
+    /// Cumulative distance along the stroke path, used for dual brush stamp indexing.
+    pub total_distance: f32,
+    /// Seed for deterministic dual-brush per-stamp RNG, derived from stroke start coords.
+    pub stroke_seed: u32,
 }
 
 impl StrokeState {
@@ -38,6 +42,8 @@ impl StrokeState {
             stroke_layer: None,
             rng: None,
             initial_direction: None,
+            total_distance: 0.0,
+            stroke_seed: 0,
         }
     }
 
@@ -49,6 +55,140 @@ impl StrokeState {
         self.stroke_layer = None;
         self.rng = None;
         self.initial_direction = None;
+        self.total_distance = 0.0;
+        self.stroke_seed = 0;
+    }
+}
+
+/// Resolved per-stamp parameters after applying dynamics.
+struct StampParams {
+    x: f32,
+    y: f32,
+    radius: f32,
+    roundness: f32,
+    angle: f32,
+    flow: f32,
+}
+
+/// Compute per-stamp parameters by applying shape and transfer dynamics.
+///
+/// `resolve_direction` maps a dynamic control to the appropriate direction angle
+/// (current segment direction or initial direction).
+fn compute_stamp_params(
+    brush: &BrushSettings,
+    x: f32,
+    y: f32,
+    pressure: f32,
+    rng: &mut Rng,
+    direction_angle: f32,
+    initial_direction_angle: f32,
+) -> StampParams {
+    let resolve_dir = |control: &dynamics::DynamicControl| -> f32 {
+        match control {
+            dynamics::DynamicControl::InitialDirection => initial_direction_angle,
+            _ => direction_angle,
+        }
+    };
+
+    let effective_size = dynamics::apply_dynamic(
+        &brush.shape_dynamics.size,
+        brush.size,
+        pressure,
+        rng,
+        resolve_dir(&brush.shape_dynamics.size.control),
+    );
+    let roundness = dynamics::apply_dynamic(
+        &brush.shape_dynamics.roundness,
+        brush.roundness,
+        pressure,
+        rng,
+        resolve_dir(&brush.shape_dynamics.roundness.control),
+    )
+    .clamp(0.01, 1.0);
+    let angle = dynamics::apply_angle_dynamic(
+        &brush.shape_dynamics.angle,
+        brush.angle,
+        pressure,
+        rng,
+        resolve_dir(&brush.shape_dynamics.angle.control),
+    );
+    let flow = dynamics::apply_dynamic(
+        &brush.transfer_dynamics.flow,
+        brush.flow,
+        pressure,
+        rng,
+        resolve_dir(&brush.transfer_dynamics.flow.control),
+    )
+    .clamp(0.0, 1.0);
+
+    StampParams {
+        x,
+        y,
+        radius: effective_size / 2.0,
+        roundness,
+        angle,
+        flow,
+    }
+}
+
+/// Place a single stamp onto the target layer, dispatching to `stamp_tip` or `stamp_ellipse`.
+fn place_stamp(
+    target: &mut Layer,
+    sp: &StampParams,
+    brush: &BrushSettings,
+    active_tip: Option<&BrushTip>,
+    selection: Option<&[u8]>,
+    dual_instances: &[DualStampInstance],
+    secondary_tip: Option<&BrushTip>,
+    texture: Option<(&crate::brush::TextureSettings, &BrushTip)>,
+) {
+    let dual = if !dual_instances.is_empty() {
+        let sec_state = match secondary_tip {
+            Some(t) => SecondaryTipState::Image(t),
+            None => SecondaryTipState::Computed {
+                hardness: brush.dual_brush.hardness,
+            },
+        };
+        Some((dual_instances, sec_state, brush.dual_brush.mode))
+    } else {
+        None
+    };
+    let dual_ref = dual
+        .as_ref()
+        .map(|(inst, state, mode)| (*inst as &[DualStampInstance], state, *mode));
+
+    if let Some(tip) = active_tip {
+        stamp_tip(
+            target,
+            sp.x,
+            sp.y,
+            sp.radius,
+            tip,
+            brush.color,
+            sp.flow,
+            sp.roundness,
+            sp.angle,
+            brush.flip_x,
+            brush.flip_y,
+            selection,
+            dual_ref,
+            texture,
+        );
+    } else {
+        stamp_ellipse(
+            target,
+            sp.x,
+            sp.y,
+            sp.radius,
+            brush.color,
+            sp.flow,
+            brush.hardness,
+            sp.roundness,
+            sp.angle,
+            selection,
+            dual_ref,
+            texture,
+        );
     }
 }
 
@@ -84,8 +224,9 @@ fn segment_bounds(
 /// Interpolate points along a segment and stamp circles into the stroke buffer.
 /// Returns the residual distance for the next segment.
 ///
-/// `direction_angle` is the stroke direction in degrees for Direction control.
 /// `initial_direction_angle` is the initial direction for InitialDirection control.
+/// `total_distance` is the cumulative stroke distance at the start of this segment.
+/// `stroke_seed` is the per-stroke seed for deterministic dual brush RNG.
 pub fn interpolate_and_stamp(
     target: &mut Layer,
     x0: f32,
@@ -98,6 +239,8 @@ pub fn interpolate_and_stamp(
     residual: f32,
     rng: &mut Rng,
     initial_direction_angle: f32,
+    total_distance: &mut f32,
+    stroke_seed: u32,
 ) -> f32 {
     let dx = x1 - x0;
     let dy = y1 - y0;
@@ -107,27 +250,14 @@ pub fn interpolate_and_stamp(
         return residual;
     }
 
-    // Precompute perpendicular direction for scattering
+    // Precompute direction vectors for scattering
     let inv_len = 1.0 / segment_len;
     let dir_x = dx * inv_len;
     let dir_y = dy * inv_len;
-    // Perpendicular: rotate direction 90° counter-clockwise
     let perp_x = -dir_y;
     let perp_y = dir_x;
 
-    // Compute direction angle in degrees from the segment direction.
-    // atan2(dy, dx) gives angle from positive X axis; negate dy for screen coords (Y-down).
     let direction_angle = (-dy).atan2(dx).to_degrees();
-
-    // Resolve direction for each dynamic control type:
-    // - Direction uses the current segment direction
-    // - InitialDirection uses the captured initial direction
-    let resolve_direction = |control: &dynamics::DynamicControl| -> f32 {
-        match control {
-            dynamics::DynamicControl::InitialDirection => initial_direction_angle,
-            _ => direction_angle,
-        }
-    };
 
     let brush = params.brush;
     let scatter = &brush.scatter;
@@ -139,43 +269,10 @@ pub fn interpolate_and_stamp(
         let y = y0 + dy * t;
         let pressure = p0 + (p1 - p0) * t;
 
-        let size_dir = resolve_direction(&brush.shape_dynamics.size.control);
-        let effective_size = dynamics::apply_dynamic(
-            &brush.shape_dynamics.size,
-            brush.size,
-            pressure,
-            rng,
-            size_dir,
+        let sp = compute_stamp_params(
+            brush, x, y, pressure, rng, direction_angle, initial_direction_angle,
         );
-        let radius = effective_size / 2.0;
-        let roundness_dir = resolve_direction(&brush.shape_dynamics.roundness.control);
-        let stamp_roundness = dynamics::apply_dynamic(
-            &brush.shape_dynamics.roundness,
-            brush.roundness,
-            pressure,
-            rng,
-            roundness_dir,
-        )
-        .clamp(0.01, 1.0);
-        let angle_dir = resolve_direction(&brush.shape_dynamics.angle.control);
-        let stamp_angle = dynamics::apply_angle_dynamic(
-            &brush.shape_dynamics.angle,
-            brush.angle,
-            pressure,
-            rng,
-            angle_dir,
-        );
-
-        // Apply transfer dynamics
-        let flow_dir = resolve_direction(&brush.transfer_dynamics.flow.control);
-        let stamp_flow = dynamics::apply_dynamic(
-            &brush.transfer_dynamics.flow,
-            brush.flow,
-            pressure,
-            rng,
-            flow_dir,
-        )
-        .clamp(0.0, 1.0);
+        let effective_size = sp.radius * 2.0;
 
         // Determine stamp count (with jitter)
         let stamp_count = if scatter.scatter > 0.0 {
@@ -185,6 +282,8 @@ pub fn interpolate_and_stamp(
         } else {
             1
         };
+
+        let stamp_dist = *total_distance + dist;
 
         for _ in 0..stamp_count {
             // Apply scatter offset
@@ -197,70 +296,46 @@ pub fn interpolate_and_stamp(
                     0.0
                 };
                 (
-                    x + perp_x * perp_offset + dir_x * along_offset,
-                    y + perp_y * perp_offset + dir_y * along_offset,
+                    sp.x + perp_x * perp_offset + dir_x * along_offset,
+                    sp.y + perp_y * perp_offset + dir_y * along_offset,
                 )
             } else {
-                (x, y)
+                (sp.x, sp.y)
             };
 
-            let dual = if brush.dual_brush.enabled {
-                let sec_radius = brush.dual_brush.size / 2.0;
-                let sec_state = match params.secondary_tip {
-                    Some(t) => SecondaryTipState::Image(t),
-                    None => SecondaryTipState::Computed {
-                        hardness: brush.dual_brush.hardness,
-                    },
-                };
-                Some((sec_state, sec_radius, brush.dual_brush.mode))
-            } else {
-                None
-            };
-            let dual_ref = dual.as_ref().map(|(s, r, m)| (s, *r, *m));
+            let mut scattered_sp = StampParams { x: sx, y: sy, ..sp };
+            let _ = &mut scattered_sp; // keep sp usable
+
+            // Compute dual brush instances for this primary stamp
+            let dual_instances = compute_dual_stamps(
+                sx, sy, sp.radius, stamp_dist, dir_x, dir_y,
+                &brush.dual_brush, stroke_seed,
+            );
+
             let tex_ref = if brush.texture.enabled {
                 params.texture_tip.map(|t| (&brush.texture, t))
             } else {
                 None
             };
-            if let Some(tip) = params.active_tip {
-                stamp_tip(
-                    target,
-                    sx,
-                    sy,
-                    radius,
-                    tip,
-                    brush.color,
-                    stamp_flow,
-                    stamp_roundness,
-                    stamp_angle,
-                    brush.flip_x,
-                    brush.flip_y,
-                    params.selection,
-                    dual_ref,
-                    tex_ref,
-                );
-            } else {
-                stamp_ellipse(
-                    target,
-                    sx,
-                    sy,
-                    radius,
-                    brush.color,
-                    stamp_flow,
-                    brush.hardness,
-                    stamp_roundness,
-                    stamp_angle,
-                    params.selection,
-                    dual_ref,
-                    tex_ref,
-                );
-            }
+
+            place_stamp(
+                target,
+                &StampParams { x: sx, y: sy, ..sp },
+                brush,
+                params.active_tip,
+                params.selection,
+                &dual_instances,
+                params.secondary_tip,
+                tex_ref,
+            );
         }
 
-        // Spacing is relative to the current circle's effective size
         let step = (brush.spacing * effective_size).max(1.0);
         dist += step;
     }
+
+    // Update total stroke distance
+    *total_distance += segment_len;
 
     dist - segment_len
 }
@@ -276,10 +351,12 @@ pub fn stroke_begin(
 ) {
     state.active = true;
     state.last_point = Some((x, y, pressure));
-    state.residual_distance = 0.0;
+    state.total_distance = 0.0;
 
     // Seed per-stroke PRNG from start coordinates
     let mut rng = Rng::from_coords(x, y);
+    let seed = x.to_bits() ^ y.to_bits().rotate_left(16);
+    state.stroke_seed = if seed == 0 { 1 } else { seed };
 
     // Save snapshot and create stroke buffer
     state.snapshot = layer.pixels.clone();
@@ -288,89 +365,26 @@ pub fn stroke_begin(
     // No direction available for the first stamp
     let brush = params.brush;
     let dir_angle = 0.0;
-    let effective_size = dynamics::apply_dynamic(
-        &brush.shape_dynamics.size,
-        brush.size,
-        pressure,
-        &mut rng,
-        dir_angle,
-    );
-    let radius = effective_size / 2.0;
-    let stamp_roundness = dynamics::apply_dynamic(
-        &brush.shape_dynamics.roundness,
-        brush.roundness,
-        pressure,
-        &mut rng,
-        dir_angle,
-    )
-    .clamp(0.01, 1.0);
-    let stamp_angle = dynamics::apply_angle_dynamic(
-        &brush.shape_dynamics.angle,
-        brush.angle,
-        pressure,
-        &mut rng,
-        dir_angle,
-    );
-    let stamp_flow = dynamics::apply_dynamic(
-        &brush.transfer_dynamics.flow,
-        brush.flow,
-        pressure,
-        &mut rng,
-        dir_angle,
-    )
-    .clamp(0.0, 1.0);
 
-    let dual = if brush.dual_brush.enabled {
-        let sec_radius = brush.dual_brush.size / 2.0;
-        let sec_state = match params.secondary_tip {
-            Some(t) => SecondaryTipState::Image(t),
-            None => SecondaryTipState::Computed {
-                hardness: brush.dual_brush.hardness,
-            },
-        };
-        Some((sec_state, sec_radius, brush.dual_brush.mode))
-    } else {
-        None
-    };
-    let dual_ref = dual.as_ref().map(|(s, r, m)| (s, *r, *m));
+    let sp = compute_stamp_params(brush, x, y, pressure, &mut rng, dir_angle, dir_angle);
+    let effective_size = sp.radius * 2.0;
+
+    // Compute dual brush instances for the initial stamp (no direction yet)
+    let dual_instances = compute_dual_stamps(
+        x, y, sp.radius, 0.0, 0.0, 0.0,
+        &brush.dual_brush, state.stroke_seed,
+    );
+
     let tex_ref = if brush.texture.enabled {
         params.texture_tip.map(|t| (&brush.texture, t))
     } else {
         None
     };
-    if let Some(tip) = params.active_tip {
-        stamp_tip(
-            &mut stroke,
-            x,
-            y,
-            radius,
-            tip,
-            brush.color,
-            stamp_flow,
-            stamp_roundness,
-            stamp_angle,
-            brush.flip_x,
-            brush.flip_y,
-            params.selection,
-            dual_ref,
-            tex_ref,
-        );
-    } else {
-        stamp_ellipse(
-            &mut stroke,
-            x,
-            y,
-            radius,
-            brush.color,
-            stamp_flow,
-            brush.hardness,
-            stamp_roundness,
-            stamp_angle,
-            params.selection,
-            dual_ref,
-            tex_ref,
-        );
-    }
+
+    place_stamp(
+        &mut stroke, &sp, brush, params.active_tip, params.selection,
+        &dual_instances, params.secondary_tip, tex_ref,
+    );
 
     // Apply transfer dynamics to stroke opacity
     let stroke_opacity = dynamics::apply_dynamic(
@@ -383,7 +397,7 @@ pub fn stroke_begin(
     .clamp(0.0, 1.0);
 
     // Composite stroke buffer over snapshot into layer
-    let bounds = stamp_bounds(x, y, radius, stamp_roundness, layer.width, layer.height);
+    let bounds = stamp_bounds(x, y, sp.radius, sp.roundness, layer.width, layer.height);
     recomposite_region(
         layer,
         &state.snapshot,
@@ -393,6 +407,8 @@ pub fn stroke_begin(
         bounds,
     );
 
+    // Set residual so stroke_move does not re-stamp at position 0
+    state.residual_distance = (brush.spacing * effective_size).max(1.0);
     state.stroke_layer = Some(stroke);
     state.rng = Some(rng);
 }
@@ -445,6 +461,8 @@ pub fn stroke_move(
             state.residual_distance,
             rng,
             initial_dir,
+            &mut state.total_distance,
+            state.stroke_seed,
         );
         state.residual_distance = residual;
 
@@ -506,6 +524,8 @@ mod tests {
             0.0,
             &mut Rng::from_coords(0.0, 5.0),
             0.0,
+            &mut 0.0f32,
+            0,
         );
         assert!(residual >= 0.0);
         // step=1.0, segment=10.0, stamps at 0,1,...,10 -> next at 11, residual=1.0
@@ -590,6 +610,8 @@ mod tests {
             0.0,
             &mut rng,
             0.0,
+            &mut 0.0f32,
+            0,
         );
         assert!(
             (residual - 3.0).abs() < 0.01,
@@ -616,6 +638,8 @@ mod tests {
             residual,
             &mut rng,
             0.0,
+            &mut 0.0f32,
+            0,
         );
         assert!(
             (residual2 - 1.0).abs() < 0.01,
@@ -652,6 +676,8 @@ mod tests {
             0.0,
             &mut Rng::from_coords(0.0, 10.0),
             0.0,
+            &mut 0.0f32,
+            0,
         );
         let mut layer_high = Layer::new(0, 200, 20);
         interpolate_and_stamp(
@@ -672,6 +698,8 @@ mod tests {
             0.0,
             &mut Rng::from_coords(0.0, 10.0),
             0.0,
+            &mut 0.0f32,
+            0,
         );
 
         let cols_drawn = |layer: &Layer| -> usize {
@@ -724,6 +752,8 @@ mod tests {
             0.0,
             &mut Rng::from_coords(0.0, 10.0),
             0.0,
+            &mut 0.0f32,
+            0,
         );
         let mut layer_high = Layer::new(0, 200, 20);
         interpolate_and_stamp(
@@ -744,6 +774,8 @@ mod tests {
             0.0,
             &mut Rng::from_coords(0.0, 10.0),
             0.0,
+            &mut 0.0f32,
+            0,
         );
 
         let cols_drawn = |layer: &Layer| -> usize {
@@ -787,6 +819,8 @@ mod tests {
             0.0,
             &mut Rng::from_coords(0.0, 10.0),
             0.0,
+            &mut 0.0f32,
+            0,
         );
 
         let first_quarter_has_stamps =
@@ -1229,6 +1263,121 @@ mod tests {
         assert!(
             found_offset,
             "Scatter should produce stamps offset from the stroke path"
+        );
+    }
+
+    #[test]
+    fn test_first_stamp_not_doubled() {
+        // After stroke_begin, residual should be >= spacing so that
+        // interpolate_and_stamp doesn't re-stamp at the start position.
+        let mut layer = Layer::new(0, 100, 100);
+        let brush = BrushSettings {
+            size: 10.0,
+            spacing: 0.25,
+            color: Color::black(),
+            opacity: 1.0,
+            flow: 1.0,
+            ..Default::default()
+        };
+        let params = StrokeParams {
+            brush: &brush,
+            active_tip: None,
+            secondary_tip: None,
+            texture_tip: None,
+            selection: None,
+        };
+        let mut state = StrokeState::new();
+        stroke_begin(&mut layer, &mut state, &params, 50.0, 50.0, 1.0);
+
+        // residual should equal spacing * effective_size
+        let step = brush.spacing * brush.size;
+        assert!(
+            (state.residual_distance - step).abs() < 0.01,
+            "residual_distance after first stamp should be step={}, got {}",
+            step,
+            state.residual_distance
+        );
+    }
+
+    #[test]
+    fn test_compute_stamp_params_basic() {
+        let brush = BrushSettings {
+            size: 20.0,
+            flow: 0.8,
+            roundness: 0.5,
+            angle: 45.0,
+            ..Default::default()
+        };
+        let mut rng = Rng::from_coords(10.0, 20.0);
+        let sp = compute_stamp_params(&brush, 10.0, 20.0, 1.0, &mut rng, 0.0, 0.0);
+        assert_eq!(sp.x, 10.0);
+        assert_eq!(sp.y, 20.0);
+        assert!((sp.radius - 10.0).abs() < 0.01, "radius should be size/2");
+        assert!((sp.roundness - 0.5).abs() < 0.01);
+        assert!((sp.flow - 0.8).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_total_distance_tracked_across_segments() {
+        // Verify that total_distance accumulates correctly
+        let mut layer = Layer::new(0, 200, 10);
+        let brush = BrushSettings {
+            size: 4.0,
+            spacing: 0.25,
+            color: Color::black(),
+            opacity: 1.0,
+            flow: 1.0,
+            ..Default::default()
+        };
+
+        let mut total_dist = 0.0f32;
+        let mut rng = Rng::from_coords(0.0, 5.0);
+
+        // First segment: 50 pixels
+        interpolate_and_stamp(
+            &mut layer,
+            0.0, 5.0, 1.0,
+            50.0, 5.0, 1.0,
+            &StrokeParams {
+                brush: &brush,
+                active_tip: None,
+                secondary_tip: None,
+                texture_tip: None,
+                selection: None,
+            },
+            0.0,
+            &mut rng,
+            0.0,
+            &mut total_dist,
+            0,
+        );
+        assert!(
+            (total_dist - 50.0).abs() < 1.0,
+            "After 50px segment, total_distance={total_dist}"
+        );
+
+        // Second segment: 30 more pixels
+        let td_before = total_dist;
+        interpolate_and_stamp(
+            &mut layer,
+            50.0, 5.0, 1.0,
+            80.0, 5.0, 1.0,
+            &StrokeParams {
+                brush: &brush,
+                active_tip: None,
+                secondary_tip: None,
+                texture_tip: None,
+                selection: None,
+            },
+            0.0,
+            &mut rng,
+            0.0,
+            &mut total_dist,
+            0,
+        );
+        assert!(
+            total_dist > td_before,
+            "total_distance should increase across segments"
         );
     }
 }

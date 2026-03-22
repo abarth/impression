@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::blend_mode::{porter_duff_composite, BlendMode};
 use crate::color::{blend_pixel, Color};
-use crate::dynamics::{ShapeDynamics, TransferDynamics};
+use crate::dynamics::{Rng, ShapeDynamics, TransferDynamics};
 use crate::layer::Layer;
 
 /// A custom brush tip image: grayscale alpha mask.
@@ -289,6 +289,117 @@ pub(crate) enum SecondaryTipState<'a> {
     Image(&'a BrushTip),
 }
 
+/// A resolved dual-brush stamp instance: position and radius in canvas coordinates.
+#[derive(Debug, Clone)]
+pub struct DualStampInstance {
+    pub cx: f32,
+    pub cy: f32,
+    pub radius: f32,
+}
+
+/// Compute all secondary (dual brush) stamp instances that could overlap
+/// a primary stamp at the given position.
+///
+/// The dual brush has its own spacing along the stroke path. We approximate
+/// the stroke path as a line through the primary stamp center in the given
+/// direction, then find all dual stamp indices whose footprint intersects
+/// the primary stamp. Each index gets deterministic scatter via `Rng::from_index`.
+pub fn compute_dual_stamps(
+    primary_cx: f32,
+    primary_cy: f32,
+    primary_radius: f32,
+    stroke_distance: f32,
+    dir_x: f32,
+    dir_y: f32,
+    dual: &DualBrushSettings,
+    stroke_seed: u32,
+) -> Vec<DualStampInstance> {
+    let mut instances = Vec::new();
+    if !dual.enabled {
+        return instances;
+    }
+
+    let dual_radius = dual.size / 2.0;
+    let dual_step = (dual.spacing * dual.size).max(1.0);
+
+    // Maximum distance a scattered dual stamp can be offset from its base position
+    let max_scatter = dual.scatter * dual.size;
+
+    // Search range along the stroke line: any dual stamp whose center (after scatter)
+    // could overlap the primary stamp's bounding circle.
+    let search = primary_radius + dual_radius + max_scatter;
+
+    // Perpendicular direction for scatter
+    let perp_x = -dir_y;
+    let perp_y = dir_x;
+
+    let n_start = ((stroke_distance - search) / dual_step).floor().max(0.0) as u32;
+    let n_end = ((stroke_distance + search) / dual_step).ceil().max(0.0) as u32;
+
+    let count = dual.count.max(1);
+
+    for n in n_start..=n_end {
+        let base_offset = n as f32 * dual_step - stroke_distance;
+
+        for c in 0..count {
+            let mut rng = Rng::from_index(stroke_seed, n, c);
+
+            // Scatter offset
+            let (scatter_along, scatter_perp) = if dual.scatter > 0.0 {
+                let perp_off = (rng.next_f32() * 2.0 - 1.0) * max_scatter;
+                let along_off = if dual.both_axes {
+                    (rng.next_f32() * 2.0 - 1.0) * max_scatter
+                } else {
+                    0.0
+                };
+                (along_off, perp_off)
+            } else {
+                (0.0, 0.0)
+            };
+
+            let total_along = base_offset + scatter_along;
+            let cx = primary_cx + total_along * dir_x + scatter_perp * perp_x;
+            let cy = primary_cy + total_along * dir_y + scatter_perp * perp_y;
+
+            // Quick rejection: is this instance close enough to potentially overlap?
+            let dx = cx - primary_cx;
+            let dy = cy - primary_cy;
+            let dist_sq = dx * dx + dy * dy;
+            let max_dist = primary_radius + dual_radius + 1.0;
+            if dist_sq <= max_dist * max_dist {
+                instances.push(DualStampInstance {
+                    cx,
+                    cy,
+                    radius: dual_radius,
+                });
+            }
+        }
+    }
+
+    instances
+}
+
+/// Sample the accumulated secondary alpha at a pixel from all overlapping dual stamp instances.
+/// Uses max blending (paint-like accumulation) across instances.
+pub(crate) fn sample_dual_stamps(
+    px: f32,
+    py: f32,
+    instances: &[DualStampInstance],
+    secondary: &SecondaryTipState,
+) -> f32 {
+    let mut max_alpha: f32 = 0.0;
+    for inst in instances {
+        let a = sample_secondary_tip(px, py, inst.cx, inst.cy, inst.radius, secondary);
+        if a > max_alpha {
+            max_alpha = a;
+        }
+        if max_alpha >= 1.0 {
+            return 1.0;
+        }
+    }
+    max_alpha
+}
+
 /// Sample a tiled texture pattern at a given position, returning the modulated alpha.
 /// `px`, `py` are the canvas pixel coordinates of the stamp pixel.
 /// `cx`, `cy` are the stamp center coordinates.
@@ -356,7 +467,7 @@ pub fn stamp_ellipse(
     roundness: f32,
     angle_degrees: f32,
     selection: Option<&[u8]>,
-    dual: Option<(&SecondaryTipState, f32, DualBrushMode)>,
+    dual: Option<(&[DualStampInstance], &SecondaryTipState, DualBrushMode)>,
     texture: Option<(&TextureSettings, &BrushTip)>,
 ) {
     if radius <= 0.0 || alpha <= 0.0 {
@@ -415,13 +526,11 @@ pub fn stamp_ellipse(
             };
 
             let combined_alpha = match &dual {
-                Some((secondary, sec_radius, mode)) => {
-                    let sec = sample_secondary_tip(
+                Some((instances, secondary, mode)) => {
+                    let sec = sample_dual_stamps(
                         px as f32 + 0.5,
                         py as f32 + 0.5,
-                        cx,
-                        cy,
-                        *sec_radius,
+                        instances,
                         secondary,
                     );
                     mode.apply(edge_alpha, sec)
@@ -463,7 +572,7 @@ pub fn stamp_tip(
     flip_x: bool,
     flip_y: bool,
     selection: Option<&[u8]>,
-    dual: Option<(&SecondaryTipState, f32, DualBrushMode)>,
+    dual: Option<(&[DualStampInstance], &SecondaryTipState, DualBrushMode)>,
     texture: Option<(&TextureSettings, &BrushTip)>,
 ) {
     if radius <= 0.0 || alpha <= 0.0 || tip.width == 0 || tip.height == 0 {
@@ -538,13 +647,11 @@ pub fn stamp_tip(
             }
 
             let combined_alpha = match &dual {
-                Some((secondary, sec_radius, mode)) => {
-                    let sec = sample_secondary_tip(
+                Some((instances, secondary, mode)) => {
+                    let sec = sample_dual_stamps(
                         px as f32 + 0.5,
                         py as f32 + 0.5,
-                        cx,
-                        cy,
-                        *sec_radius,
+                        instances,
                         secondary,
                     );
                     mode.apply(tip_alpha, sec)
@@ -1353,6 +1460,7 @@ mod tests {
         // With dual brush using a small secondary tip, pixels far from center
         // should have reduced alpha due to secondary tip falloff
         let sec = SecondaryTipState::Computed { hardness: 1.0 };
+        let instances = vec![DualStampInstance { cx: 20.0, cy: 20.0, radius: 3.0 }];
         let mut layer_dual = Layer::new(0, 40, 40);
         // Secondary radius = 3px (much smaller than primary radius = 8px)
         stamp_ellipse(
@@ -1366,7 +1474,7 @@ mod tests {
             1.0,
             0.0,
             None,
-            Some((&sec, 3.0, DualBrushMode::Multiply)),
+            Some((&instances, &sec, DualBrushMode::Multiply)),
             None,
         );
         let center_dual = layer_dual.pixel(20, 20).unwrap()[3];
@@ -1601,7 +1709,7 @@ mod tests {
             1.0,
             0.0,
             None,
-            Some((&sec, 3.0, DualBrushMode::Lighten)),
+            Some((&[DualStampInstance { cx: 20.0, cy: 20.0, radius: 3.0 }], &sec, DualBrushMode::Lighten)),
             None,
         );
 
@@ -1641,7 +1749,7 @@ mod tests {
             1.0,
             0.0,
             None,
-            Some((&sec, 8.0, DualBrushMode::Subtract)),
+            Some((&[DualStampInstance { cx: 20.0, cy: 20.0, radius: 8.0 }], &sec, DualBrushMode::Subtract)),
             None,
         );
 
@@ -1650,5 +1758,115 @@ mod tests {
             center, 0,
             "Subtract with fully opaque secondary should produce zero alpha"
         );
+    }
+
+    #[test]
+    fn test_compute_dual_stamps_disabled() {
+        let dual = DualBrushSettings {
+            enabled: false,
+            ..Default::default()
+        };
+        let instances = compute_dual_stamps(50.0, 50.0, 10.0, 50.0, 1.0, 0.0, &dual, 42);
+        assert!(instances.is_empty(), "Disabled dual brush should produce no instances");
+    }
+
+    #[test]
+    fn test_compute_dual_stamps_basic_positions() {
+        let dual = DualBrushSettings {
+            enabled: true,
+            size: 10.0,
+            spacing: 1.0,   // step = 10.0
+            scatter: 0.0,   // no scatter
+            count: 1,
+            both_axes: false,
+            hardness: 1.0,
+            mode: DualBrushMode::Multiply,
+            use_computed: true,
+        };
+        // Primary stamp at distance 50.0, direction (1,0), radius 10
+        // dual_step = 10.0, dual_radius = 5.0
+        // search = 10 + 5 + 0 = 15
+        // n_start = floor((50-15)/10) = 3, n_end = ceil((50+15)/10) = 7
+        // Stamps at n*10: 30, 40, 50, 60, 70
+        // Offsets from primary: -20, -10, 0, 10, 20
+        let instances = compute_dual_stamps(50.0, 50.0, 10.0, 50.0, 1.0, 0.0, &dual, 42);
+        assert!(!instances.is_empty());
+        // The instance at n=5 (distance=50) should be centered on the primary stamp
+        let center_inst = instances.iter().find(|i| (i.cx - 50.0).abs() < 0.1);
+        assert!(center_inst.is_some(), "Should have a dual stamp at the primary center");
+    }
+
+    #[test]
+    fn test_compute_dual_stamps_with_count() {
+        let dual = DualBrushSettings {
+            enabled: true,
+            size: 10.0,
+            spacing: 1.0,
+            scatter: 0.0,
+            count: 3,
+            both_axes: false,
+            hardness: 1.0,
+            mode: DualBrushMode::Multiply,
+            use_computed: true,
+        };
+        let instances_c3 = compute_dual_stamps(50.0, 50.0, 10.0, 50.0, 1.0, 0.0, &dual, 42);
+        let dual_c1 = DualBrushSettings { count: 1, ..dual.clone() };
+        let instances_c1 = compute_dual_stamps(50.0, 50.0, 10.0, 50.0, 1.0, 0.0, &dual_c1, 42);
+        // count=3 should produce more instances (3x per spacing step, minus rejection)
+        assert!(instances_c3.len() >= instances_c1.len(),
+            "Higher count should produce at least as many instances");
+    }
+
+    #[test]
+    fn test_compute_dual_stamps_deterministic() {
+        let dual = DualBrushSettings {
+            enabled: true,
+            size: 10.0,
+            spacing: 0.5,
+            scatter: 0.5,
+            count: 2,
+            both_axes: true,
+            hardness: 1.0,
+            mode: DualBrushMode::Multiply,
+            use_computed: true,
+        };
+        let a = compute_dual_stamps(50.0, 50.0, 10.0, 50.0, 1.0, 0.0, &dual, 42);
+        let b = compute_dual_stamps(50.0, 50.0, 10.0, 50.0, 1.0, 0.0, &dual, 42);
+        assert_eq!(a.len(), b.len());
+        for (ia, ib) in a.iter().zip(b.iter()) {
+            assert_eq!(ia.cx, ib.cx);
+            assert_eq!(ia.cy, ib.cy);
+            assert_eq!(ia.radius, ib.radius);
+        }
+    }
+
+    #[test]
+    fn test_sample_dual_stamps_max_blending() {
+        let sec = SecondaryTipState::Computed { hardness: 1.0 };
+        // Two instances at different positions, pixel at (50,50)
+        let instances = vec![
+            DualStampInstance { cx: 50.0, cy: 50.0, radius: 5.0 },  // pixel at center -> alpha ~1.0
+            DualStampInstance { cx: 55.0, cy: 50.0, radius: 5.0 },  // pixel 5px from center -> lower alpha
+        ];
+        let alpha = sample_dual_stamps(50.0, 50.0, &instances, &sec);
+        assert!(alpha > 0.9, "Should be high alpha since pixel is at center of first instance");
+    }
+
+    #[test]
+    fn test_sample_dual_stamps_empty() {
+        let sec = SecondaryTipState::Computed { hardness: 1.0 };
+        let alpha = sample_dual_stamps(50.0, 50.0, &[], &sec);
+        assert_eq!(alpha, 0.0, "No instances should produce zero alpha");
+    }
+
+    #[test]
+    fn test_sample_dual_stamps_far_pixel() {
+        let sec = SecondaryTipState::Computed { hardness: 1.0 };
+        let instances = vec![
+            DualStampInstance { cx: 50.0, cy: 50.0, radius: 5.0 },
+        ];
+        // Pixel far from the instance
+        let alpha = sample_dual_stamps(100.0, 100.0, &instances, &sec);
+        assert_eq!(alpha, 0.0, "Pixel far from instance should have zero alpha");
     }
 }

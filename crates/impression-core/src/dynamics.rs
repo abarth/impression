@@ -95,6 +95,24 @@ impl Rng {
         }
     }
 
+    /// Create a deterministic PRNG for a specific dual-brush stamp instance.
+    /// The same `(seed, n, c)` always produces the same RNG state, so
+    /// scatter values are identical regardless of which primary stamp queries them.
+    pub fn from_index(seed: u32, n: u32, c: u32) -> Self {
+        let mut s = seed ^ n.wrapping_mul(2654435761) ^ c.wrapping_mul(2246822519);
+        if s == 0 {
+            s = 1;
+        }
+        // Warm up a few rounds so nearby indices don't correlate
+        s ^= s << 13;
+        s ^= s >> 17;
+        s ^= s << 5;
+        s ^= s << 13;
+        s ^= s >> 17;
+        s ^= s << 5;
+        Self { state: s }
+    }
+
     /// Return a random f32 in [0, 1).
     pub fn next_f32(&mut self) -> f32 {
         self.state ^= self.state << 13;
@@ -420,6 +438,42 @@ mod tests {
         assert_eq!(sd.size.control, DynamicControl::Off);
         assert_eq!(sd.angle.control, DynamicControl::Off);
         assert_eq!(sd.roundness.control, DynamicControl::Off);
+    }
+
+    #[test]
+    fn test_rng_from_index_deterministic() {
+        // Same inputs always produce the same sequence
+        let mut a = Rng::from_index(42, 5, 0);
+        let mut b = Rng::from_index(42, 5, 0);
+        for _ in 0..10 {
+            assert_eq!(a.next_f32(), b.next_f32());
+        }
+    }
+
+    #[test]
+    fn test_rng_from_index_different_for_different_inputs() {
+        let mut a = Rng::from_index(42, 5, 0);
+        let mut b = Rng::from_index(42, 6, 0);
+        let mut c = Rng::from_index(42, 5, 1);
+        let mut d = Rng::from_index(99, 5, 0);
+
+        let va = a.next_f32();
+        let vb = b.next_f32();
+        let vc = c.next_f32();
+        let vd = d.next_f32();
+
+        // All four should differ (different index, count, or seed)
+        assert_ne!(va, vb);
+        assert_ne!(va, vc);
+        assert_ne!(va, vd);
+    }
+
+    #[test]
+    fn test_rng_from_index_zero_seed_handled() {
+        // seed=0, n=0, c=0 would produce s=0, which must be corrected
+        let mut r = Rng::from_index(0, 0, 0);
+        let v = r.next_f32();
+        assert!(v >= 0.0 && v < 1.0, "Should produce valid float");
     }
 
     #[test]
