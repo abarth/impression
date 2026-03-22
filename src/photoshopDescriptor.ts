@@ -26,6 +26,15 @@ export class DataViewReader {
     return this.view.byteLength - this.offset;
   }
 
+  /** Throw if fewer than `n` bytes remain. */
+  private checkBounds(n: number): void {
+    if (n > this.remaining) {
+      throw new Error(
+        `Buffer underflow: need ${n} bytes, have ${this.remaining}`,
+      );
+    }
+  }
+
   seek(pos: number): void {
     this.offset = pos;
   }
@@ -35,36 +44,42 @@ export class DataViewReader {
   }
 
   readU8(): number {
+    this.checkBounds(1);
     const v = this.view.getUint8(this.offset);
     this.offset += 1;
     return v;
   }
 
   readU16(): number {
+    this.checkBounds(2);
     const v = this.view.getUint16(this.offset, false); // big-endian
     this.offset += 2;
     return v;
   }
 
   readU32(): number {
+    this.checkBounds(4);
     const v = this.view.getUint32(this.offset, false);
     this.offset += 4;
     return v;
   }
 
   readI32(): number {
+    this.checkBounds(4);
     const v = this.view.getInt32(this.offset, false);
     this.offset += 4;
     return v;
   }
 
   readF64(): number {
+    this.checkBounds(8);
     const v = this.view.getFloat64(this.offset, false);
     this.offset += 8;
     return v;
   }
 
   readBytes(n: number): Uint8Array {
+    this.checkBounds(n);
     const bytes = new Uint8Array(this.view.buffer, this.offset, n);
     this.offset += n;
     return bytes;
@@ -88,6 +103,7 @@ export class DataViewReader {
   readUnicodeString(): string {
     const len = this.readU32(); // number of UTF-16 code units including null
     if (len === 0) return "";
+    this.checkBounds(len * 2);
     const chars: string[] = [];
     for (let i = 0; i < len; i++) {
       const code = this.readU16();
