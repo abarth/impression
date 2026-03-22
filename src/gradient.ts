@@ -29,24 +29,8 @@ export interface Gradient {
   sort_order: number;
 }
 
-/** Parse a hex color string to [r, g, b] (0-255). */
-export function hexToRgb(hex: string): [number, number, number] {
-  const h = hex.replace("#", "");
-  return [
-    parseInt(h.substring(0, 2), 16),
-    parseInt(h.substring(2, 4), 16),
-    parseInt(h.substring(4, 6), 16),
-  ];
-}
-
-/** Convert [r, g, b] (0-255) to hex string. */
-export function rgbToHex(r: number, g: number, b: number): string {
-  const toHex = (v: number) =>
-    Math.round(Math.max(0, Math.min(255, v)))
-      .toString(16)
-      .padStart(2, "0");
-  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
-}
+import { hexToRgb, rgbToHex } from "./colorUtils";
+export { hexToRgb, rgbToHex };
 
 /**
  * Interpolation with midpoint adjustment.

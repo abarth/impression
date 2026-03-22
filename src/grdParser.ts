@@ -1,21 +1,5 @@
-/**
- * GRD (Adobe Gradient) file parser.
- *
- * Parses Photoshop .grd gradient preset files. These use the same "8BIM"
- * section + descriptor format as ABR files.
- *
- * GRD files contain a list of gradient presets, each with:
- * - Color stops (position, color, midpoint)
- * - Transparency/opacity stops (position, opacity, midpoint)
- * - Gradient form (solid stops or noise)
- * - Smoothness/interpolation
- *
- * References:
- * - https://www.adobe.com/devnet-apps/photoshop/fileformatashtml/
- * - https://github.com/nickyout/gradient-parser-grd
- */
-
 import type { Gradient, ColorStop, OpacityStop } from "./gradient";
+import { rgbToHex, hsbToRgb, labToRgb } from "./colorUtils";
 import {
   DataViewReader,
   type DescriptorValue,
@@ -59,7 +43,8 @@ function extractColor(
   const s = getNumber(items, "Strt");
   const v = getNumber(items, "Brgh");
   if (h !== undefined && s !== undefined && v !== undefined) {
-    return hsbToHex(h, s / 100, v / 100);
+    const [hr, hg, hb] = hsbToRgb(h, s / 100, v / 100);
+    return rgbToHex(hr, hg, hb);
   }
 
   // Lab: "Lmnc" (0-100), "A   " (-128 to 127), "B   " (-128 to 127)
@@ -67,7 +52,8 @@ function extractColor(
   const labA = getNumber(items, "A   ");
   const labB = getNumber(items, "B   ");
   if (lum !== undefined && labA !== undefined && labB !== undefined) {
-    return labToHex(lum, labA, labB);
+    const [lr, lg, lb] = labToRgb(lum, labA, labB);
+    return rgbToHex(lr, lg, lb);
   }
 
   // Grayscale: "Gry " (0-100) or "Bk  " (0-100)
@@ -83,83 +69,6 @@ function extractColor(
   }
 
   return "#000000"; // fallback
-}
-
-function rgbToHex(r: number, g: number, b: number): string {
-  const clamp = (v: number) =>
-    Math.max(0, Math.min(255, v))
-      .toString(16)
-      .padStart(2, "0");
-  return `#${clamp(r)}${clamp(g)}${clamp(b)}`;
-}
-
-/** Convert HSB (hue 0-360, saturation 0-1, brightness 0-1) to hex. */
-function hsbToHex(h: number, s: number, v: number): string {
-  const c = v * s;
-  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
-  const m = v - c;
-  let r = 0,
-    g = 0,
-    b = 0;
-  if (h < 60) {
-    r = c;
-    g = x;
-  } else if (h < 120) {
-    r = x;
-    g = c;
-  } else if (h < 180) {
-    g = c;
-    b = x;
-  } else if (h < 240) {
-    g = x;
-    b = c;
-  } else if (h < 300) {
-    r = x;
-    b = c;
-  } else {
-    r = c;
-    b = x;
-  }
-  return rgbToHex(
-    Math.round((r + m) * 255),
-    Math.round((g + m) * 255),
-    Math.round((b + m) * 255),
-  );
-}
-
-/** Convert CIE Lab to hex (approximate D65 illuminant). */
-function labToHex(l: number, a: number, b: number): string {
-  // Lab → XYZ (D65)
-  const fy = (l + 16) / 116;
-  const fx = a / 500 + fy;
-  const fz = fy - b / 200;
-
-  const delta = 6 / 29;
-  const invF = (t: number) =>
-    t > delta ? t * t * t : 3 * delta * delta * (t - 4 / 29);
-
-  // D65 reference white
-  const x = 0.95047 * invF(fx);
-  const y = 1.0 * invF(fy);
-  const z = 1.08883 * invF(fz);
-
-  // XYZ → sRGB
-  let rr = 3.2406 * x - 1.5372 * y - 0.4986 * z;
-  let gg = -0.9689 * x + 1.8758 * y + 0.0415 * z;
-  let bb = 0.055 * x - 0.204 * y + 1.057 * z;
-
-  // Gamma
-  const gamma = (v: number) =>
-    v <= 0.0031308 ? 12.92 * v : 1.055 * Math.pow(v, 1 / 2.4) - 0.055;
-  rr = gamma(Math.max(0, rr));
-  gg = gamma(Math.max(0, gg));
-  bb = gamma(Math.max(0, bb));
-
-  return rgbToHex(
-    Math.round(rr * 255),
-    Math.round(gg * 255),
-    Math.round(bb * 255),
-  );
 }
 
 /**

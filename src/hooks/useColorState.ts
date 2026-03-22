@@ -1,18 +1,10 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import type { Engine } from "../engine";
+import { hexToRgb } from "../colorUtils";
 
 export interface ColorState {
   foreground: string; // hex color
   background: string; // hex color
-}
-
-function hexToRgb(hex: string): [number, number, number] {
-  const h = hex.replace("#", "");
-  return [
-    parseInt(h.substring(0, 2), 16),
-    parseInt(h.substring(2, 4), 16),
-    parseInt(h.substring(4, 6), 16),
-  ];
 }
 
 export function useColorState(engine: Engine | null) {
