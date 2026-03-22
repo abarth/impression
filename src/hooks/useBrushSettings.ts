@@ -58,6 +58,8 @@ export interface TextureSettings {
   scale: number;
   depth: number;
   textureEachTip: boolean;
+  /** Tip ID for the texture pattern image, stored in brush_tips. */
+  tipId?: string;
 }
 
 /**

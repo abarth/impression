@@ -723,4 +723,120 @@ describe("abrParser", () => {
     expect(result.length).toBe(1);
     expect(result[0].params!.dualBrush).toBeUndefined();
   });
+
+  it("should extract texture pattern image from patt section", () => {
+    const header = new BinaryBuilder().u16(6).u16(2);
+    const width = 4;
+    const height = 4;
+    const pixels = Array.from({ length: width * height }, (_, i) => (i * 17) & 0xff);
+    const patternUuid = "tex-pattern-uuid-1";
+    const patternName = "Canvas";
+
+    // Build patt entry
+    const pattEntry = new BinaryBuilder();
+    pattEntry.u32(1); // version
+    pattEntry.u32(1); // imageMode = Grayscale
+    pattEntry.u16(height);
+    pattEntry.u16(width);
+    // Unicode name: u32 charCount + UTF-16BE chars
+    pattEntry.u32(patternName.length + 1);
+    for (let i = 0; i < patternName.length; i++) pattEntry.u16(patternName.charCodeAt(i));
+    pattEntry.u16(0); // null terminator
+    // Pascal-style UUID with NO padding
+    pattEntry.u8(patternUuid.length);
+    for (let i = 0; i < patternUuid.length; i++) pattEntry.parts.push(patternUuid.charCodeAt(i));
+    // VirtualMemoryArrayList v3
+    pattEntry.u32(3); // VMA version
+    // VMA length — compute later; placeholder
+    const vmaLenPos = pattEntry.length;
+    pattEntry.u32(0); // VMA length placeholder
+    pattEntry.u32(0).u32(0).u32(height).u32(width); // rect
+    pattEntry.u32(1); // numChannels
+    // Channel 0: written
+    pattEntry.u32(1); // isWritten = true
+    const chHeaderSize = 22; // depth(4) + rect(16) + compression(2)
+    const chLength = chHeaderSize + pixels.length;
+    pattEntry.u32(chLength);
+    pattEntry.u32(8); // depth
+    pattEntry.u32(0).u32(0).u32(height).u32(width); // channel rect
+    pattEntry.u16(0); // compression = raw
+    pattEntry.bytes(pixels);
+
+    // Patch VMA length
+    const vmaLen = pattEntry.length - (vmaLenPos + 4);
+    const vmaLenBytes = [(vmaLen >> 24) & 0xff, (vmaLen >> 16) & 0xff, (vmaLen >> 8) & 0xff, vmaLen & 0xff];
+    for (let i = 0; i < 4; i++) pattEntry.parts[vmaLenPos + i] = vmaLenBytes[i];
+
+    // Wrap in patt section: u32 entry length + entry data
+    const pattSection = new BinaryBuilder();
+    pattSection.u32(pattEntry.length);
+    pattSection.append(pattEntry);
+
+    const patt = new BinaryBuilder()
+      .tag("8BIM").tag("patt")
+      .u32(pattSection.length)
+      .append(pattSection);
+
+    // Build samp + desc with a texture reference
+    const samp = buildSampSection([
+      { width: 4, height: 4, pixels: Array(16).fill(200), uuid: "primary-tip-1" },
+    ], 2);
+
+    // Build Txtr Objc descriptor item with Idnt pointing to our pattern
+    const txtrItems = [
+      new BinaryBuilder().key("Nm  ").tag("TEXT").unicodeString(patternName),
+      new BinaryBuilder().key("Idnt").tag("TEXT").unicodeString(patternUuid),
+    ];
+    const txtrDesc = new BinaryBuilder()
+      .unicodeString("").classId("Ptrn")
+      .u32(txtrItems.length);
+    for (const item of txtrItems) txtrDesc.append(item);
+
+    const desc = buildDescSection([{
+      name: "Textured Brush",
+      tipUuid: "primary-tip-1",
+      presetItems: [
+        boolItem("useTexture", true),
+        untfItem("Scl ", "#Prc", 100),
+        untfItem("textureDepth", "#Prc", 50),
+        new BinaryBuilder().key("Txtr").tag("Objc").append(txtrDesc),
+      ],
+    }]);
+
+    const data = new BinaryBuilder().append(header).append(samp).append(patt).append(desc);
+    const buf = new Uint8Array(data.toArray()).buffer;
+    const result = parseAbrFile(buf);
+
+    expect(result.length).toBe(1);
+    expect(result[0].name).toBe("Textured Brush");
+    expect(result[0].params?.texture?.enabled).toBe(true);
+    expect(result[0].params?.texture?.depth).toBeCloseTo(0.5);
+    expect(result[0].textureImageData).toBeDefined();
+    expect(result[0].textureWidth).toBe(width);
+    expect(result[0].textureHeight).toBe(height);
+    expect(result[0].textureImageData!.length).toBe(width * height);
+    // Verify pixel values match
+    for (let i = 0; i < pixels.length; i++) {
+      expect(result[0].textureImageData![i]).toBe(pixels[i]);
+    }
+  });
+
+  it("should extract texture pattern from real ABR file (Size Flow Gang.abr)", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const abrPath = path.resolve(__dirname, "../../data/Size Flow Gang.abr");
+    if (!fs.existsSync(abrPath)) return; // skip if file not available
+    const buffer = fs.readFileSync(abrPath).buffer;
+    const result = parseAbrFile(buffer);
+
+    // Find a brush with texture (e.g., "01 Basic Oil" or others that use Txtr)
+    const textured = result.filter(b => b.textureImageData);
+    expect(textured.length).toBeGreaterThan(0);
+    for (const b of textured) {
+      expect(b.textureWidth).toBeGreaterThan(0);
+      expect(b.textureHeight).toBeGreaterThan(0);
+      expect(b.textureImageData!.length).toBe(b.textureWidth! * b.textureHeight!);
+      expect(b.params?.texture?.enabled).toBe(true);
+    }
+  });
 });

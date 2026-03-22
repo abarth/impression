@@ -103,6 +103,18 @@ export function useBrushPresets({
     } else {
       eng.clearSecondaryBrushTip();
     }
+
+    // Texture pattern tip
+    if (preset.texture?.tipId) {
+      const ok = await ensureTipRegistered(preset.texture.tipId, `${preset.name} (texture)`);
+      if (ok) {
+        eng.setTextureTip(preset.texture.tipId);
+      } else {
+        eng.clearTextureTip();
+      }
+    } else {
+      eng.clearTextureTip();
+    }
   }, [ensureTipRegistered]);
 
   // Re-activate the current tool's brush tip when switching tools
@@ -255,6 +267,18 @@ export function useBrushPresets({
             height: brush.dualHeight,
           });
           p.dualBrush = { ...p.dualBrush, tipId: dualTipId, useComputed: false };
+        }
+
+        // Save texture pattern if present
+        if (brush.textureImageData && brush.textureWidth && brush.textureHeight && p?.texture) {
+          const texTipId = crypto.randomUUID();
+          await s.saveTip({
+            id: texTipId,
+            pixels: brush.textureImageData,
+            width: brush.textureWidth,
+            height: brush.textureHeight,
+          });
+          p.texture = { ...p.texture, tipId: texTipId };
         }
 
         const preset: BrushPreset = {

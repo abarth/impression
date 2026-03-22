@@ -24,6 +24,8 @@ function createMockEngine(): Engine {
     clearBrushTip: vi.fn(),
     setSecondaryBrushTip: vi.fn(),
     clearSecondaryBrushTip: vi.fn(),
+    setTextureTip: vi.fn(),
+    clearTextureTip: vi.fn(),
     embedResource: vi.fn().mockResolvedValue(undefined),
   } as unknown as Engine;
 }

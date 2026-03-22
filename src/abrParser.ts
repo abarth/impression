@@ -63,6 +63,12 @@ export interface ParsedAbrBrush {
   dualWidth?: number;
   /** Height of the dual brush tip image. */
   dualHeight?: number;
+  /** Texture pattern image data (grayscale). */
+  textureImageData?: Uint8Array;
+  /** Width of the texture pattern. */
+  textureWidth?: number;
+  /** Height of the texture pattern. */
+  textureHeight?: number;
   /** Brush parameters extracted from ABR descriptor section. */
   params?: AbrBrushParams;
 }
@@ -125,6 +131,109 @@ interface SampEntry {
   imageData: Uint8Array;
   width: number;
   height: number;
+}
+
+/** A pattern image extracted from a `patt` section. */
+interface PattEntry {
+  uuid: string;
+  imageData: Uint8Array;
+  width: number;
+  height: number;
+}
+
+/**
+ * Parse a `patt` section to extract embedded pattern images keyed by UUID.
+ *
+ * Each pattern entry contains:
+ *  - u32: entry byte length
+ *  - u32: version (1)
+ *  - u32: image mode (1=Grayscale, 3=RGB, etc.)
+ *  - u16: height, u16: width
+ *  - Unicode string: pattern name
+ *  - Pascal string: unique ID (UUID)
+ *  - VirtualMemoryArrayList: channel pixel data (version 3)
+ *
+ * We only extract the first written channel as an 8-bit grayscale image.
+ */
+function parsePattSection(
+  reader: DataViewReader,
+  endPos: number,
+): PattEntry[] {
+  const entries: PattEntry[] = [];
+
+  while (reader.position < endPos) {
+    if (reader.remaining < 4) break;
+    const entryLen = reader.readU32();
+    if (entryLen === 0 || reader.position + entryLen > endPos) break;
+    const entryEnd = reader.position + entryLen;
+
+    try {
+      const version = reader.readU32();
+      if (version !== 1) { reader.seek(entryEnd); continue; }
+
+      const imageMode = reader.readU32();
+      const height = reader.readU16();
+      const width = reader.readU16();
+
+      // Unicode name: u32 char count, then UTF-16BE data
+      const nameLen = reader.readU32();
+      reader.skip(nameLen * 2);
+
+      // Unique ID as Pascal-style string with NO padding after
+      const idLen = reader.readU8();
+      const idBytes = reader.readBytes(idLen);
+      const uuid = new TextDecoder("ascii").decode(idBytes);
+
+      // Only support grayscale patterns (mode=1) for brush textures
+      if (imageMode !== 1 || width === 0 || height === 0) {
+        reader.seek(entryEnd);
+        continue;
+      }
+
+      // VirtualMemoryArrayList — version 3
+      const vmaVersion = reader.readU32();
+      if (vmaVersion !== 3) { reader.seek(entryEnd); continue; }
+      reader.skip(4); // VMA length
+      reader.skip(16); // VMA rect (top, left, bottom, right as u32)
+      const numChannels = reader.readU32();
+
+      // Find first written channel and extract pixel data
+      let imageData: Uint8Array | undefined;
+      for (let ch = 0; ch < numChannels; ch++) {
+        if (reader.position + 4 > entryEnd) break;
+        const isWritten = reader.readU32();
+        if (!isWritten) continue;
+
+        const chLength = reader.readU32();
+        const chDataEnd = reader.position + chLength;
+        // Channel header: depth(u32=4) + rect(u32×4=16) + compression(u16=2)
+        reader.skip(4 + 16 + 2);
+        const headerSize = 22;
+        const dataBytes = chLength - headerSize;
+        const pixelCount = width * height;
+        // Pixel data occupies the last pixelCount bytes; skip any leading padding
+        const padding = Math.max(0, dataBytes - pixelCount);
+        reader.skip(padding);
+        if (pixelCount > 0 && reader.position + pixelCount <= entryEnd + 4) {
+          imageData = new Uint8Array(reader.readBytes(pixelCount));
+        }
+        reader.seek(chDataEnd);
+        if (imageData) break;
+      }
+
+      if (imageData) {
+        entries.push({ uuid, imageData, width, height });
+      }
+    } catch {
+      // Skip on parse error
+    }
+
+    reader.seek(entryEnd);
+    // Pad to even boundary
+    if (reader.position % 2 !== 0) reader.skip(1);
+  }
+
+  return entries;
 }
 
 /**
@@ -299,6 +408,8 @@ interface ParsedPresetInfo {
   tipUuid?: string;
   /** UUID of the dual brush's sampled tip, or undefined when computed. */
   dualTipUuid?: string;
+  /** UUID of the texture pattern from the Txtr descriptor. */
+  texturePatternId?: string;
 }
 
 interface ParsedDescSection {
@@ -444,11 +555,16 @@ function parseDescSection(
           }
         }
 
+        // Texture pattern UUID from the Txtr descriptor's Idnt field
+        const txtrItems = getObjc(item.items, "Txtr");
+        const texturePatternId = txtrItems ? getText(txtrItems, "Idnt") : undefined;
+
         presets.push({
           name,
           params: extractPresetParams(item.items),
           tipUuid,
           dualTipUuid,
+          texturePatternId,
         });
       }
     }
@@ -474,6 +590,7 @@ export function parseAbrFile(buffer: ArrayBuffer): ParsedAbrBrush[] {
   if (version < 6) return [];
 
   let sampEntries: SampEntry[] = [];
+  let pattEntries: PattEntry[] = [];
   let descPresets: ParsedPresetInfo[] = [];
 
   while (reader.remaining >= 8) {
@@ -493,6 +610,8 @@ export function parseAbrFile(buffer: ArrayBuffer): ParsedAbrBrush[] {
 
     if (sectionTag === "samp") {
       sampEntries = parseSampSection(reader, sectionEnd, subVersion);
+    } else if (sectionTag === "patt") {
+      pattEntries = parsePattSection(reader, sectionEnd);
     } else if (sectionTag === "desc") {
       const { presets } = parseDescSection(reader, sectionEnd);
       descPresets = presets;
@@ -505,6 +624,12 @@ export function parseAbrFile(buffer: ArrayBuffer): ParsedAbrBrush[] {
   const sampByUuid = new Map<string, SampEntry>();
   for (const entry of sampEntries) {
     sampByUuid.set(entry.uuid, entry);
+  }
+
+  // Build UUID → patt entry lookup
+  const pattByUuid = new Map<string, PattEntry>();
+  for (const entry of pattEntries) {
+    pattByUuid.set(entry.uuid, entry);
   }
 
   // If we have desc presets, use them for proper name/param/tip mapping.
@@ -529,6 +654,14 @@ export function parseAbrFile(buffer: ArrayBuffer): ParsedAbrBrush[] {
           brush.dualImageData = dualSamp.imageData;
           brush.dualWidth = dualSamp.width;
           brush.dualHeight = dualSamp.height;
+        }
+      }
+      if (preset.texturePatternId) {
+        const patt = pattByUuid.get(preset.texturePatternId);
+        if (patt) {
+          brush.textureImageData = patt.imageData;
+          brush.textureWidth = patt.width;
+          brush.textureHeight = patt.height;
         }
       }
       brushes.push(brush);
