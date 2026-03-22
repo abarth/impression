@@ -15,6 +15,22 @@ mod site;
 pub mod stroke;
 
 use wasm_bindgen::prelude::*;
+#[cfg(all(target_arch = "wasm32", not(test)))]
+ #[wasm_bindgen]
+ extern "C" {
+     #[wasm_bindgen(js_namespace = console)]
+     pub fn log(s: &str);
+ }
+ 
+ #[cfg(any(not(target_arch = "wasm32"), test))]
+ pub fn log(s: &str) {
+     println!("{}", s);
+ }
+ 
+ #[macro_export]
+ macro_rules! console_log {
+     ($($t:tt)*) => (crate::log(&format!($($t)*)))
+ }
 
 #[wasm_bindgen]
 pub struct ImpressionCanvas {

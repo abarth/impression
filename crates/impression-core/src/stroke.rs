@@ -143,7 +143,7 @@ fn place_stamp(
     secondary_tip: Option<&BrushTip>,
     texture: Option<(&crate::brush::TextureSettings, &BrushTip)>,
 ) {
-    println!(
+    crate::console_log!(
         "place_stamp: sp={:?}, brush.color={:?}, brush.size={}, selection.is_some={}, dual_instances.len={}, secondary_tip.is_some={}, texture.is_some={}",
         sp,
         brush.color,
