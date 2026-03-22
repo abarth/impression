@@ -4,15 +4,17 @@ import { hexToRgb } from "./useColorState";
 
 export type LayerKind = "raster" | "gradient-map";
 
-export interface LayerInfo {
+interface BaseLayerInfo {
   id: number; // unique ID for React keys
   name: string;
   visible: boolean;
   opacity: number;
   blendMode: number;
-  kind: LayerKind;
-  gradientId?: string;
 }
+
+export type LayerInfo =
+  | (BaseLayerInfo & { kind: "raster" })
+  | (BaseLayerInfo & { kind: "gradient-map"; gradientId: string });
 
 let nextLayerId = 0;
 
@@ -44,18 +46,18 @@ export function useLayerManager(engine: Engine | null) {
     for (let i = 0; i < count; i++) {
       const kindNum = eng.getLayerKind(i);
       const kind = engineKindToLayerKind(kindNum);
-      const info: LayerInfo = {
+      const base = {
         id: nextLayerId++,
         name: eng.getLayerName(i),
         visible: eng.getLayerVisible(i),
         opacity: eng.getLayerOpacity(i),
         blendMode: eng.getLayerBlendMode(i),
-        kind,
       };
       if (kind === "gradient-map") {
-        info.gradientId = eng.getGradientMapGradientId(i);
+        synced.push({ ...base, kind, gradientId: eng.getGradientMapGradientId(i) ?? "" });
+      } else {
+        synced.push({ ...base, kind });
       }
-      synced.push(info);
     }
     layersRef.current = synced;
     setLayers(synced);

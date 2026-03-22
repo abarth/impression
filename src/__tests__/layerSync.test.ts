@@ -47,7 +47,12 @@ describe("syncLayersFromEngine", () => {
     expect(result.current.layers[0].kind).toBe("raster");
     expect(result.current.layers[1].name).toBe("Gradient Map");
     expect(result.current.layers[1].kind).toBe("gradient-map");
-    expect(result.current.layers[1].gradientId).toBe("grad-1");
+    const gradLayer = result.current.layers[1];
+    if (gradLayer.kind === "gradient-map") {
+      expect(gradLayer.gradientId).toBe("grad-1");
+    } else {
+      expect.unreachable("Expected gradient-map layer");
+    }
     expect(result.current.layers[2].name).toBe("Layer 3");
     expect(result.current.layers[2].kind).toBe("raster");
   });
