@@ -1,0 +1,9 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/impression-core",
+]
+
+[profile.release]
+opt-level = "s"
+lto = true
