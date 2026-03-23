@@ -12,14 +12,22 @@ import {
   DUAL_BRUSH_MODE_SCREEN,
 } from "../hooks/useBrushSettings";
 
+import { TipPreview } from "./TipPreview";
+import type { Storage } from "../storage";
+import type { BrushPreset } from "../brushPresets";
+
 interface BrushSettingsPanelProps {
   settings: BrushSettings;
   toolLabel?: string;
   isImageTip?: boolean;
+  storage: Storage | null;
+  activePreset?: BrushPreset;
   onUpdate: <K extends keyof BrushSettings>(
     key: K,
     value: BrushSettings[K],
   ) => void;
+  onToggleTipType: (type: "computed" | "image") => void;
+  onToggleDualBrushType: (useComputed: boolean) => void;
 }
 
 const CONTROL_LABELS: Record<number, string> = {
@@ -94,9 +102,43 @@ const CATEGORIES: { id: Category; label: string }[] = [
   { id: "texture", label: "Texture" },
 ];
 
-function BrushTipPane({ settings, isImageTip, onUpdate }: BrushSettingsPanelProps) {
+function BrushTipPane({
+  settings,
+  isImageTip,
+  storage,
+  activePreset,
+  onUpdate,
+  onToggleTipType,
+  onToggleDualBrushType,
+}: BrushSettingsPanelProps) {
   return (
     <div className="flex flex-col gap-3.5">
+      <div className="flex flex-col gap-2">
+        <label className="text-[10px] font-medium text-cream-muted uppercase tracking-wider">
+          Tip Type
+        </label>
+        <div className="flex gap-1 bg-graphite-850 p-1 rounded-lg border border-graphite-800">
+          <button
+            onClick={() => onToggleTipType("computed")}
+            className={`flex-1 py-1 text-[11px] rounded transition-all duration-150 ${!isImageTip ? "bg-graphite-700 text-cream shadow-sm" : "text-cream-muted hover:text-cream-dim"}`}
+          >
+            Computed
+          </button>
+          <button
+            onClick={() => onToggleTipType("image")}
+            className={`flex-1 py-1 text-[11px] rounded transition-all duration-150 ${isImageTip ? "bg-graphite-700 text-cream shadow-sm" : "text-cream-muted hover:text-cream-dim"}`}
+          >
+            Sampled
+          </button>
+        </div>
+      </div>
+
+      {isImageTip && activePreset?.tip.type === "image" && (
+        <div className="flex justify-center py-1">
+          <TipPreview tipId={activePreset.tip.tipId} storage={storage} size={80} />
+        </div>
+      )}
+
       {!isImageTip && (
         <SliderControl
           label="Hardness"
@@ -170,7 +212,10 @@ function BrushTipPane({ settings, isImageTip, onUpdate }: BrushSettingsPanelProp
   );
 }
 
-function ShapeDynamicsPane({ settings, onUpdate }: BrushSettingsPanelProps) {
+function ShapeDynamicsPane({
+  settings,
+  onUpdate,
+}: BrushSettingsPanelProps) {
   return (
     <div className="flex flex-col gap-4">
       <DynamicParamControl
@@ -199,7 +244,10 @@ function ShapeDynamicsPane({ settings, onUpdate }: BrushSettingsPanelProps) {
   );
 }
 
-function TransferPane({ settings, onUpdate }: BrushSettingsPanelProps) {
+function TransferPane({
+  settings,
+  onUpdate,
+}: BrushSettingsPanelProps) {
   return (
     <div className="flex flex-col gap-4">
       <DynamicParamControl
@@ -220,7 +268,10 @@ function TransferPane({ settings, onUpdate }: BrushSettingsPanelProps) {
   );
 }
 
-function ScatteringPane({ settings, onUpdate }: BrushSettingsPanelProps) {
+function ScatteringPane({
+  settings,
+  onUpdate,
+}: BrushSettingsPanelProps) {
   const sc = settings.scatterSettings;
   const update = (partial: Partial<ScatterSettings>) =>
     onUpdate("scatterSettings", { ...sc, ...partial });
@@ -269,7 +320,13 @@ function ScatteringPane({ settings, onUpdate }: BrushSettingsPanelProps) {
   );
 }
 
-function DualBrushPane({ settings, onUpdate }: BrushSettingsPanelProps) {
+function DualBrushPane({
+  settings,
+  storage,
+  activePreset,
+  onUpdate,
+  onToggleDualBrushType,
+}: BrushSettingsPanelProps) {
   const db = settings.dualBrush;
   const update = (partial: Partial<DualBrushSettings>) =>
     onUpdate("dualBrush", { ...db, ...partial });
@@ -287,6 +344,30 @@ function DualBrushPane({ settings, onUpdate }: BrushSettingsPanelProps) {
       </button>
       {db.enabled && (
         <>
+          <div className="flex flex-col gap-2 mb-1">
+            <label className="text-[10px] font-medium text-cream-muted uppercase tracking-wider">
+              Dual Tip Type
+            </label>
+            <div className="flex gap-1 bg-graphite-850 p-1 rounded-lg border border-graphite-800">
+              <button
+                onClick={() => onToggleDualBrushType(true)}
+                className={`flex-1 py-1 text-[11px] rounded transition-all duration-150 ${db.useComputed ? "bg-graphite-700 text-cream shadow-sm" : "text-cream-muted hover:text-cream-dim"}`}
+              >
+                Computed
+              </button>
+              <button
+                onClick={() => onToggleDualBrushType(false)}
+                className={`flex-1 py-1 text-[11px] rounded transition-all duration-150 ${!db.useComputed ? "bg-graphite-700 text-cream shadow-sm" : "text-cream-muted hover:text-cream-dim"}`}
+              >
+                Sampled
+              </button>
+            </div>
+          </div>
+          {!db.useComputed && db.tipId && (
+            <div className="flex justify-center py-1">
+              <TipPreview tipId={db.tipId} storage={storage} size={70} />
+            </div>
+          )}
           <div className="flex items-center gap-2">
             <span className="text-[11px] font-medium text-cream-muted uppercase tracking-wider shrink-0">Mode</span>
             <select
@@ -363,7 +444,7 @@ function DualBrushPane({ settings, onUpdate }: BrushSettingsPanelProps) {
   );
 }
 
-function TexturePane({ settings, onUpdate }: BrushSettingsPanelProps) {
+function TexturePane({ settings, storage, onUpdate }: BrushSettingsPanelProps) {
   const tx = settings.texture;
   const update = (partial: Partial<TextureSettings>) =>
     onUpdate("texture", { ...tx, ...partial });
@@ -409,6 +490,14 @@ function TexturePane({ settings, onUpdate }: BrushSettingsPanelProps) {
           >
             Texture Each Tip
           </button>
+          {tx.tipId && (
+            <div className="flex flex-col gap-2 mt-2">
+              <label className="text-[10px] font-medium text-cream-muted uppercase tracking-wider">
+                Pattern Preview
+              </label>
+              <TipPreview tipId={tx.tipId} storage={storage} size={60} className="mx-auto" />
+            </div>
+          )}
         </>
       )}
     </div>
@@ -422,7 +511,11 @@ function TexturePane({ settings, onUpdate }: BrushSettingsPanelProps) {
 export function BrushSettingsPanel({
   settings,
   isImageTip,
+  storage,
+  activePreset,
   onUpdate,
+  onToggleTipType,
+  onToggleDualBrushType,
 }: BrushSettingsPanelProps) {
   const [activeCategory, setActiveCategory] = useState<Category>("tip");
 
@@ -470,22 +563,65 @@ export function BrushSettingsPanel({
                 {CATEGORIES.find((c) => c.id === activeCategory)?.label}
               </h4>
               {activeCategory === "tip" && (
-                <BrushTipPane settings={settings} isImageTip={isImageTip} onUpdate={onUpdate} />
+                <BrushTipPane
+                  settings={settings}
+                  isImageTip={isImageTip}
+                  storage={storage}
+                  activePreset={activePreset}
+                  onUpdate={onUpdate}
+                  onToggleTipType={onToggleTipType}
+                  onToggleDualBrushType={onToggleDualBrushType}
+                />
               )}
               {activeCategory === "shapeDynamics" && (
-                <ShapeDynamicsPane settings={settings} onUpdate={onUpdate} />
+                <ShapeDynamicsPane
+                  settings={settings}
+                  storage={storage}
+                  activePreset={activePreset}
+                  onUpdate={onUpdate}
+                  onToggleTipType={onToggleTipType}
+                  onToggleDualBrushType={onToggleDualBrushType}
+                />
               )}
               {activeCategory === "transfer" && (
-                <TransferPane settings={settings} onUpdate={onUpdate} />
+                <TransferPane
+                  settings={settings}
+                  storage={storage}
+                  activePreset={activePreset}
+                  onUpdate={onUpdate}
+                  onToggleTipType={onToggleTipType}
+                  onToggleDualBrushType={onToggleDualBrushType}
+                />
               )}
               {activeCategory === "scattering" && (
-                <ScatteringPane settings={settings} onUpdate={onUpdate} />
+                <ScatteringPane
+                  settings={settings}
+                  storage={storage}
+                  activePreset={activePreset}
+                  onUpdate={onUpdate}
+                  onToggleTipType={onToggleTipType}
+                  onToggleDualBrushType={onToggleDualBrushType}
+                />
               )}
               {activeCategory === "dualBrush" && (
-                <DualBrushPane settings={settings} onUpdate={onUpdate} />
+                <DualBrushPane
+                  settings={settings}
+                  storage={storage}
+                  activePreset={activePreset}
+                  onUpdate={onUpdate}
+                  onToggleTipType={onToggleTipType}
+                  onToggleDualBrushType={onToggleDualBrushType}
+                />
               )}
               {activeCategory === "texture" && (
-                <TexturePane settings={settings} onUpdate={onUpdate} />
+                <TexturePane
+                  settings={settings}
+                  storage={storage}
+                  activePreset={activePreset}
+                  onUpdate={onUpdate}
+                  onToggleTipType={onToggleTipType}
+                  onToggleDualBrushType={onToggleDualBrushType}
+                />
               )}
             </div>
 

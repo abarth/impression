@@ -43,7 +43,7 @@ export function DocumentViewer({
   const { layers, activeIndex, canvasColor, canvasVisible, addLayer, addGradientMapLayer, removeLayer, selectLayer, setLayerOpacity, setLayerBlendMode, renameLayer, moveLayer, toggleLayerVisible, setCanvasColor, toggleCanvasVisible, setGradientMapGradient, syncLayersFromEngine } =
     useLayerManager(engine);
   const storage = engineOptions.storage;
-  const { groups: presetGroups, activePresetId, isImageTip, selectPreset, importAbr } = useBrushPresets({
+  const { groups: presetGroups, activePresetId, activePreset, isImageTip, selectPreset, importAbr, toggleTipType, toggleDualBrushType } = useBrushPresets({
     engine,
     storage,
     activeTool,
@@ -284,7 +284,15 @@ export function DocumentViewer({
         <div className="flex flex-col w-56 bg-graphite-900 border-l border-graphite-850 overflow-y-auto">
           <ToolSettingsPanel settings={settings} toolLabel={toolLabel} onUpdate={updateSetting} />
           <BrushPicker groups={presetGroups} activePresetId={activePresetId} onSelect={selectPreset} onImportAbr={importAbr} />
-          <BrushSettingsPanel settings={settings} onUpdate={updateSetting} isImageTip={isImageTip} />
+          <BrushSettingsPanel
+            settings={settings}
+            onUpdate={updateSetting}
+            isImageTip={isImageTip}
+            storage={storage}
+            activePreset={activePreset}
+            onToggleTipType={toggleTipType}
+            onToggleDualBrushType={toggleDualBrushType}
+          />
           <ColorDisplay
             foreground={colors.foreground}
             background={colors.background}

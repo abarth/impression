@@ -93,7 +93,7 @@ export function useBrushPresets({
     }
 
     // Secondary (dual brush) tip
-    if (preset.dualBrush?.tipId) {
+    if (preset.dualBrush?.enabled && preset.dualBrush.tipId && !preset.dualBrush.useComputed) {
       const ok = await ensureTipRegistered(preset.dualBrush.tipId, `${preset.name} (dual)`);
       if (ok) {
         eng.setSecondaryBrushTip(preset.dualBrush.tipId);
@@ -165,6 +165,42 @@ export function useBrushPresets({
     },
     [presets, activeTool, onApplyPreset, activateTip],
   );
+
+  /** Toggle between Computed (circle) and Sampled (image) tip type for the active preset. */
+  const toggleTipType = useCallback(async (type: "computed" | "image") => {
+    const preset = presets.find((p) => p.id === activePresetId);
+    if (!preset || !engine) return;
+
+    const updated: BrushPreset = {
+      ...preset,
+      tip: type === "computed" 
+        ? { type: "computed", hardness: preset.tip.type === "computed" ? preset.tip.hardness : 1.0 }
+        : { type: "image", tipId: preset.tip.type === "image" ? preset.tip.tipId : (presets.find(p => p.tip.type === "image")?.tip as any)?.tipId ?? "" }
+    };
+
+    // Update state and storage
+    setPresets(prev => prev.map(p => p.id === updated.id ? updated : p));
+    if (storage) await storage.savePreset(updated);
+    
+    // Sync with engine
+    activateTip(updated);
+  }, [activePresetId, presets, engine, storage, activateTip]);
+
+  const toggleDualBrushType = useCallback(async (useComputed: boolean) => {
+    const preset = presets.find((p) => p.id === activePresetId);
+    if (!preset || !engine) return;
+
+    const updated: BrushPreset = {
+      ...preset,
+      dualBrush: preset.dualBrush ? { ...preset.dualBrush, useComputed } : undefined
+    };
+
+    setPresets(prev => prev.map(p => p.id === updated.id ? updated : p));
+    if (storage) await storage.savePreset(updated);
+
+    onApplyPreset({ dualBrush: updated.dualBrush });
+    activateTip(updated);
+  }, [activePresetId, presets, engine, storage, onApplyPreset, activateTip]);
 
   const savePreset = useCallback(
     async (preset: BrushPreset) => {
@@ -321,10 +357,13 @@ export function useBrushPresets({
     presets,
     groups,
     activePresetId,
+    activePreset,
     isImageTip,
     selectPreset,
     savePreset,
     deletePreset,
     importAbr,
+    toggleTipType,
+    toggleDualBrushType,
   };
 }
