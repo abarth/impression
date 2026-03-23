@@ -505,7 +505,7 @@ function extractPresetParams(presetItems: Map<string, DescriptorValue>): AbrBrus
         mode,
         useComputed: !dualHasSampledTip,
         hardness: dualHardness !== undefined ? dualHardness / 100 : 1.0,
-        size: dualDiameter ?? 20,
+        sizeRatio: dualDiameter !== undefined ? (dualDiameter / (params.diameter ?? 20)) : 1.0,
         spacing: dualSpacing !== undefined ? dualSpacing / 100 : 0.25,
         count: dualCount ?? 1,
         scatter: dualScatter !== undefined ? dualScatter / 100 : 0,

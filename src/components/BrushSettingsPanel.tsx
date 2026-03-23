@@ -304,12 +304,12 @@ function DualBrushPane({ settings, onUpdate }: BrushSettingsPanelProps) {
           </div>
           <SliderControl
             label="Size"
-            value={db.size}
+            value={db.sizeRatio * settings.size}
             min={1}
             max={100}
             step={1}
-            displayValue={`${Math.round(db.size)}px`}
-            onChange={(v) => update({ size: v })}
+            displayValue={`${Math.round(db.sizeRatio * settings.size)}px`}
+            onChange={(v) => update({ sizeRatio: v / settings.size })}
           />
           <SliderControl
             label="Spacing"

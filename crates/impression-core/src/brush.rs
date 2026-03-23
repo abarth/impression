@@ -103,8 +103,9 @@ pub struct DualBrushSettings {
     pub use_computed: bool,
     /// Hardness for computed circle secondary tip.
     pub hardness: f32,
-    /// Diameter of the secondary tip in pixels.
-    pub size: f32,
+    /// Diameter of the secondary tip expressed as a ratio of the primary brush diameter.
+    /// (e.g. 1.0 = same size as primary, 0.5 = half size).
+    pub size_ratio: f32,
     /// Spacing for the secondary tip as a fraction of its size.
     pub spacing: f32,
     /// Scattering and count settings for the secondary tip.
@@ -118,7 +119,7 @@ impl Default for DualBrushSettings {
             mode: DualBrushMode::Multiply,
             use_computed: true,
             hardness: 1.0,
-            size: 20.0,
+            size_ratio: 1.0,
             spacing: 0.25,
             scatter: ScatterSettings::default(),
         }
@@ -287,11 +288,12 @@ pub fn compute_dual_stamps(
         return instances;
     }
 
-    let dual_radius = dual.size / 2.0;
-    let dual_step = (dual.spacing * dual.size).max(1.0);
+    let dual_radius = primary_radius * dual.size_ratio;
+    let dual_diameter = dual_radius * 2.0;
+    let dual_step = (dual.spacing * dual_diameter).max(1.0);
 
     // Maximum distance a scattered dual stamp can be offset from its base position
-    let max_scatter = dual.scatter.scatter * dual.size;
+    let max_scatter = dual.scatter.scatter * dual_diameter;
 
     // Search range along the stroke line: any dual stamp whose center (after scatter)
     // could overlap the primary stamp's bounding circle.
@@ -1792,8 +1794,8 @@ mod tests {
     fn test_compute_dual_stamps_basic_positions() {
         let dual = DualBrushSettings {
             enabled: true,
-            size: 10.0,
-            spacing: 1.0, // step = 10.0
+            size_ratio: 0.5, // 10.0 diameter / 20.0 primary diameter
+            spacing: 1.0, // step = 10.0 absolute
             scatter: ScatterSettings {
                 scatter: 0.0, // no scatter
                 count: 1,
@@ -1824,7 +1826,7 @@ mod tests {
     fn test_compute_dual_stamps_with_count() {
         let dual = DualBrushSettings {
             enabled: true,
-            size: 10.0,
+            size_ratio: 0.5,
             spacing: 1.0,
             scatter: ScatterSettings {
                 scatter: 0.0,
@@ -1856,7 +1858,7 @@ mod tests {
     fn test_compute_dual_stamps_deterministic() {
         let dual = DualBrushSettings {
             enabled: true,
-            size: 10.0,
+            size_ratio: 0.5,
             spacing: 0.5,
             scatter: ScatterSettings {
                 scatter: 0.5,
@@ -1925,5 +1927,30 @@ mod tests {
         // Pixel far from the instance
         let alpha = sample_dual_stamps(100.0, 100.0, &instances, &sec);
         assert_eq!(alpha, 0.0, "Pixel far from instance should have zero alpha");
+    }
+
+    #[test]
+    fn test_dual_brush_scales_with_primary_size() {
+        let dual = DualBrushSettings {
+            enabled: true,
+            size_ratio: 0.5,
+            spacing: 0.5,
+            ..Default::default()
+        };
+
+        // Case 1: Primary radius 10 -> Dual radius 5
+        let instances1 = compute_dual_stamps(
+            50.0, 50.0, 10.0, 0.0, 1.0, 0.0, &dual, 123
+        );
+        // Find instance at center (distance 0)
+        let center1 = instances1.iter().find(|i| (i.cx - 50.0).abs() < 0.1).expect("center1 not found");
+        assert_eq!(center1.radius, 5.0, "Dual radius should be half of primary radius (10)");
+
+        // Case 2: Primary radius 20 -> Dual radius 10
+        let instances2 = compute_dual_stamps(
+            50.0, 50.0, 20.0, 0.0, 1.0, 0.0, &dual, 123
+        );
+        let center2 = instances2.iter().find(|i| (i.cx - 50.0).abs() < 0.1).expect("center2 not found");
+        assert_eq!(center2.radius, 10.0, "Dual radius should be half of primary radius (20)");
     }
 }

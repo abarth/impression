@@ -332,7 +332,7 @@ mod tests {
             mode: DualBrushMode::Darken,
             use_computed: false,
             hardness: 0.5,
-            size: 30.0,
+            size_ratio: 1.5,
             spacing: 0.15,
             scatter: ScatterSettings {
                 scatter: 1.5,

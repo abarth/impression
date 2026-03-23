@@ -44,7 +44,7 @@ export interface DualBrushSettings {
   mode: number;
   useComputed: boolean;
   hardness: number;
-  size: number;
+  sizeRatio: number;
   spacing: number;
   count: number;
   scatter: number;
@@ -123,7 +123,7 @@ const DEFAULT_DUAL_BRUSH: DualBrushSettings = {
   mode: DUAL_BRUSH_MODE_MULTIPLY,
   useComputed: true,
   hardness: 1.0,
-  size: 20,
+  sizeRatio: 1.0,
   spacing: 0.25,
   count: 1,
   scatter: 0,
@@ -233,7 +233,11 @@ export function useBrushSettings(engine: Engine | null, activeTool: Tool) {
     const sc = s.scatterSettings;
     eng.setScatter(sc.scatter, sc.bothAxes, sc.count, sc.countJitter);
     const db = s.dualBrush;
-    eng.setDualBrush(db.enabled, db.mode, db.useComputed, db.hardness, db.size, db.spacing, db.count, db.scatter, db.bothAxes);
+    eng.setDualBrush(
+      db.enabled, db.mode, db.useComputed, db.hardness,
+      db.sizeRatio * s.size,
+      db.spacing, db.count, db.scatter, db.bothAxes
+    );
     const tx = s.texture;
     eng.setTexture(tx.enabled, tx.scale, tx.depth, tx.textureEachTip);
   }, []);

@@ -273,7 +273,7 @@ impl ImpressionCanvas {
         mode: u8,
         use_computed: bool,
         hardness: f32,
-        size: f32,
+        size_ratio: f32,
         spacing: f32,
         count: u32,
         scatter: f32,
@@ -284,7 +284,7 @@ impl ImpressionCanvas {
             mode: brush::DualBrushMode::from_u8(mode),
             use_computed,
             hardness,
-            size,
+            size_ratio,
             spacing,
             scatter: brush::ScatterSettings {
                 scatter,

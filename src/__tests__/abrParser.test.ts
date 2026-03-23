@@ -602,7 +602,7 @@ describe("abrParser", () => {
     expect(db).toBeDefined();
     expect(db.enabled).toBe(true);
     expect(db.mode).toBe(1); // Darken
-    expect(db.size).toBe(25);
+    expect(db.sizeRatio).toBe(25 / 20); // dual 25 / primary 20 (default)
     expect(db.spacing).toBeCloseTo(0.5);
     expect(db.hardness).toBeCloseTo(0.8);
     expect(db.useComputed).toBe(true); // No sampledData → computed tip
@@ -642,6 +642,7 @@ describe("abrParser", () => {
     const desc = buildDescSection([{
       name: "Spongy",
       tipUuid: "primary-tip",
+      brushItems: [untfItem("Dmtr", "#Pxl", 15)],
       presetItems: [
         new BinaryBuilder().key("dualBrush").tag("Objc").append(dualDesc),
       ],
@@ -665,7 +666,7 @@ describe("abrParser", () => {
     const db = result[0].params!.dualBrush!;
     expect(db.enabled).toBe(true);
     expect(db.useComputed).toBe(false);
-    expect(db.size).toBe(15);
+    expect(db.sizeRatio).toBeCloseTo(15 / 15); // dual 15 / primary 15
   });
 
   it("extracts smoothing from toolOptions", () => {
