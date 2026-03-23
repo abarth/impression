@@ -21,6 +21,7 @@ function createMockEngine(layerCount = 1) {
     setBackgroundColor: vi.fn(),
     setCanvasVisible: vi.fn(),
     renameLayer: vi.fn(),
+    setOnLayersChanged: vi.fn(),
   };
 }
 

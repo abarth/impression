@@ -32,6 +32,8 @@ export class Engine {
   private nextSequence: number = 0;
   /** True when there are unflushed operations in the oplog. */
   private _dirty: boolean = false;
+  /** Called after syncAllLayers so consumers can re-read layer state. */
+  private _onLayersChanged?: () => void;
 
   constructor(
     canvas: ImpressionCanvas,
@@ -41,6 +43,11 @@ export class Engine {
     this.canvas = canvas;
     this.gpu = gpu;
     this.wasmMemory = wasmMemory;
+  }
+
+  /** Register a callback fired whenever layer state changes (undo, redo, loadChunk). */
+  setOnLayersChanged(cb: () => void): void {
+    this._onLayersChanged = cb;
   }
 
   enablePersistence(opts: PersistenceOptions & { startSequence?: number }): void {
@@ -392,6 +399,7 @@ export class Engine {
     }
 
     this.needsRender = true;
+    this._onLayersChanged?.();
   }
 
   // Persistence

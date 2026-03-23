@@ -40,7 +40,7 @@ export function DocumentViewer({
   const { settings, updateSetting, applyPreset, toolLabel, getSettingsRef } = useBrushSettings(engine, activeTool);
   const { colors, setForeground, setBackground, swapColors, getColorsRef } =
     useColorState();
-  const { layers, activeIndex, canvasColor, canvasVisible, addLayer, addGradientMapLayer, removeLayer, selectLayer, setLayerOpacity, setLayerBlendMode, renameLayer, moveLayer, toggleLayerVisible, setCanvasColor, toggleCanvasVisible, setGradientMapGradient, syncLayersFromEngine } =
+  const { layers, activeIndex, canvasColor, canvasVisible, addLayer, addGradientMapLayer, removeLayer, selectLayer, setLayerOpacity, setLayerBlendMode, renameLayer, moveLayer, toggleLayerVisible, setCanvasColor, toggleCanvasVisible, setGradientMapGradient } =
     useLayerManager(engine);
   const storage = engineOptions.storage;
   const { groups: presetGroups, activePresetId, activePreset, isImageTip, selectPreset, importAbr, toggleTipType, toggleDualBrushType } = useBrushPresets({
@@ -73,16 +73,14 @@ export function DocumentViewer({
   const handleUndo = useCallback(() => {
     if (!engine) return;
     engine.undo();
-    syncLayersFromEngine();
     setUndoState({ canUndo: engine.canUndo(), canRedo: engine.canRedo() });
-  }, [engine, syncLayersFromEngine]);
+  }, [engine]);
 
   const handleRedo = useCallback(() => {
     if (!engine) return;
     engine.redo();
-    syncLayersFromEngine();
     setUndoState({ canUndo: engine.canUndo(), canRedo: engine.canRedo() });
-  }, [engine, syncLayersFromEngine]);
+  }, [engine]);
 
   const handleExport = useCallback(() => {
     const canvas = canvasRef.current;

@@ -69,83 +69,49 @@ export function useLayerManager(engine: Engine | null) {
 
   // Sync layer state from engine when the engine becomes available
   // (covers both new documents and loaded documents).
+  // Also register the onLayersChanged callback so undo/redo/loadChunk
+  // automatically sync layer state.
   useEffect(() => {
     if (engine) {
       syncLayersFromEngine();
       const [r, g, b] = hexToRgb(canvasColor);
       engine.setBackgroundColor(r, g, b);
+      engine.setOnLayersChanged(syncLayersFromEngine);
     }
-  }, [engine]);
+  }, [engine, syncLayersFromEngine]);
 
   const addLayer = useCallback(() => {
     const eng = engineRef.current;
     if (!eng) return;
     eng.addLayer();
-    const id = nextLayerId++;
-    const prev = layersRef.current;
-    const newIndex = prev.length;
-    const name = eng.getLayerName(newIndex);
-    const newLayer: LayerInfo = {
-      id,
-      name,
-      visible: true,
-      opacity: 1.0,
-      blendMode: 0,
-      kind: "raster",
-    };
-    const nextLayers = [...prev, newLayer];
-    layersRef.current = nextLayers;
-    setLayers(nextLayers);
-    const nextActive = activeIndexRef.current + 1;
+    syncLayersFromEngine();
+    const nextActive = eng.getLayerCount() - 1;
     activeIndexRef.current = nextActive;
     setActiveIndex(nextActive);
     eng.setActiveLayer(nextActive);
-  }, []);
+  }, [syncLayersFromEngine]);
 
-  const addGradientMapLayer = useCallback((gradientId: string) => {
+  const addGradientMapLayer = useCallback((gradientId: string): number | undefined => {
     const eng = engineRef.current;
-    if (!eng) return;
-    eng.addGradientMapLayer(gradientId);
-    const id = nextLayerId++;
-    const prev = layersRef.current;
-    const newIndex = prev.length;
-    const name = eng.getLayerName(newIndex);
-    const newLayer: LayerInfo = {
-      id,
-      name,
-      visible: true,
-      opacity: 1.0,
-      blendMode: 0,
-      kind: "gradient-map",
-      gradientId,
-    };
-    const nextLayers = [...prev, newLayer];
-    layersRef.current = nextLayers;
-    setLayers(nextLayers);
-    const nextActive = newIndex;
-    activeIndexRef.current = nextActive;
-    setActiveIndex(nextActive);
-    eng.setActiveLayer(nextActive);
-  }, []);
+    if (!eng) return undefined;
+    const layerIndex = eng.addGradientMapLayer(gradientId);
+    syncLayersFromEngine();
+    activeIndexRef.current = layerIndex;
+    setActiveIndex(layerIndex);
+    eng.setActiveLayer(layerIndex);
+    return layerIndex;
+  }, [syncLayersFromEngine]);
 
   const removeLayer = useCallback(
     (index: number) => {
       const eng = engineRef.current;
       if (!eng) return;
-      const prev = layersRef.current;
-      if (prev.length <= 1) return; // keep at least one layer
+      if (layersRef.current.length <= 1) return; // keep at least one layer
       const removed = eng.removeLayer(index);
       if (!removed) return;
-      const nextLayers = prev.filter((_, i) => i !== index);
-      layersRef.current = nextLayers;
-      setLayers(nextLayers);
-      const count = eng.getLayerCount();
-      const prevActive = activeIndexRef.current;
-      const nextActive = prevActive >= count ? Math.max(0, count - 1) : prevActive;
-      activeIndexRef.current = nextActive;
-      setActiveIndex(nextActive);
+      syncLayersFromEngine();
     },
-    [],
+    [syncLayersFromEngine],
   );
 
   const selectLayer = useCallback(
