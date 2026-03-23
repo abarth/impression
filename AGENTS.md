@@ -11,8 +11,9 @@ Your role is to help develop features, fix bugs, and refactor code, while strict
 When making changes to Impression, you **MUST** follow these practices:
 
 1. **Write tests for all behavior changes**: Whether it's a Rust unit test or a TypeScript Vitest, all behavior changes require accompanying tests. Run them using the scripts provided in the development docs.
-2. **Commit and push after each logical change**: Do not stack a massive list of changes. Keep your commits atomic, well-described, and push them to remote.
-3. **Reflect on changes and file GitHub issues**: As you work, you will notice technical debt, missing features, edge cases, or potential refactors. You must identify these and file GitHub issues for future work rather than ignoring them or going down a rabbit hole.
+2. **Don't Repeat Yourself (DRY)**: Do not repeat code. If you find yourself writing the same code in multiple places, refactor it into a reusable function or component.
+3. **Commit and push after each logical change**: Do not stack a massive list of changes. Keep your commits atomic, well-described, and push them to remote.
+4. **Reflect on changes and file GitHub issues**: As you work, you will notice technical debt, missing features, edge cases, or potential refactors. You must identify these and file GitHub issues for future work rather than ignoring them or going down a rabbit hole.
 
 ## Technical Documentation Reference
 
