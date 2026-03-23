@@ -1,9 +1,51 @@
 use crate::brush::{
-    compute_dual_stamps, recomposite_region, stamp_bounds, stamp_ellipse, stamp_tip, BrushSettings,
-    BrushTip, DualStampInstance, SecondaryTipState,
+    generate_dual_instance, recomposite_region, stamp_bounds, stamp_ellipse, stamp_tip,
+    BrushSettings, BrushTip, DualBrushSettings, DualStampInstance, SecondaryTipState,
 };
 use crate::dynamics::{self, Rng};
 use crate::layer::{DirtyBounds, Layer};
+use std::collections::VecDeque;
+
+/// Walks along a line segment at spacing intervals, tracking residual distance.
+///
+/// Shared by both primary and dual brush interpolation to eliminate duplication
+/// of the "advance along segment, yield positions, compute residual" pattern.
+struct SpacingWalker {
+    segment_len: f32,
+    dist: f32,
+}
+
+impl SpacingWalker {
+    /// Create a walker for a segment of given length, starting at the given residual distance.
+    fn new(segment_len: f32, residual: f32) -> Self {
+        SpacingWalker { segment_len, dist: residual }
+    }
+
+    /// Returns the interpolation parameter `t ∈ [0, 1]` for the current position,
+    /// or `None` if the walker has passed the end of the segment.
+    fn t(&self) -> Option<f32> {
+        if self.dist <= self.segment_len {
+            Some(self.dist / self.segment_len)
+        } else {
+            None
+        }
+    }
+
+    /// Advance the walker by the given step size.
+    fn advance(&mut self, step: f32) {
+        self.dist += step;
+    }
+
+    /// The current cumulative distance along the segment.
+    fn distance(&self) -> f32 {
+        self.dist
+    }
+
+    /// The residual distance past the end of the segment (for carrying over to the next segment).
+    fn residual(&self) -> f32 {
+        self.dist - self.segment_len
+    }
+}
 
 pub struct StrokeParams<'a> {
     pub brush: &'a BrushSettings,
@@ -11,6 +53,148 @@ pub struct StrokeParams<'a> {
     pub secondary_tip: Option<&'a BrushTip>,
     pub texture_tip: Option<&'a BrushTip>,
     pub selection: Option<&'a [u8]>,
+}
+
+/// Maintains a sliding window of dual-brush stamp instances along the stroke path.
+///
+/// Instead of recomputing dual stamp positions for each primary stamp (which causes
+/// position drift when multiple primary stamps overlap the same dual stamp), this
+/// interpolator places dual stamps once at absolute canvas coordinates and reuses them.
+#[derive(Clone, Debug)]
+pub struct DualBrushInterpolator {
+    instances: VecDeque<DualStampInstance>,
+    residual: f32,
+    next_index: u32,
+    dual_radius: f32,
+    dual_step: f32,
+    /// Total stroke distance processed by this interpolator (for stroke_distance on new instances).
+    total_distance: f32,
+}
+
+impl Default for DualBrushInterpolator {
+    fn default() -> Self {
+        DualBrushInterpolator {
+            instances: VecDeque::new(),
+            residual: 0.0,
+            next_index: 0,
+            dual_radius: 0.0,
+            dual_step: 1.0,
+            total_distance: 0.0,
+        }
+    }
+}
+
+impl DualBrushInterpolator {
+    /// Create a new interpolator from brush settings. Uses the base brush size (not
+    /// pressure-adjusted) so that dual stamps have consistent spacing and positions.
+    fn new(brush: &BrushSettings) -> Self {
+        let dual = &brush.dual_brush;
+        let dual_radius = (brush.size / 2.0) * dual.size_ratio;
+        let dual_diameter = dual_radius * 2.0;
+        let dual_step = (dual.spacing * dual_diameter).max(1.0);
+        DualBrushInterpolator {
+            instances: VecDeque::new(),
+            residual: 0.0,
+            next_index: 0,
+            dual_radius,
+            dual_step,
+            total_distance: 0.0,
+        }
+    }
+
+    /// Place the initial dual stamp(s) at the stroke origin (no direction available).
+    /// Sets the residual to `dual_step` so the next segment doesn't re-place at distance 0.
+    fn place_initial(
+        &mut self,
+        x: f32,
+        y: f32,
+        dual: &DualBrushSettings,
+        stroke_seed: u32,
+    ) {
+        let count = dual.scatter.count.max(1);
+        for c in 0..count {
+            let inst = generate_dual_instance(
+                x, y, self.dual_radius,
+                0.0, 0.0, dual, stroke_seed,
+                0, c, 0.0,
+            );
+            self.instances.push_back(inst);
+        }
+        self.next_index = 1;
+        self.residual = self.dual_step;
+    }
+
+    /// Advance along a segment, placing new dual stamp instances at spacing intervals.
+    fn advance(
+        &mut self,
+        x0: f32,
+        y0: f32,
+        x1: f32,
+        y1: f32,
+        dir_x: f32,
+        dir_y: f32,
+        dual: &DualBrushSettings,
+        stroke_seed: u32,
+    ) {
+        let dx = x1 - x0;
+        let dy = y1 - y0;
+        let segment_len = (dx * dx + dy * dy).sqrt();
+        if segment_len < 0.001 {
+            return;
+        }
+
+        let count = dual.scatter.count.max(1);
+        let mut walker = SpacingWalker::new(segment_len, self.residual);
+
+        while let Some(t) = walker.t() {
+            let cx = x0 + dx * t;
+            let cy = y0 + dy * t;
+            let sd = self.total_distance + walker.distance();
+
+            for c in 0..count {
+                let inst = generate_dual_instance(
+                    cx, cy,
+                    self.dual_radius,
+                    dir_x, dir_y,
+                    dual, stroke_seed,
+                    self.next_index, c,
+                    sd,
+                );
+                self.instances.push_back(inst);
+            }
+            self.next_index += 1;
+            walker.advance(self.dual_step);
+        }
+
+        self.residual = walker.residual();
+        self.total_distance += segment_len;
+    }
+
+    /// Return all instances whose bounding circle overlaps a primary stamp at `(cx, cy)` with `radius`.
+    fn overlapping(&self, cx: f32, cy: f32, radius: f32) -> Vec<DualStampInstance> {
+        let max_dist = radius + self.dual_radius + 1.0;
+        let max_dist_sq = max_dist * max_dist;
+        self.instances
+            .iter()
+            .filter(|inst| {
+                let dx = inst.cx - cx;
+                let dy = inst.cy - cy;
+                dx * dx + dy * dy <= max_dist_sq
+            })
+            .cloned()
+            .collect()
+    }
+
+    /// Remove instances whose stroke distance is too far behind the current position.
+    fn prune(&mut self, min_stroke_distance: f32) {
+        while let Some(front) = self.instances.front() {
+            if front.stroke_distance < min_stroke_distance {
+                self.instances.pop_front();
+            } else {
+                break;
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -30,6 +214,8 @@ pub struct StrokeState {
     pub total_distance: f32,
     /// Seed for deterministic dual-brush per-stamp RNG, derived from stroke start coords.
     pub stroke_seed: u32,
+    /// Sliding window of dual brush stamp instances along the stroke path.
+    dual_interp: DualBrushInterpolator,
 }
 
 impl StrokeState {
@@ -44,6 +230,7 @@ impl StrokeState {
             initial_direction: None,
             total_distance: 0.0,
             stroke_seed: 0,
+            dual_interp: DualBrushInterpolator::default(),
         }
     }
 
@@ -57,6 +244,7 @@ impl StrokeState {
         self.initial_direction = None;
         self.total_distance = 0.0;
         self.stroke_seed = 0;
+        self.dual_interp = DualBrushInterpolator::default();
     }
 }
 
@@ -229,6 +417,7 @@ fn segment_bounds(
 /// `initial_direction_angle` is the initial direction for InitialDirection control.
 /// `total_distance` is the cumulative stroke distance at the start of this segment.
 /// `stroke_seed` is the per-stroke seed for deterministic dual brush RNG.
+/// `dual_interp` is the sliding window of dual brush instances along the stroke path.
 pub fn interpolate_and_stamp(
     target: &mut Layer,
     x0: f32,
@@ -243,6 +432,7 @@ pub fn interpolate_and_stamp(
     initial_direction_angle: f32,
     total_distance: &mut f32,
     stroke_seed: u32,
+    dual_interp: &mut DualBrushInterpolator,
 ) -> f32 {
     let dx = x1 - x0;
     let dy = y1 - y0;
@@ -263,10 +453,16 @@ pub fn interpolate_and_stamp(
 
     let brush = params.brush;
     let scatter = &brush.scatter;
-    let mut dist = residual;
 
-    while dist <= segment_len {
-        let t = dist / segment_len;
+    // Advance dual brush interpolator along this segment before the primary stamp loop,
+    // so all dual instances are placed at stable absolute positions.
+    if brush.dual_brush.enabled {
+        dual_interp.advance(x0, y0, x1, y1, dir_x, dir_y, &brush.dual_brush, stroke_seed);
+    }
+
+    let mut walker = SpacingWalker::new(segment_len, residual);
+
+    while let Some(t) = walker.t() {
         let x = x0 + dx * t;
         let y = y0 + dy * t;
         let pressure = p0 + (p1 - p0) * t;
@@ -291,8 +487,6 @@ pub fn interpolate_and_stamp(
             1
         };
 
-        let stamp_dist = *total_distance + dist;
-
         for _ in 0..stamp_count {
             // Apply scatter offset
             let (sx, sy) = if scatter.scatter > 0.0 {
@@ -311,20 +505,8 @@ pub fn interpolate_and_stamp(
                 (sp.x, sp.y)
             };
 
-            let mut scattered_sp = StampParams { x: sx, y: sy, ..sp };
-            let _ = &mut scattered_sp; // keep sp usable
-
-            // Compute dual brush instances for this primary stamp
-            let dual_instances = compute_dual_stamps(
-                sx,
-                sy,
-                sp.radius,
-                stamp_dist,
-                dir_x,
-                dir_y,
-                &brush.dual_brush,
-                stroke_seed,
-            );
+            // Query overlapping dual instances from the sliding window
+            let dual_instances = dual_interp.overlapping(sx, sy, sp.radius);
 
             let tex_ref = if brush.texture.enabled {
                 params.texture_tip.map(|t| (&brush.texture, t))
@@ -345,13 +527,21 @@ pub fn interpolate_and_stamp(
         }
 
         let step = (brush.spacing * effective_size).max(1.0);
-        dist += step;
+        walker.advance(step);
+    }
+
+    // Prune dual instances that are too far behind to overlap any future primary stamp
+    if brush.dual_brush.enabled {
+        let max_primary_radius = brush.size / 2.0;
+        let max_scatter_offset = brush.dual_brush.scatter.scatter * dual_interp.dual_radius * 2.0;
+        let lookback = max_primary_radius + dual_interp.dual_radius + max_scatter_offset + 1.0;
+        dual_interp.prune(*total_distance + segment_len - lookback);
     }
 
     // Update total stroke distance
     *total_distance += segment_len;
 
-    dist - segment_len
+    walker.residual()
 }
 
 /// Begin a stroke at the given position.
@@ -383,17 +573,12 @@ pub fn stroke_begin(
     let sp = compute_stamp_params(brush, x, y, pressure, &mut rng, dir_angle, dir_angle);
     let effective_size = sp.radius * 2.0;
 
-    // Compute dual brush instances for the initial stamp (no direction yet)
-    let dual_instances = compute_dual_stamps(
-        x,
-        y,
-        sp.radius,
-        0.0,
-        0.0,
-        0.0,
-        &brush.dual_brush,
-        state.stroke_seed,
-    );
+    // Initialize dual brush interpolator and place initial instances at stroke origin
+    state.dual_interp = DualBrushInterpolator::new(brush);
+    if brush.dual_brush.enabled {
+        state.dual_interp.place_initial(x, y, &brush.dual_brush, state.stroke_seed);
+    }
+    let dual_instances = state.dual_interp.overlapping(x, y, sp.radius);
 
     let tex_ref = if brush.texture.enabled {
         params.texture_tip.map(|t| (&brush.texture, t))
@@ -490,6 +675,7 @@ pub fn stroke_move(
             initial_dir,
             &mut state.total_distance,
             state.stroke_seed,
+            &mut state.dual_interp,
         );
         state.residual_distance = residual;
 
@@ -556,6 +742,7 @@ mod tests {
             0.0,
             &mut 0.0f32,
             0,
+            &mut DualBrushInterpolator::new(&brush),
         );
         assert!(residual >= 0.0);
         // step=1.0, segment=10.0, stamps at 0,1,...,10 -> next at 11, residual=1.0
@@ -642,6 +829,7 @@ mod tests {
             0.0,
             &mut 0.0f32,
             0,
+            &mut DualBrushInterpolator::new(&brush),
         );
         assert!(
             (residual - 3.0).abs() < 0.01,
@@ -670,6 +858,7 @@ mod tests {
             0.0,
             &mut 0.0f32,
             0,
+            &mut DualBrushInterpolator::new(&brush),
         );
         assert!(
             (residual2 - 1.0).abs() < 0.01,
@@ -708,6 +897,7 @@ mod tests {
             0.0,
             &mut 0.0f32,
             0,
+            &mut DualBrushInterpolator::new(&brush),
         );
         let mut layer_high = Layer::new(0, 200, 20);
         interpolate_and_stamp(
@@ -730,6 +920,7 @@ mod tests {
             0.0,
             &mut 0.0f32,
             0,
+            &mut DualBrushInterpolator::new(&brush),
         );
 
         let cols_drawn = |layer: &Layer| -> usize {
@@ -784,6 +975,7 @@ mod tests {
             0.0,
             &mut 0.0f32,
             0,
+            &mut DualBrushInterpolator::new(&brush),
         );
         let mut layer_high = Layer::new(0, 200, 20);
         interpolate_and_stamp(
@@ -806,6 +998,7 @@ mod tests {
             0.0,
             &mut 0.0f32,
             0,
+            &mut DualBrushInterpolator::new(&brush),
         );
 
         let cols_drawn = |layer: &Layer| -> usize {
@@ -851,6 +1044,7 @@ mod tests {
             0.0,
             &mut 0.0f32,
             0,
+            &mut DualBrushInterpolator::new(&brush),
         );
 
         let first_quarter_has_stamps =
@@ -1384,6 +1578,7 @@ mod tests {
             0.0,
             &mut total_dist,
             0,
+            &mut DualBrushInterpolator::new(&brush),
         );
         assert!(
             (total_dist - 50.0).abs() < 1.0,
@@ -1412,6 +1607,7 @@ mod tests {
             0.0,
             &mut total_dist,
             0,
+            &mut DualBrushInterpolator::new(&brush),
         );
         assert!(
             total_dist > td_before,
@@ -1449,6 +1645,7 @@ mod tests {
             radius: primary_radius,
             angle: 0.0,
             roundness: 1.0,
+        stroke_distance: 0.0,
         }];
 
         let brush = BrushSettings {
@@ -1509,5 +1706,116 @@ mod tests {
             "secondary_tip=None (computed) should produce different output than \
              secondary_tip=Some (sampled image)"
         );
+    }
+
+    #[test]
+    fn test_dual_interpolator_places_stamps_at_fixed_positions() {
+        // Regression test: two overlapping primary stamps should see the same
+        // dual stamp instance at exactly the same absolute pixel position.
+        use crate::brush::{DualBrushMode, DualBrushSettings, ScatterSettings};
+
+        let brush = BrushSettings {
+            size: 20.0,
+            spacing: 0.1, // low spacing = many overlapping primary stamps
+            dual_brush: DualBrushSettings {
+                enabled: true,
+                mode: DualBrushMode::Multiply,
+                hardness: 1.0,
+                size_ratio: 1.0,
+                spacing: 1.0, // dual step = 20.0
+                scatter: ScatterSettings {
+                    scatter: 0.0,
+                    count: 1,
+                    both_axes: false,
+                    ..Default::default()
+                },
+            },
+            ..Default::default()
+        };
+
+        let mut interp = DualBrushInterpolator::new(&brush);
+        // Advance along a horizontal segment long enough for multiple dual stamps
+        interp.advance(0.0, 50.0, 60.0, 50.0, 1.0, 0.0, &brush.dual_brush, 42);
+
+        // Two primary stamps close together should get the same dual instance positions
+        let overlap_a = interp.overlapping(10.0, 50.0, 10.0);
+        let overlap_b = interp.overlapping(11.0, 50.0, 10.0);
+
+        // Find any dual instance that appears in both sets
+        let mut found_shared = false;
+        for a in &overlap_a {
+            for b in &overlap_b {
+                if (a.cx - b.cx).abs() < 0.001 && (a.cy - b.cy).abs() < 0.001 {
+                    found_shared = true;
+                    // They must be at EXACTLY the same position (not approximately)
+                    assert_eq!(a.cx, b.cx, "Shared dual stamp cx must be identical");
+                    assert_eq!(a.cy, b.cy, "Shared dual stamp cy must be identical");
+                }
+            }
+        }
+        assert!(
+            found_shared,
+            "Close primary stamps should share at least one dual stamp instance"
+        );
+    }
+
+    #[test]
+    fn test_dual_interpolator_prune_removes_old_instances() {
+        use crate::brush::{DualBrushMode, DualBrushSettings, ScatterSettings};
+
+        let brush = BrushSettings {
+            size: 20.0,
+            spacing: 0.25,
+            dual_brush: DualBrushSettings {
+                enabled: true,
+                mode: DualBrushMode::Multiply,
+                hardness: 1.0,
+                size_ratio: 1.0,
+                spacing: 0.25, // dual step = 5.0
+                scatter: ScatterSettings::default(),
+            },
+            ..Default::default()
+        };
+
+        let mut interp = DualBrushInterpolator::new(&brush);
+        interp.advance(0.0, 0.0, 100.0, 0.0, 1.0, 0.0, &brush.dual_brush, 42);
+
+        let count_before = interp.instances.len();
+        assert!(count_before > 5, "Should have many dual stamps along 100px");
+
+        // Prune everything before distance 50
+        interp.prune(50.0);
+        let count_after = interp.instances.len();
+        assert!(
+            count_after < count_before,
+            "Pruning should remove old instances"
+        );
+
+        // All remaining instances should have stroke_distance >= 50
+        for inst in &interp.instances {
+            assert!(
+                inst.stroke_distance >= 50.0,
+                "After prune(50), all instances should have stroke_distance >= 50, got {}",
+                inst.stroke_distance
+            );
+        }
+    }
+
+    #[test]
+    fn test_dual_interpolator_disabled_produces_no_instances() {
+        let brush = BrushSettings {
+            size: 20.0,
+            dual_brush: DualBrushSettings {
+                enabled: false,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let mut interp = DualBrushInterpolator::new(&brush);
+        // Even with advance, disabled dual brush shouldn't place stamps (radius=0 → step clamped to 1)
+        // But overlapping should return empty since no instances are added
+        let overlap = interp.overlapping(50.0, 50.0, 10.0);
+        assert!(overlap.is_empty(), "Disabled dual brush should produce no overlapping instances");
     }
 }

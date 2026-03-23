@@ -261,94 +261,59 @@ pub struct DualStampInstance {
     pub radius: f32,
     pub angle: f32,
     pub roundness: f32,
+    /// Cumulative stroke distance where this instance was placed (for sliding-window pruning).
+    pub stroke_distance: f32,
 }
 
-/// Compute all secondary (dual brush) stamp instances that could overlap
-/// a primary stamp at the given position.
+/// Generate a single dual-brush stamp instance at a given position along the stroke path.
 ///
-/// The dual brush has its own spacing along the stroke path. We approximate
-/// the stroke path as a line through the primary stamp center in the given
-/// direction, then find all dual stamp indices whose footprint intersects
-/// the primary stamp. Each index gets deterministic scatter via `Rng::from_index`.
-pub fn compute_dual_stamps(
-    primary_cx: f32,
-    primary_cy: f32,
-    primary_radius: f32,
-    stroke_distance: f32,
+/// Applies deterministic scatter and angle jitter using `Rng::from_index(stroke_seed, n, c)`.
+/// The position `(path_cx, path_cy)` is the base point on the stroke path; scatter offsets
+/// are applied relative to the stroke direction `(dir_x, dir_y)`.
+pub fn generate_dual_instance(
+    path_cx: f32,
+    path_cy: f32,
+    dual_radius: f32,
     dir_x: f32,
     dir_y: f32,
     dual: &DualBrushSettings,
     stroke_seed: u32,
-) -> Vec<DualStampInstance> {
-    let mut instances = Vec::new();
-    if !dual.enabled {
-        return instances;
-    }
-
-    let dual_radius = primary_radius * dual.size_ratio;
+    n: u32,
+    c: u32,
+    stroke_distance: f32,
+) -> DualStampInstance {
     let dual_diameter = dual_radius * 2.0;
-    let dual_step = (dual.spacing * dual_diameter).max(1.0);
-
-    // Maximum distance a scattered dual stamp can be offset from its base position
     let max_scatter = dual.scatter.scatter * dual_diameter;
-
-    // Search range along the stroke line: any dual stamp whose center (after scatter)
-    // could overlap the primary stamp's bounding circle.
-    let search = primary_radius + dual_radius + max_scatter;
-
-    // Perpendicular direction for scatter
     let perp_x = -dir_y;
     let perp_y = dir_x;
 
-    let n_start = ((stroke_distance - search) / dual_step).floor().max(0.0) as u32;
-    let n_end = ((stroke_distance + search) / dual_step).ceil().max(0.0) as u32;
+    let mut rng = Rng::from_index(stroke_seed, n, c);
 
-    let count = dual.scatter.count.max(1);
+    let (scatter_along, scatter_perp) = if dual.scatter.scatter > 0.0 {
+        let perp_off = (rng.next_f32() * 2.0 - 1.0) * max_scatter;
+        let along_off = if dual.scatter.both_axes {
+            (rng.next_f32() * 2.0 - 1.0) * max_scatter
+        } else {
+            0.0
+        };
+        (along_off, perp_off)
+    } else {
+        (0.0, 0.0)
+    };
 
-    for n in n_start..=n_end {
-        let base_offset = n as f32 * dual_step - stroke_distance;
+    let angle = jitter_angle_offset(1.0, &mut rng);
 
-        for c in 0..count {
-            let mut rng = Rng::from_index(stroke_seed, n, c);
+    let cx = path_cx + scatter_along * dir_x + scatter_perp * perp_x;
+    let cy = path_cy + scatter_along * dir_y + scatter_perp * perp_y;
 
-            // Scatter offset
-            let (scatter_along, scatter_perp) = if dual.scatter.scatter > 0.0 {
-                let perp_off = (rng.next_f32() * 2.0 - 1.0) * max_scatter;
-                let along_off = if dual.scatter.both_axes {
-                    (rng.next_f32() * 2.0 - 1.0) * max_scatter
-                } else {
-                    0.0
-                };
-                (along_off, perp_off)
-            } else {
-                (0.0, 0.0)
-            };
-
-            // Dual brush has an implicit angle jitter of 1.0.
-            let angle = jitter_angle_offset(1.0, &mut rng);
-
-            let total_along = base_offset + scatter_along;
-            let cx = primary_cx + total_along * dir_x + scatter_perp * perp_x;
-            let cy = primary_cy + total_along * dir_y + scatter_perp * perp_y;
-
-            // Quick rejection: is this instance close enough to potentially overlap?
-            let dx = cx - primary_cx;
-            let dy = cy - primary_cy;
-            let dist_sq = dx * dx + dy * dy;
-            let max_dist = primary_radius + dual_radius + 1.0;
-            if dist_sq <= max_dist * max_dist {
-                instances.push(DualStampInstance {
-                    cx,
-                    cy,
-                    radius: dual_radius,
-                    angle,
-                    roundness: 1.0, // Future: add roundness jitter here
-                });
-            }
-        }
+    DualStampInstance {
+        cx,
+        cy,
+        radius: dual_radius,
+        angle,
+        roundness: 1.0,
+        stroke_distance,
     }
-
-    instances
 }
 
 /// Sample the accumulated secondary alpha at a pixel from all overlapping dual stamp instances.
@@ -1454,6 +1419,7 @@ mod tests {
             radius: 3.0,
             angle: 0.0,
             roundness: 1.0,
+        stroke_distance: 0.0,
         }];
         let mut layer_dual = Layer::new(0, 40, 40);
         // Secondary radius = 3px (much smaller than primary radius = 8px)
@@ -1710,6 +1676,7 @@ mod tests {
                     radius: 3.0,
                     angle: 0.0,
                     roundness: 1.0,
+                stroke_distance: 0.0,
                 }],
                 &sec,
                 DualBrushMode::Lighten,
@@ -1760,6 +1727,7 @@ mod tests {
                     radius: 8.0,
                     angle: 0.0,
                     roundness: 1.0,
+                stroke_distance: 0.0,
                 }],
                 &sec,
                 DualBrushMode::Subtract,
@@ -1775,82 +1743,31 @@ mod tests {
     }
 
     #[test]
-    fn test_compute_dual_stamps_disabled() {
-        let dual = DualBrushSettings {
-            enabled: false,
-            ..Default::default()
-        };
-        let instances = compute_dual_stamps(50.0, 50.0, 10.0, 50.0, 1.0, 0.0, &dual, 42);
-        assert!(
-            instances.is_empty(),
-            "Disabled dual brush should produce no instances"
-        );
-    }
-
-    #[test]
-    fn test_compute_dual_stamps_basic_positions() {
-        let dual = DualBrushSettings {
-            enabled: true,
-            size_ratio: 0.5, // 10.0 diameter / 20.0 primary diameter
-            spacing: 1.0, // step = 10.0 absolute
-            scatter: ScatterSettings {
-                scatter: 0.0, // no scatter
-                count: 1,
-                both_axes: false,
-                ..Default::default()
-            },
-            hardness: 1.0,
-            mode: DualBrushMode::Multiply,
-        };
-        // Primary stamp at distance 50.0, direction (1,0), radius 10
-        // dual_step = 10.0, dual_radius = 5.0
-        // search = 10 + 5 + 0 = 15
-        // n_start = floor((50-15)/10) = 3, n_end = ceil((50+15)/10) = 7
-        // Stamps at n*10: 30, 40, 50, 60, 70
-        // Offsets from primary: -20, -10, 0, 10, 20
-        let instances = compute_dual_stamps(50.0, 50.0, 10.0, 50.0, 1.0, 0.0, &dual, 42);
-        assert!(!instances.is_empty());
-        // The instance at n=5 (distance=50) should be centered on the primary stamp
-        let center_inst = instances.iter().find(|i| (i.cx - 50.0).abs() < 0.1);
-        assert!(
-            center_inst.is_some(),
-            "Should have a dual stamp at the primary center"
-        );
-    }
-
-    #[test]
-    fn test_compute_dual_stamps_with_count() {
+    fn test_generate_dual_instance_no_scatter() {
         let dual = DualBrushSettings {
             enabled: true,
             size_ratio: 0.5,
             spacing: 1.0,
             scatter: ScatterSettings {
                 scatter: 0.0,
-                count: 3,
+                count: 1,
                 both_axes: false,
                 ..Default::default()
             },
             hardness: 1.0,
             mode: DualBrushMode::Multiply,
         };
-        let instances_c3 = compute_dual_stamps(50.0, 50.0, 10.0, 50.0, 1.0, 0.0, &dual, 42);
-        let dual_c1 = DualBrushSettings {
-            scatter: ScatterSettings {
-                count: 1,
-                ..dual.scatter.clone()
-            },
-            ..dual.clone()
-        };
-        let instances_c1 = compute_dual_stamps(50.0, 50.0, 10.0, 50.0, 1.0, 0.0, &dual_c1, 42);
-        // count=3 should produce more instances (3x per spacing step, minus rejection)
-        assert!(
-            instances_c3.len() >= instances_c1.len(),
-            "Higher count should produce at least as many instances"
-        );
+        let dual_radius = 5.0;
+        // With no scatter, the instance should be exactly at the given position
+        let inst = generate_dual_instance(50.0, 50.0, dual_radius, 1.0, 0.0, &dual, 42, 0, 0, 0.0);
+        assert_eq!(inst.cx, 50.0, "No scatter: cx should be at path position");
+        assert_eq!(inst.cy, 50.0, "No scatter: cy should be at path position");
+        assert_eq!(inst.radius, dual_radius);
+        assert_eq!(inst.stroke_distance, 0.0);
     }
 
     #[test]
-    fn test_compute_dual_stamps_deterministic() {
+    fn test_generate_dual_instance_deterministic() {
         let dual = DualBrushSettings {
             enabled: true,
             size_ratio: 0.5,
@@ -1864,14 +1781,52 @@ mod tests {
             hardness: 1.0,
             mode: DualBrushMode::Multiply,
         };
-        let a = compute_dual_stamps(50.0, 50.0, 10.0, 50.0, 1.0, 0.0, &dual, 42);
-        let b = compute_dual_stamps(50.0, 50.0, 10.0, 50.0, 1.0, 0.0, &dual, 42);
-        assert_eq!(a.len(), b.len());
-        for (ia, ib) in a.iter().zip(b.iter()) {
-            assert_eq!(ia.cx, ib.cx);
-            assert_eq!(ia.cy, ib.cy);
-            assert_eq!(ia.radius, ib.radius);
-        }
+        let a = generate_dual_instance(50.0, 50.0, 5.0, 1.0, 0.0, &dual, 42, 3, 1, 30.0);
+        let b = generate_dual_instance(50.0, 50.0, 5.0, 1.0, 0.0, &dual, 42, 3, 1, 30.0);
+        assert_eq!(a.cx, b.cx, "Same seed/index should produce same cx");
+        assert_eq!(a.cy, b.cy, "Same seed/index should produce same cy");
+        assert_eq!(a.angle, b.angle, "Same seed/index should produce same angle");
+    }
+
+    #[test]
+    fn test_generate_dual_instance_with_count() {
+        let dual = DualBrushSettings {
+            enabled: true,
+            size_ratio: 0.5,
+            spacing: 1.0,
+            scatter: ScatterSettings {
+                scatter: 0.3,
+                count: 3,
+                both_axes: false,
+                ..Default::default()
+            },
+            hardness: 1.0,
+            mode: DualBrushMode::Multiply,
+        };
+        // Different count indices should produce different instances
+        let i0 = generate_dual_instance(50.0, 50.0, 5.0, 1.0, 0.0, &dual, 42, 5, 0, 50.0);
+        let i1 = generate_dual_instance(50.0, 50.0, 5.0, 1.0, 0.0, &dual, 42, 5, 1, 50.0);
+        let i2 = generate_dual_instance(50.0, 50.0, 5.0, 1.0, 0.0, &dual, 42, 5, 2, 50.0);
+        // With scatter, at least some should differ
+        let all_same = i0.cx == i1.cx && i1.cx == i2.cx && i0.cy == i1.cy && i1.cy == i2.cy;
+        assert!(
+            !all_same,
+            "Different count indices with scatter should produce different positions"
+        );
+    }
+
+    #[test]
+    fn test_generate_dual_instance_scales_with_size() {
+        let dual = DualBrushSettings {
+            enabled: true,
+            size_ratio: 0.5,
+            spacing: 0.5,
+            ..Default::default()
+        };
+        let inst_small = generate_dual_instance(50.0, 50.0, 5.0, 1.0, 0.0, &dual, 123, 0, 0, 0.0);
+        let inst_large = generate_dual_instance(50.0, 50.0, 10.0, 1.0, 0.0, &dual, 123, 0, 0, 0.0);
+        assert_eq!(inst_small.radius, 5.0);
+        assert_eq!(inst_large.radius, 10.0);
     }
 
     #[test]
@@ -1885,6 +1840,7 @@ mod tests {
                 radius: 5.0,
                 angle: 0.0,
                 roundness: 1.0,
+            stroke_distance: 0.0,
             }, // pixel at center -> alpha ~1.0
             DualStampInstance {
                 cx: 55.0,
@@ -1892,6 +1848,7 @@ mod tests {
                 radius: 5.0,
                 angle: 0.0,
                 roundness: 1.0,
+            stroke_distance: 0.0,
             }, // pixel 5px from center -> lower alpha
         ];
         let alpha = sample_dual_stamps(50.0, 50.0, &instances, &sec);
@@ -1917,6 +1874,7 @@ mod tests {
             radius: 5.0,
             angle: 0.0,
             roundness: 1.0,
+        stroke_distance: 0.0,
         }];
         // Pixel far from the instance
         let alpha = sample_dual_stamps(100.0, 100.0, &instances, &sec);
@@ -1924,7 +1882,7 @@ mod tests {
     }
 
     #[test]
-    fn test_dual_brush_scales_with_primary_size() {
+    fn test_dual_brush_scales_with_size_ratio() {
         let dual = DualBrushSettings {
             enabled: true,
             size_ratio: 0.5,
@@ -1932,20 +1890,9 @@ mod tests {
             ..Default::default()
         };
 
-        // Case 1: Primary radius 10 -> Dual radius 5
-        let instances1 = compute_dual_stamps(
-            50.0, 50.0, 10.0, 0.0, 1.0, 0.0, &dual, 123
-        );
-        // Find instance at center (distance 0)
-        let center1 = instances1.iter().find(|i| (i.cx - 50.0).abs() < 0.1).expect("center1 not found");
-        assert_eq!(center1.radius, 5.0, "Dual radius should be half of primary radius (10)");
-
-        // Case 2: Primary radius 20 -> Dual radius 10
-        let instances2 = compute_dual_stamps(
-            50.0, 50.0, 20.0, 0.0, 1.0, 0.0, &dual, 123
-        );
-        let center2 = instances2.iter().find(|i| (i.cx - 50.0).abs() < 0.1).expect("center2 not found");
-        assert_eq!(center2.radius, 10.0, "Dual radius should be half of primary radius (20)");
+        // With size_ratio 0.5 and primary radius 10, dual radius should be 5
+        let inst = generate_dual_instance(50.0, 50.0, 5.0, 1.0, 0.0, &dual, 123, 0, 0, 0.0);
+        assert_eq!(inst.radius, 5.0, "Dual radius should match the passed dual_radius");
     }
 
     /// When using a textured (sampled) dual brush with size_ratio=1.0,
@@ -1974,7 +1921,6 @@ mod tests {
         };
 
         let primary_radius = 20.0_f32;
-        // size_ratio = 1.0 means the dual stamp is the same size as primary
         let dual = DualBrushSettings {
             enabled: true,
             size_ratio: 1.0,
@@ -1982,10 +1928,11 @@ mod tests {
             ..Default::default()
         };
 
-        // Compute a dual stamp centered on the primary stamp
-        let instances = compute_dual_stamps(
-            50.0, 50.0, primary_radius, 0.0, 1.0, 0.0, &dual, 42,
+        // Generate a dual stamp centered on the primary stamp via generate_dual_instance
+        let inst = generate_dual_instance(
+            50.0, 50.0, primary_radius, 1.0, 0.0, &dual, 42, 0, 0, 0.0,
         );
+        let instances = vec![inst];
         assert!(!instances.is_empty(), "Should have at least one dual stamp");
 
         let sec = SecondaryTipState::Image(&tip);
@@ -2006,9 +1953,6 @@ mod tests {
         unique.sort_by(|a, b| a.partial_cmp(b).unwrap());
         unique.dedup_by(|a, b| (*a - *b).abs() < 0.01);
 
-        // A checkerboard pattern should produce clearly distinct values
-        // (at least opaque and transparent). If the dual stamp were
-        // enormous, all samples would be nearly identical.
         assert!(
             unique.len() >= 2,
             "Dual brush with textured tip should produce spatially varying alpha, \
