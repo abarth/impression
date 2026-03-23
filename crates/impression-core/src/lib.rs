@@ -275,6 +275,7 @@ impl ImpressionCanvas {
         size_ratio: f32,
         spacing: f32,
         count: u32,
+        count_jitter: f32,
         scatter: f32,
         both_axes: bool,
     ) {
@@ -288,7 +289,7 @@ impl ImpressionCanvas {
                 scatter,
                 both_axes,
                 count,
-                count_jitter: 0.0,
+                count_jitter,
             },
         });
     }

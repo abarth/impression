@@ -55,6 +55,22 @@ pub struct StrokeParams<'a> {
     pub selection: Option<&'a [u8]>,
 }
 
+/// Compute the jittered stamp count for a dual brush position.
+///
+/// Uses a deterministic RNG keyed on `(stroke_seed, stamp_index)` so the count is
+/// stable regardless of rendering order. With `count_jitter == 0` the base count is
+/// returned unchanged.
+fn jittered_dual_count(scatter: &crate::brush::ScatterSettings, stroke_seed: u32, stamp_index: u32) -> u32 {
+    let base = scatter.count.max(1);
+    if scatter.count_jitter <= 0.0 || base <= 1 {
+        return base;
+    }
+    let mut rng = Rng::from_index(stroke_seed, stamp_index, u32::MAX);
+    let base_f = base as f32;
+    let jittered = base_f - base_f * scatter.count_jitter * rng.next_f32();
+    jittered.round().max(1.0) as u32
+}
+
 /// Maintains a sliding window of dual-brush stamp instances along the stroke path.
 ///
 /// Instead of recomputing dual stamp positions for each primary stamp (which causes
@@ -111,7 +127,7 @@ impl DualBrushInterpolator {
         dual: &DualBrushSettings,
         stroke_seed: u32,
     ) {
-        let count = dual.scatter.count.max(1);
+        let count = jittered_dual_count(&dual.scatter, stroke_seed, 0);
         for c in 0..count {
             let inst = generate_dual_instance(
                 x, y, self.dual_radius,
@@ -143,13 +159,13 @@ impl DualBrushInterpolator {
             return;
         }
 
-        let count = dual.scatter.count.max(1);
         let mut walker = SpacingWalker::new(segment_len, self.residual);
 
         while let Some(t) = walker.t() {
             let cx = x0 + dx * t;
             let cy = y0 + dy * t;
             let sd = self.total_distance + walker.distance();
+            let count = jittered_dual_count(&dual.scatter, stroke_seed, self.next_index);
 
             for c in 0..count {
                 let inst = generate_dual_instance(
@@ -1798,6 +1814,64 @@ mod tests {
                 "After prune(50), all instances should have stroke_distance >= 50, got {}",
                 inst.stroke_distance
             );
+        }
+    }
+
+    #[test]
+    fn test_dual_count_jitter_reduces_stamp_count() {
+        use crate::brush::{DualBrushMode, DualBrushSettings, ScatterSettings};
+
+        // With count=3 and count_jitter=1.0 (maximum), every position should
+        // produce between 1 and 3 stamps. Collect across multiple stamp indices
+        // and verify we see at least one position with fewer than 3 stamps.
+        let dual = DualBrushSettings {
+            enabled: true,
+            mode: DualBrushMode::Multiply,
+            hardness: 1.0,
+            size_ratio: 1.0,
+            spacing: 0.25,
+            scatter: ScatterSettings {
+                scatter: 0.5,
+                both_axes: false,
+                count: 3,
+                count_jitter: 1.0,
+            },
+        };
+
+        let stroke_seed = 99u32;
+        let mut saw_reduced = false;
+        for n in 0..20u32 {
+            let c = jittered_dual_count(&dual.scatter, stroke_seed, n);
+            assert!(c >= 1 && c <= 3, "count should be 1..=3, got {c}");
+            if c < 3 {
+                saw_reduced = true;
+            }
+        }
+        assert!(saw_reduced, "With count_jitter=1.0, at least one position should have fewer than max stamps");
+    }
+
+    #[test]
+    fn test_dual_count_jitter_zero_keeps_full_count() {
+        use crate::brush::{DualBrushMode, DualBrushSettings, ScatterSettings};
+
+        let dual = DualBrushSettings {
+            enabled: true,
+            mode: DualBrushMode::Multiply,
+            hardness: 1.0,
+            size_ratio: 1.0,
+            spacing: 0.25,
+            scatter: ScatterSettings {
+                scatter: 0.5,
+                both_axes: false,
+                count: 4,
+                count_jitter: 0.0,
+            },
+        };
+
+        // With jitter=0 every stamp position should yield exactly 4 stamps
+        for n in 0..10u32 {
+            let c = jittered_dual_count(&dual.scatter, 42, n);
+            assert_eq!(c, 4, "count_jitter=0 should always return base count 4");
         }
     }
 

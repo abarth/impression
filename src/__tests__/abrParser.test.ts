@@ -725,6 +725,91 @@ describe("abrParser", () => {
     expect(result[0].params!.dualBrush).toBeUndefined();
   });
 
+  it("parses dual brush scatter when useScatter is true", () => {
+    const header = new BinaryBuilder().u16(6).u16(2);
+    const samp = buildSampSection([
+      { width: 2, height: 2, pixels: [255, 255, 255, 255], uuid: "tip-1" },
+    ], 2);
+
+    const dualBrshDesc = new BinaryBuilder()
+      .unicodeString("").classId("computedBrush").u32(2)
+      .append(untfItem("Dmtr", "#Pxl", 20))
+      .append(untfItem("Spcn", "#Prc", 25));
+
+    const dualItems = [
+      boolItem("useDualBrush", true),
+      enumItem("BlnM", "BlnM", "Mltp"),
+      new BinaryBuilder().key("Brsh").tag("Objc").append(dualBrshDesc),
+      boolItem("useScatter", true),
+      untfItem("Sctr", "#Prc", 150),   // 150% → 1.5 after /100
+      untfItem("Cnt ", "#Nmbr", 3),
+      boolItem("BthA", true),
+      untfItem("CntJ", "#Prc", 50),    // 50% → 0.5 after /100
+    ];
+    const dualDesc = new BinaryBuilder()
+      .unicodeString("").classId("dualBrush").u32(dualItems.length);
+    for (const item of dualItems) dualDesc.append(item);
+
+    const desc = buildDescSection([{
+      name: "Scatter Dual",
+      tipUuid: "tip-1",
+      presetItems: [new BinaryBuilder().key("dualBrush").tag("Objc").append(dualDesc)],
+    }]);
+
+    const buf = new Uint8Array(new BinaryBuilder().append(header).append(samp).append(desc).toArray()).buffer;
+    const result = parseAbrFile(buf);
+
+    expect(result.length).toBe(1);
+    const db = result[0].params!.dualBrush!;
+    expect(db).toBeDefined();
+    expect(db.scatter).toBeCloseTo(1.5);
+    expect(db.count).toBe(3);
+    expect(db.bothAxes).toBe(true);
+    expect(db.countJitter).toBeCloseTo(0.5);
+  });
+
+  it("does not apply dual brush scatter when useScatter is false", () => {
+    const header = new BinaryBuilder().u16(6).u16(2);
+    const samp = buildSampSection([
+      { width: 2, height: 2, pixels: [255, 255, 255, 255], uuid: "tip-1" },
+    ], 2);
+
+    const dualBrshDesc = new BinaryBuilder()
+      .unicodeString("").classId("computedBrush").u32(1)
+      .append(untfItem("Dmtr", "#Pxl", 20));
+
+    const dualItems = [
+      boolItem("useDualBrush", true),
+      enumItem("BlnM", "BlnM", "Mltp"),
+      new BinaryBuilder().key("Brsh").tag("Objc").append(dualBrshDesc),
+      boolItem("useScatter", false),
+      untfItem("Sctr", "#Prc", 200),   // should be ignored
+      untfItem("Cnt ", "#Nmbr", 5),    // should be ignored (reset to 1)
+      boolItem("BthA", true),          // should be ignored
+      untfItem("CntJ", "#Prc", 80),    // should be ignored
+    ];
+    const dualDesc = new BinaryBuilder()
+      .unicodeString("").classId("dualBrush").u32(dualItems.length);
+    for (const item of dualItems) dualDesc.append(item);
+
+    const desc = buildDescSection([{
+      name: "No Scatter Dual",
+      tipUuid: "tip-1",
+      presetItems: [new BinaryBuilder().key("dualBrush").tag("Objc").append(dualDesc)],
+    }]);
+
+    const buf = new Uint8Array(new BinaryBuilder().append(header).append(samp).append(desc).toArray()).buffer;
+    const result = parseAbrFile(buf);
+
+    expect(result.length).toBe(1);
+    const db = result[0].params!.dualBrush!;
+    expect(db).toBeDefined();
+    expect(db.scatter).toBe(0);
+    expect(db.count).toBe(1);
+    expect(db.bothAxes).toBe(false);
+    expect(db.countJitter).toBe(0);
+  });
+
   it("should extract texture pattern image from patt section", () => {
     const header = new BinaryBuilder().u16(6).u16(2);
     const width = 4;

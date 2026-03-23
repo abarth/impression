@@ -47,6 +47,7 @@ export interface DualBrushSettings {
   sizeRatio: number;
   spacing: number;
   count: number;
+  countJitter: number;
   scatter: number;
   bothAxes: boolean;
   /** Tip ID for a sampled dual brush tip, stored in brush_tips. */
@@ -126,6 +127,7 @@ const DEFAULT_DUAL_BRUSH: DualBrushSettings = {
   sizeRatio: 1.0,
   spacing: 0.25,
   count: 1,
+  countJitter: 0,
   scatter: 0,
   bothAxes: false,
 };
@@ -236,7 +238,7 @@ export function useBrushSettings(engine: Engine | null, activeTool: Tool) {
     eng.setDualBrush(
       db.enabled, db.mode, db.hardness,
       db.sizeRatio,
-      db.spacing, db.count, db.scatter, db.bothAxes
+      db.spacing, db.count, db.countJitter, db.scatter, db.bothAxes
     );
     // Sync secondary tip: useComputed is resolved here so the Rust engine
     // simply checks whether a secondary tip is registered.

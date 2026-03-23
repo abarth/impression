@@ -527,6 +527,7 @@ describe("useBrushSettings dualBrush", () => {
         sizeRatio: 1.0,
         spacing: 0.25,
         count: 1,
+        countJitter: 0,
         scatter: 0,
         bothAxes: false,
       });
@@ -534,8 +535,8 @@ describe("useBrushSettings dualBrush", () => {
 
     const calls = (engine.setDualBrush as ReturnType<typeof vi.fn>).mock.calls;
     const lastCall = calls[calls.length - 1];
-    // setDualBrush now takes 8 args (no useComputed): enabled, mode, hardness, sizeRatio, spacing, count, scatter, bothAxes
-    expect(lastCall).toHaveLength(8);
+    // setDualBrush takes 9 args: enabled, mode, hardness, sizeRatio, spacing, count, countJitter, scatter, bothAxes
+    expect(lastCall).toHaveLength(9);
   });
 
   it("should clear secondary tip when useComputed is true", () => {
