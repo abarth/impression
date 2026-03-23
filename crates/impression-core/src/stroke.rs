@@ -144,11 +144,17 @@ fn place_stamp(
     texture: Option<(&crate::brush::TextureSettings, &BrushTip)>,
 ) {
     let dual = if !dual_instances.is_empty() {
-        let sec_state = match secondary_tip {
-            Some(t) => SecondaryTipState::Image(t),
-            None => SecondaryTipState::Computed {
+        let sec_state = if brush.dual_brush.use_computed {
+            SecondaryTipState::Computed {
                 hardness: brush.dual_brush.hardness,
-            },
+            }
+        } else {
+            match secondary_tip {
+                Some(t) => SecondaryTipState::Image(t),
+                None => SecondaryTipState::Computed {
+                    hardness: brush.dual_brush.hardness,
+                },
+            }
         };
         Some((dual_instances, sec_state, brush.dual_brush.mode))
     } else {
@@ -1416,6 +1422,119 @@ mod tests {
         assert!(
             total_dist > td_before,
             "total_distance should increase across segments"
+        );
+    }
+
+    #[test]
+    fn test_place_stamp_use_computed_overrides_secondary_tip() {
+        // When use_computed is true, place_stamp should use a computed circle
+        // even when a secondary tip image is provided.
+        use crate::brush::{
+            BrushTip, DualBrushMode, DualBrushSettings, DualStampInstance, ScatterSettings,
+        };
+
+        // Create a checkerboard secondary tip image
+        let tip_size = 8u32;
+        let mut tip_pixels = vec![0u8; (tip_size * tip_size) as usize];
+        for y in 0..tip_size {
+            for x in 0..tip_size {
+                tip_pixels[(y * tip_size + x) as usize] =
+                    if (x + y) % 2 == 0 { 255 } else { 0 };
+            }
+        }
+        let secondary_tip = BrushTip {
+            pixels: tip_pixels,
+            width: tip_size,
+            height: tip_size,
+        };
+
+        let primary_radius = 10.0_f32;
+        let dual_instances = vec![DualStampInstance {
+            cx: 20.0,
+            cy: 20.0,
+            radius: primary_radius,
+            angle: 0.0,
+            roundness: 1.0,
+        }];
+
+        // Stamp WITH use_computed = true (should ignore the tip image)
+        let brush_computed = BrushSettings {
+            size: primary_radius * 2.0,
+            color: Color::black(),
+            opacity: 1.0,
+            flow: 1.0,
+            hardness: 1.0,
+            dual_brush: DualBrushSettings {
+                enabled: true,
+                mode: DualBrushMode::Multiply,
+                use_computed: true,
+                hardness: 1.0,
+                size_ratio: 1.0,
+                spacing: 1.0,
+                scatter: ScatterSettings::default(),
+            },
+            ..Default::default()
+        };
+        let mut layer_computed = Layer::new(0, 40, 40);
+        let sp = StampParams {
+            x: 20.0,
+            y: 20.0,
+            radius: primary_radius,
+            roundness: 1.0,
+            angle: 0.0,
+            flow: 1.0,
+        };
+        place_stamp(
+            &mut layer_computed,
+            &sp,
+            &brush_computed,
+            None,
+            None,
+            &dual_instances,
+            Some(&secondary_tip),
+            None,
+        );
+
+        // Stamp WITH use_computed = false (should use the tip image)
+        let brush_sampled = BrushSettings {
+            dual_brush: DualBrushSettings {
+                use_computed: false,
+                ..brush_computed.dual_brush.clone()
+            },
+            ..brush_computed.clone()
+        };
+        let mut layer_sampled = Layer::new(0, 40, 40);
+        place_stamp(
+            &mut layer_sampled,
+            &sp,
+            &brush_sampled,
+            None,
+            None,
+            &dual_instances,
+            Some(&secondary_tip),
+            None,
+        );
+
+        // The two layers should differ: use_computed produces a smooth circle,
+        // while the sampled tip produces a checkerboard pattern.
+        let mut differ = false;
+        for y in 15..25u32 {
+            for x in 15..25u32 {
+                let a_computed = layer_computed.pixel(x, y).unwrap()[3];
+                let a_sampled = layer_sampled.pixel(x, y).unwrap()[3];
+                if a_computed != a_sampled {
+                    differ = true;
+                    break;
+                }
+            }
+            if differ {
+                break;
+            }
+        }
+        assert!(
+            differ,
+            "use_computed=true should produce different output than use_computed=false \
+             when a secondary tip image is provided"
         );
     }
 }
