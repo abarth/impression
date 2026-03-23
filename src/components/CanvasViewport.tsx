@@ -2,6 +2,7 @@ import { useRef, useState, useEffect, useCallback, useMemo, type RefObject } fro
 import type { Engine } from "../engine";
 import type { Tool } from "../hooks/useTool";
 import type { ViewTransform } from "../hooks/useViewTransform";
+import type { SerializableBrushSettings } from "../hooks/useBrushSettings";
 import { StrokeSmoother } from "../strokeSmoothing";
 
 /** Selection combine mode based on modifier keys (matches Photoshop). */
@@ -24,6 +25,8 @@ interface CanvasViewportProps {
   zoom: (delta: number, cx: number, cy: number) => void;
   onColorPick?: (hex: string) => void;
   fitToViewport?: (canvasW: number, canvasH: number, viewportW: number, viewportH: number) => void;
+  /** Called at stroke start to get the current brush settings blob for the engine. */
+  getStrokeSettings?: () => SerializableBrushSettings;
 }
 
 const cursorMap: Record<Tool, string> = {
@@ -69,6 +72,7 @@ export function CanvasViewport({
   zoom,
   onColorPick,
   fitToViewport: fitToViewportFn,
+  getStrokeSettings,
 }: CanvasViewportProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<SVGSVGElement>(null);
@@ -184,17 +188,19 @@ export function CanvasViewport({
         const { x, y } = screenToCanvas(e.clientX, e.clientY);
         engine.selectionLassoPoint(x, y);
         lassoPreviewPoints.current.push({ x, y });
-      } else if ((tool === "brush" || tool === "eraser") && engine) {
+      } else if ((tool === "brush" || tool === "eraser") && engine && getStrokeSettings) {
         if (layerKindRef.current !== "raster" && layerKindRef.current !== undefined) return;
         viewport.setPointerCapture(e.pointerId);
         const { x, y } = screenToCanvas(e.clientX, e.clientY);
         const pressure = e.pointerType === "pen" ? e.pressure : 1.0;
         const pt = smootherRef.current.begin(x, y, pressure, smoothingRef.current);
+        const settings = getStrokeSettings();
         engine.strokeBegin(
           engine.getActiveLayer(),
           pt.x,
           pt.y,
           pt.pressure,
+          settings,
         );
       } else if (tool === "pan" || tool === "zoom") {
         viewport.setPointerCapture(e.pointerId);
@@ -317,7 +323,7 @@ export function CanvasViewport({
       viewport.removeEventListener("pointerup", handlePointerUp);
       viewport.removeEventListener("wheel", handleWheel);
     };
-  }, [engine, screenToCanvas, toViewportLocal, pan, zoom, onColorPick, updateOverlay]);
+  }, [engine, screenToCanvas, toViewportLocal, pan, zoom, onColorPick, updateOverlay, getStrokeSettings]);
 
   // Read canvas document size from the canvas element (set by useEngine
   // from the document dimensions). Viewport resizes do not change it —

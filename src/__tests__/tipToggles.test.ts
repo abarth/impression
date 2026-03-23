@@ -5,12 +5,6 @@ import type { BrushPreset } from "../brushPresets";
 
 describe("useBrushPresets toggleTipType", () => {
   const mockEngine = {
-    setBrushTip: vi.fn(),
-    clearBrushTip: vi.fn(),
-    setSecondaryBrushTip: vi.fn(),
-    clearSecondaryBrushTip: vi.fn(),
-    setTextureTip: vi.fn(),
-    clearTextureTip: vi.fn(),
     registerBrushTip: vi.fn(),
     embedResource: vi.fn(),
   } as any;
@@ -43,7 +37,7 @@ describe("useBrushPresets toggleTipType", () => {
     vi.clearAllMocks();
   });
 
-  it("toggles primary tip from computed to image", async () => {
+  it("toggles primary tip from computed to image without mutating stored preset", async () => {
     mockStorage.listPresets.mockResolvedValue([initialPreset, imagePreset]);
     mockStorage.getTip.mockResolvedValue({ pixels: new Uint8Array(4), width: 2, height: 2 });
 
@@ -56,32 +50,23 @@ describe("useBrushPresets toggleTipType", () => {
       })
     );
 
-    // Wait for presets to load
     await act(async () => {
       await new Promise(resolve => setTimeout(resolve, 10));
     });
 
-    // Select initial (computed) preset
     act(() => {
       result.current.selectPreset("p1");
     });
-    await vi.waitFor(() => {
-      expect(mockEngine.clearBrushTip).toHaveBeenCalled();
-    });
 
-    // Toggle to image
     await act(async () => {
       await result.current.toggleTipType("image");
     });
 
-    // Should have picked tip-123 from the other preset in absence of its own
-    await vi.waitFor(() => {
-      expect(mockEngine.setBrushTip).toHaveBeenCalledWith("tip-123");
-    });
-    expect(mockStorage.savePreset).toHaveBeenCalled();
+    // Should NOT mutate the DB preset
+    expect(mockStorage.savePreset).not.toHaveBeenCalled();
   });
 
-  it("toggles primary tip from image to computed", async () => {
+  it("toggles primary tip from image to computed without mutating stored preset", async () => {
     mockStorage.listPresets.mockResolvedValue([imagePreset]);
     mockStorage.getTip.mockResolvedValue({ pixels: new Uint8Array(4), width: 2, height: 2 });
 
@@ -101,21 +86,15 @@ describe("useBrushPresets toggleTipType", () => {
     act(() => {
       result.current.selectPreset("p2");
     });
-    await vi.waitFor(() => {
-      expect(mockEngine.setBrushTip).toHaveBeenCalledWith("tip-123");
-    });
 
     await act(async () => {
       await result.current.toggleTipType("computed");
     });
 
-    await vi.waitFor(() => {
-      expect(mockEngine.clearBrushTip).toHaveBeenCalled();
-    });
-    expect(mockStorage.savePreset).toHaveBeenCalled();
+    expect(mockStorage.savePreset).not.toHaveBeenCalled();
   });
 
-  it("toggles dual brush useComputed", async () => {
+  it("toggles dual brush useComputed without mutating stored preset", async () => {
     const dualPreset: BrushPreset = {
       ...initialPreset,
       dualBrush: {
@@ -134,12 +113,13 @@ describe("useBrushPresets toggleTipType", () => {
     mockStorage.listPresets.mockResolvedValue([dualPreset]);
     mockStorage.getTip.mockResolvedValue({ pixels: new Uint8Array(4), width: 2, height: 2 });
 
+    const onApplyPreset = vi.fn();
     const { result } = renderHook(() =>
       useBrushPresets({
         engine: mockEngine,
         storage: mockStorage,
         activeTool: "brush",
-        onApplyPreset: vi.fn(),
+        onApplyPreset,
       })
     );
 
@@ -151,18 +131,17 @@ describe("useBrushPresets toggleTipType", () => {
       result.current.selectPreset("p1");
     });
 
-    // In initial dualPreset, useComputed is true, so clearSecondaryBrushTip should have been called
-    await vi.waitFor(() => {
-      expect(mockEngine.clearSecondaryBrushTip).toHaveBeenCalled();
-    });
-
     await act(async () => {
       await result.current.toggleDualBrushType(false);
     });
 
-    await vi.waitFor(() => {
-      expect(mockEngine.setSecondaryBrushTip).toHaveBeenCalledWith("dual-tip");
-    });
-    expect(mockStorage.savePreset).toHaveBeenCalled();
+    // Should call onApplyPreset with the new dualBrush settings
+    expect(onApplyPreset).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dualBrush: expect.objectContaining({ useComputed: false }),
+      })
+    );
+    // Should NOT mutate the DB preset
+    expect(mockStorage.savePreset).not.toHaveBeenCalled();
   });
 });

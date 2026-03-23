@@ -1,5 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from "react";
-import type { Engine } from "../engine";
+import { useState, useCallback, useRef } from "react";
 import { hexToRgb } from "../colorUtils";
 
 export interface ColorState {
@@ -7,45 +6,24 @@ export interface ColorState {
   background: string; // hex color
 }
 
-export function useColorState(engine: Engine | null) {
+export function useColorState() {
   const [colors, setColors] = useState<ColorState>({
     foreground: "#000000",
     background: "#ffffff",
   });
   const colorsRef = useRef(colors);
-  const engineRef = useRef(engine);
-  engineRef.current = engine;
 
-  const syncToEngine = useCallback((c: ColorState) => {
-    const eng = engineRef.current;
-    if (!eng) return;
-    const [r, g, b] = hexToRgb(c.foreground);
-    eng.setBrushColor(r, g, b);
+  const setForeground = useCallback((hex: string) => {
+    const next = { ...colorsRef.current, foreground: hex };
+    colorsRef.current = next;
+    setColors(next);
   }, []);
 
-  useEffect(() => {
-    if (engine) syncToEngine(colors);
-  }, [engine]);
-
-  const setForeground = useCallback(
-    (hex: string) => {
-      const next = { ...colorsRef.current, foreground: hex };
-      colorsRef.current = next;
-      setColors(next);
-      syncToEngine(next);
-    },
-    [syncToEngine],
-  );
-
-  const setBackground = useCallback(
-    (hex: string) => {
-      const next = { ...colorsRef.current, background: hex };
-      colorsRef.current = next;
-      setColors(next);
-      syncToEngine(next);
-    },
-    [syncToEngine],
-  );
+  const setBackground = useCallback((hex: string) => {
+    const next = { ...colorsRef.current, background: hex };
+    colorsRef.current = next;
+    setColors(next);
+  }, []);
 
   const swapColors = useCallback(() => {
     const prev = colorsRef.current;
@@ -55,10 +33,12 @@ export function useColorState(engine: Engine | null) {
     };
     colorsRef.current = next;
     setColors(next);
-    syncToEngine(next);
-  }, [syncToEngine]);
+  }, []);
 
-  return { colors, setForeground, setBackground, swapColors };
+  /** Get current colors via ref (for use in event handlers without stale closures). */
+  const getColorsRef = useCallback(() => colorsRef.current, []);
+
+  return { colors, setForeground, setBackground, swapColors, getColorsRef };
 }
 
 export { hexToRgb };

@@ -8,24 +8,7 @@ import type { Tool } from "../hooks/useTool";
 
 function createMockEngine(): Engine {
   return {
-    resetBrush: vi.fn(),
-    setBrushSize: vi.fn(),
-    setBrushSpacing: vi.fn(),
-    setBrushFlow: vi.fn(),
-    setBrushOpacity: vi.fn(),
-    setBrushHardness: vi.fn(),
-    setBrushRoundness: vi.fn(),
-    setBrushAngle: vi.fn(),
-    setBrushBlendMode: vi.fn(),
-    setShapeDynamics: vi.fn(),
-    setTransferDynamics: vi.fn(),
     registerBrushTip: vi.fn(),
-    setBrushTip: vi.fn(),
-    clearBrushTip: vi.fn(),
-    setSecondaryBrushTip: vi.fn(),
-    clearSecondaryBrushTip: vi.fn(),
-    setTextureTip: vi.fn(),
-    clearTextureTip: vi.fn(),
     embedResource: vi.fn().mockResolvedValue(undefined),
   } as unknown as Engine;
 }
@@ -182,7 +165,7 @@ describe("useBrushPresets selectPreset applies all fields", () => {
 });
 
 describe("useBrushPresets tip lifecycle", () => {
-  it("should call clearBrushTip when selecting a computed preset", async () => {
+  it("should not call engine tip setters when selecting a computed preset", async () => {
     const engine = createMockEngine();
     const storage = createMockStorage([COMPUTED_PRESET]);
     const onApplyPreset = vi.fn();
@@ -191,21 +174,20 @@ describe("useBrushPresets tip lifecycle", () => {
       useBrushPresets({ engine, storage, activeTool: "brush", onApplyPreset }),
     );
 
-    // Wait for presets to load
     await vi.waitFor(() => {
       expect(result.current.presets.length).toBe(1);
     });
 
     act(() => result.current.selectPreset("preset-computed"));
 
-    expect(engine.clearBrushTip).toHaveBeenCalled();
-    expect(engine.setBrushTip).not.toHaveBeenCalled();
+    // No tip registration needed for computed presets
+    expect(engine.registerBrushTip).not.toHaveBeenCalled();
     expect(onApplyPreset).toHaveBeenCalledWith(
       expect.objectContaining({ size: 20, hardness: 1.0 }),
     );
   });
 
-  it("should register and activate tip when selecting an image preset", async () => {
+  it("should register tip when selecting an image preset", async () => {
     const engine = createMockEngine();
     const storage = createMockStorage([IMAGE_PRESET]);
     const onApplyPreset = vi.fn();
@@ -222,13 +204,12 @@ describe("useBrushPresets tip lifecycle", () => {
 
     // Wait for async tip loading
     await vi.waitFor(() => {
-      expect(engine.setBrushTip).toHaveBeenCalledWith("tip-abc");
+      expect(engine.registerBrushTip).toHaveBeenCalledWith(
+        "tip-abc", TIP_DATA.pixels, 2, 2,
+      );
     });
 
     expect(storage.getTip).toHaveBeenCalledWith("tip-abc");
-    expect(engine.registerBrushTip).toHaveBeenCalledWith(
-      "tip-abc", TIP_DATA.pixels, 2, 2,
-    );
     expect(onApplyPreset).toHaveBeenCalledWith(
       expect.objectContaining({ size: 30 }),
     );
@@ -247,54 +228,19 @@ describe("useBrushPresets tip lifecycle", () => {
       expect(result.current.presets.length).toBe(2);
     });
 
-    // Select image preset twice
     act(() => result.current.selectPreset("preset-image"));
     await vi.waitFor(() => {
-      expect(engine.setBrushTip).toHaveBeenCalledTimes(1);
+      expect(engine.registerBrushTip).toHaveBeenCalledTimes(1);
     });
 
     // Select computed then back to image
     act(() => result.current.selectPreset("preset-computed"));
     act(() => result.current.selectPreset("preset-image"));
-    await vi.waitFor(() => {
-      expect(engine.setBrushTip).toHaveBeenCalledTimes(2);
-    });
 
     // registerBrushTip should only be called once (cached)
-    expect(engine.registerBrushTip).toHaveBeenCalledTimes(1);
-  });
-
-  it("should re-activate tip when switching tools", async () => {
-    const engine = createMockEngine();
-    const storage = createMockStorage([IMAGE_PRESET]);
-    const onApplyPreset = vi.fn();
-
-    const { result, rerender } = renderHook(
-      ({ tool }) =>
-        useBrushPresets({ engine, storage, activeTool: tool, onApplyPreset }),
-      { initialProps: { tool: "brush" as Tool } },
-    );
-
+    // Give async a moment to settle
     await vi.waitFor(() => {
-      expect(result.current.presets.length).toBe(1);
-    });
-
-    // Select image preset on brush
-    act(() => result.current.selectPreset("preset-image"));
-    await vi.waitFor(() => {
-      expect(engine.setBrushTip).toHaveBeenCalledTimes(1);
-    });
-
-    // Switch to eraser — no preset selected, should clear
-    rerender({ tool: "eraser" });
-    await vi.waitFor(() => {
-      expect(engine.clearBrushTip).toHaveBeenCalled();
-    });
-
-    // Switch back to brush — should re-activate the image tip
-    rerender({ tool: "brush" });
-    await vi.waitFor(() => {
-      expect(engine.setBrushTip).toHaveBeenCalledTimes(2);
+      expect(engine.registerBrushTip).toHaveBeenCalledTimes(1);
     });
   });
 });

@@ -1,5 +1,4 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import type { Engine } from "../engine";
 import type { Tool } from "./useTool";
 
 /** Control source for a dynamic brush parameter. */
@@ -101,6 +100,100 @@ export interface BrushSettings {
 export const BLEND_MODE_NORMAL = 0;
 export const BLEND_MODE_DST_OUT = 108;
 
+/**
+ * Serializable brush settings matching the Rust `SerializableBrushSettings` struct.
+ * Sent as a single blob to the WASM engine at stroke start.
+ */
+export interface SerializableBrushSettings {
+  size: number;
+  spacing: number;
+  color_r: number;
+  color_g: number;
+  color_b: number;
+  opacity: number;
+  flow: number;
+  blend_mode: number;
+  hardness: number;
+  roundness: number;
+  angle: number;
+  shape_dynamics: ShapeDynamics;
+  transfer_dynamics: TransferDynamics;
+  flip_x: boolean;
+  flip_y: boolean;
+  scatter: ScatterSettings;
+  dual_brush: {
+    enabled: boolean;
+    mode: number;
+    hardness: number;
+    size_ratio: number;
+    spacing: number;
+    flip: boolean;
+    scatter: ScatterSettings;
+  };
+  texture: {
+    enabled: boolean;
+    scale: number;
+    depth: number;
+    texture_each_tip: boolean;
+  };
+  active_tip_id: string | null;
+  secondary_tip_id: string | null;
+  texture_tip_id: string | null;
+}
+
+/** Convert TS BrushSettings + color + blend mode into the format the Rust engine expects. */
+export function buildSerializableSettings(
+  s: BrushSettings,
+  blendMode: number,
+  colorR: number,
+  colorG: number,
+  colorB: number,
+): SerializableBrushSettings {
+  const db = s.dualBrush;
+  return {
+    size: s.size,
+    spacing: s.spacing,
+    color_r: colorR,
+    color_g: colorG,
+    color_b: colorB,
+    opacity: s.opacity,
+    flow: s.flow,
+    blend_mode: blendMode,
+    hardness: s.hardness,
+    roundness: s.roundness,
+    angle: s.angle,
+    shape_dynamics: s.shapeDynamics,
+    transfer_dynamics: s.transferDynamics,
+    flip_x: s.flipX,
+    flip_y: s.flipY,
+    scatter: s.scatterSettings,
+    dual_brush: {
+      enabled: db.enabled,
+      mode: db.mode,
+      hardness: db.hardness,
+      size_ratio: db.sizeRatio,
+      spacing: db.spacing,
+      flip: db.flip,
+      scatter: {
+        scatter: db.scatter,
+        both_axes: db.bothAxes,
+        count: db.count,
+        count_jitter: db.countJitter,
+      },
+    },
+    texture: {
+      enabled: s.texture.enabled,
+      scale: s.texture.scale,
+      depth: s.texture.depth,
+      texture_each_tip: s.texture.textureEachTip,
+    },
+    // Tip IDs: resolve useComputed for dual brush
+    active_tip_id: null, // Set by caller from preset state
+    secondary_tip_id: (db.enabled && !db.useComputed && db.tipId) ? db.tipId : null,
+    texture_tip_id: s.texture.tipId ?? null,
+  };
+}
+
 const DEFAULT_DYNAMIC_PARAM: DynamicParam = { jitter: 0, control: 0, minimum: 0 };
 
 const DEFAULT_SHAPE_DYNAMICS: ShapeDynamics = {
@@ -176,100 +269,29 @@ const DEFAULT_ERASER: BrushSettings = {
 };
 
 /** Tools that have their own brush settings. */
-type ToolWithSettings = "brush" | "eraser";
+export type ToolWithSettings = "brush" | "eraser";
 
 function isToolWithSettings(tool: Tool): tool is ToolWithSettings {
   return tool === "brush" || tool === "eraser";
 }
 
-const TOOL_BLEND_MODES: Record<ToolWithSettings, number> = {
+export const TOOL_BLEND_MODES: Record<ToolWithSettings, number> = {
   brush: BLEND_MODE_NORMAL,
   eraser: BLEND_MODE_DST_OUT,
 };
 
-export function useBrushSettings(engine: Engine | null, activeTool: Tool) {
+export function useBrushSettings(_engine: Engine | null, activeTool: Tool) {
   const [perTool, setPerTool] = useState<Record<ToolWithSettings, BrushSettings>>({
     brush: DEFAULT_BRUSH,
     eraser: DEFAULT_ERASER,
   });
   const perToolRef = useRef(perTool);
-  const engineRef = useRef(engine);
-  engineRef.current = engine;
   const activeToolRef = useRef(activeTool);
 
-  /** Push all brush settings to the Rust engine. Resets to defaults first
-   *  to ensure no stale state leaks between brush presets. */
-  const syncToEngine = useCallback((s: BrushSettings, tool: ToolWithSettings, reset = false) => {
-    const eng = engineRef.current;
-    if (!eng) return;
-
-    // Only reset when applying a full preset so stale settings don't leak.
-    // Individual setting changes must NOT reset because resetBrush clears
-    // the active brush tip on the engine side, causing sampled tips to be
-    // lost (the tip is managed by useBrushPresets, not re-applied here).
-    if (reset) {
-      eng.resetBrush();
-    }
-
-    // Tool options
-    eng.setBrushSize(s.size);
-    eng.setBrushOpacity(s.opacity);
-    eng.setBrushFlow(s.flow);
-    eng.setBrushBlendMode(TOOL_BLEND_MODES[tool]);
-
-    // Brush preset properties
-    eng.setBrushSpacing(s.spacing);
-    eng.setBrushHardness(s.hardness);
-    eng.setBrushRoundness(s.roundness);
-    eng.setBrushAngle(s.angle);
-    eng.setBrushFlipX(s.flipX);
-    eng.setBrushFlipY(s.flipY);
-    const sd = s.shapeDynamics;
-    eng.setShapeDynamics(
-      sd.size.jitter, sd.size.control, sd.size.minimum,
-      sd.angle.jitter, sd.angle.control,
-      sd.roundness.jitter, sd.roundness.control, sd.roundness.minimum,
-    );
-    const td = s.transferDynamics;
-    eng.setTransferDynamics(
-      td.opacity.jitter, td.opacity.control, td.opacity.minimum,
-      td.flow.jitter, td.flow.control, td.flow.minimum,
-    );
-    const sc = s.scatterSettings;
-    eng.setScatter(sc.scatter, sc.bothAxes, sc.count, sc.countJitter);
-    const db = s.dualBrush;
-    eng.setDualBrush(
-      db.enabled, db.mode, db.hardness,
-      db.sizeRatio,
-      db.spacing, db.flip, db.count, db.countJitter, db.scatter, db.bothAxes
-    );
-    // Sync secondary tip: useComputed is resolved here so the Rust engine
-    // simply checks whether a secondary tip is registered.
-    if (db.enabled && !db.useComputed && db.tipId) {
-      eng.setSecondaryBrushTip(db.tipId);
-    } else {
-      eng.clearSecondaryBrushTip();
-    }
-    const tx = s.texture;
-    eng.setTexture(tx.enabled, tx.scale, tx.depth, tx.textureEachTip);
-  }, []);
-
-  // Sync when engine becomes available
+  // Track tool changes (no engine sync needed)
   useEffect(() => {
-    if (engine && isToolWithSettings(activeTool)) {
-      syncToEngine(perTool[activeTool], activeTool);
-    }
-  }, [engine]);
-
-  // Sync when active tool changes
-  useEffect(() => {
-    if (activeToolRef.current !== activeTool) {
-      activeToolRef.current = activeTool;
-      if (engine && isToolWithSettings(activeTool)) {
-        syncToEngine(perTool[activeTool], activeTool);
-      }
-    }
-  }, [activeTool, engine, perTool, syncToEngine]);
+    activeToolRef.current = activeTool;
+  }, [activeTool]);
 
   const currentTool: ToolWithSettings = isToolWithSettings(activeTool) ? activeTool : "brush";
   const settings = perTool[currentTool];
@@ -281,9 +303,8 @@ export function useBrushSettings(engine: Engine | null, activeTool: Tool) {
       const next = { ...prev, [tool]: { ...prev[tool], [key]: value } };
       perToolRef.current = next;
       setPerTool(next);
-      syncToEngine(next[tool], tool);
     },
-    [syncToEngine],
+    [],
   );
 
   // Keyboard shortcuts: [ to decrease size, ] to increase size
@@ -312,7 +333,6 @@ export function useBrushSettings(engine: Engine | null, activeTool: Tool) {
           const next = { ...prev, [tool]: { ...prev[tool], size: newSize } };
           perToolRef.current = next;
           setPerTool(next);
-          syncToEngine(next[tool], tool);
         }
       }
 
@@ -330,13 +350,12 @@ export function useBrushSettings(engine: Engine | null, activeTool: Tool) {
         const next = { ...prev, [tool]: { ...prev[tool], [setting]: value } };
         perToolRef.current = next;
         setPerTool(next);
-        syncToEngine(next[tool], tool);
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [syncToEngine]);
+  }, []);
 
   /** Apply a brush preset. Follows Photoshop semantics:
    *  - Tool options (size, opacity, flow, smoothing) are preserved unless
@@ -362,10 +381,18 @@ export function useBrushSettings(engine: Engine | null, activeTool: Tool) {
       const next = { ...prev, [tool]: merged };
       perToolRef.current = next;
       setPerTool(next);
-      syncToEngine(next[tool], tool, true);
     },
-    [syncToEngine],
+    [],
   );
 
-  return { settings, updateSetting, applyPreset, toolLabel: currentTool };
+  /** Get a ref to current settings + tool for use at stroke start. */
+  const getSettingsRef = useCallback(() => {
+    const tool = isToolWithSettings(activeToolRef.current) ? activeToolRef.current : "brush";
+    return { settings: perToolRef.current[tool], tool };
+  }, []);
+
+  return { settings, updateSetting, applyPreset, toolLabel: currentTool, getSettingsRef };
 }
+
+// Re-export Engine type for consumers (avoids circular import in some cases)
+import type { Engine } from "../engine";

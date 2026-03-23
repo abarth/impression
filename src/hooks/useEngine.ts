@@ -100,13 +100,8 @@ export function useEngine(
             eng.loadChunk(entry);
           }
         } else {
-          // New document: add initial layer and set defaults
+          // New document: add initial layer
           eng.addLayer();
-          eng.setBrushSize(20);
-          eng.setBrushSpacing(0.15);
-          eng.setBrushColor(0, 0, 0);
-          eng.setBrushOpacity(1.0);
-          eng.setBrushFlow(0.8);
         }
 
         // Enable persistence so future operations are saved

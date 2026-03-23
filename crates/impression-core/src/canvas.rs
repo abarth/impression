@@ -1,9 +1,8 @@
 use std::collections::HashMap;
 
 use crate::blend_mode::BlendMode;
-use crate::brush::{BrushTip, DualBrushSettings, ScatterSettings, TextureSettings};
+use crate::brush::{BrushTip, SerializableBrushSettings};
 use crate::color::Color;
-use crate::dynamics::{ShapeDynamics, TransferDynamics};
 use crate::layer::{AdjustmentKind, Layer};
 use crate::operation::{LayerId, Operation, SiteId, SiteOperation};
 use crate::oplog::OpLog;
@@ -67,13 +66,6 @@ impl Canvas {
             .expect("active site must exist")
     }
 
-    /// Helper to look up a brush tip in the registry and clone it.
-    pub(crate) fn get_cloned_tip(&self, tip_id: &Option<String>) -> Option<BrushTip> {
-        tip_id
-            .as_ref()
-            .and_then(|id| self.tip_registry.get(id).cloned())
-    }
-
     /// Get the active site's state mutably.
     pub(crate) fn site_mut(&mut self) -> &mut SiteState {
         self.sites.entry(self.active_site).or_default()
@@ -106,7 +98,7 @@ impl Canvas {
     }
 
     /// Record an operation and execute it, starting a new undo group if appropriate.
-    fn apply(&mut self, op: Operation) {
+    pub(crate) fn apply(&mut self, op: Operation) {
         if op.starts_undo_group() {
             self.begin_group();
         }
@@ -204,99 +196,41 @@ impl Canvas {
 
     // -- Brush settings (per-site) --
 
-    /// Reset brush settings to defaults, preserving color (which is managed
-    /// separately via set_brush_color). Recorded in the oplog so that replay
-    /// matches live execution even if the frontend omits some properties.
-    pub fn reset_brush(&mut self) {
-        self.apply(Operation::ResetBrush);
+    /// Apply brush settings directly to site state without recording to oplog.
+    /// Called from the WASM API before stroke_begin; the oplog entry is recorded
+    /// automatically inside stroke_begin.
+    pub fn apply_brush_settings(&mut self, site: SiteId, settings: SerializableBrushSettings) {
+        self.apply_brush_settings_internal(site, &settings);
     }
 
-    pub fn set_brush_size(&mut self, size: f32) {
-        self.apply(Operation::SetBrushSize(size));
-    }
+    /// Internal helper: apply a SerializableBrushSettings snapshot to a site,
+    /// resolving tip IDs against the tip registry. Shared by execute_op and
+    /// the public apply_brush_settings.
+    pub(crate) fn apply_brush_settings_internal(
+        &mut self,
+        site: SiteId,
+        settings: &SerializableBrushSettings,
+    ) {
+        // Clone tips from registry before borrowing site mutably
+        let active = settings
+            .active_tip_id
+            .as_ref()
+            .and_then(|id| self.tip_registry.get(id).cloned());
+        let secondary = settings
+            .secondary_tip_id
+            .as_ref()
+            .and_then(|id| self.tip_registry.get(id).cloned());
+        let texture = settings
+            .texture_tip_id
+            .as_ref()
+            .and_then(|id| self.tip_registry.get(id).cloned());
 
-    pub fn set_brush_spacing(&mut self, spacing: f32) {
-        self.apply(Operation::SetBrushSpacing(spacing));
-    }
-
-    pub fn set_brush_color(&mut self, r: u8, g: u8, b: u8) {
-        self.apply(Operation::SetBrushColor { r, g, b });
-    }
-
-    pub fn set_brush_opacity(&mut self, opacity: f32) {
-        self.apply(Operation::SetBrushOpacity(opacity));
-    }
-
-    pub fn set_brush_flow(&mut self, flow: f32) {
-        self.apply(Operation::SetBrushFlow(flow));
-    }
-
-    pub fn set_brush_blend_mode(&mut self, mode: BlendMode) {
-        self.apply(Operation::SetBrushBlendMode(mode));
-    }
-
-    pub fn set_brush_hardness(&mut self, hardness: f32) {
-        self.apply(Operation::SetBrushHardness(hardness));
-    }
-
-    pub fn set_brush_roundness(&mut self, roundness: f32) {
-        self.apply(Operation::SetBrushRoundness(roundness));
-    }
-
-    pub fn set_brush_angle(&mut self, angle: f32) {
-        self.apply(Operation::SetBrushAngle(angle));
-    }
-
-    pub fn set_brush_flip_x(&mut self, flip: bool) {
-        self.apply(Operation::SetBrushFlipX(flip));
-    }
-
-    pub fn set_brush_flip_y(&mut self, flip: bool) {
-        self.apply(Operation::SetBrushFlipY(flip));
-    }
-
-    pub fn set_brush_tip(&mut self, id: &str) {
-        self.apply(Operation::SetBrushTip(Some(id.to_string())));
-    }
-
-    pub fn clear_brush_tip(&mut self) {
-        self.apply(Operation::SetBrushTip(None));
-    }
-
-    pub fn set_shape_dynamics(&mut self, dynamics: ShapeDynamics) {
-        self.apply(Operation::SetShapeDynamics(dynamics));
-    }
-
-    pub fn set_transfer_dynamics(&mut self, dynamics: TransferDynamics) {
-        self.apply(Operation::SetTransferDynamics(dynamics));
-    }
-
-    pub fn set_scatter(&mut self, scatter: ScatterSettings) {
-        self.apply(Operation::SetScatter(scatter));
-    }
-
-    pub fn set_dual_brush(&mut self, settings: DualBrushSettings) {
-        self.apply(Operation::SetDualBrush(settings));
-    }
-
-    pub fn set_secondary_brush_tip(&mut self, id: &str) {
-        self.apply(Operation::SetSecondaryBrushTip(Some(id.to_string())));
-    }
-
-    pub fn clear_secondary_brush_tip(&mut self) {
-        self.apply(Operation::SetSecondaryBrushTip(None));
-    }
-
-    pub fn set_texture(&mut self, settings: TextureSettings) {
-        self.apply(Operation::SetTexture(settings));
-    }
-
-    pub fn set_texture_tip(&mut self, id: &str) {
-        self.apply(Operation::SetTextureTip(Some(id.to_string())));
-    }
-
-    pub fn clear_texture_tip(&mut self) {
-        self.apply(Operation::SetTextureTip(None));
+        let site_state = self.sites.entry(site).or_default();
+        // apply_serializable sets all fields; we already resolved tips above
+        let _ = site_state.brush.apply_serializable(settings, &HashMap::new());
+        site_state.active_tip = active;
+        site_state.secondary_tip = secondary;
+        site_state.texture_tip = texture;
     }
 
     /// Sample the composited color at (x, y) across all visible layers,
@@ -312,12 +246,31 @@ impl Canvas {
             Some(l) => l.id,
             None => return,
         };
-        self.apply(Operation::StrokeBegin {
-            layer: layer_id,
-            x,
-            y,
-            pressure,
-        });
+        // SetBrushSettings starts the undo group (starts_undo_group = true).
+        // StrokeBegin joins the same group (starts_undo_group = false).
+        // This ensures brush state is recorded atomically with the stroke.
+        let settings_bytes = self.site().brush.to_serializable().to_bytes();
+        // Record but don't re-execute — settings are already in site state.
+        let settings_op = Operation::SetBrushSettings(settings_bytes);
+        self.begin_group();
+        let site_op = SiteOperation {
+            site: self.active_site,
+            op: settings_op,
+        };
+        self.oplog.push(site_op);
+
+        // Record and execute StrokeBegin in the same undo group.
+        let stroke_op = SiteOperation {
+            site: self.active_site,
+            op: Operation::StrokeBegin {
+                layer: layer_id,
+                x,
+                y,
+                pressure,
+            },
+        };
+        self.oplog.push(stroke_op.clone());
+        self.execute_op(stroke_op);
     }
 
     pub fn stroke_move(&mut self, _layer_index: u32, x: f32, y: f32, pressure: f32) {
@@ -457,7 +410,49 @@ impl Canvas {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::brush::BrushSettings;
     use crate::layer::LayerKind;
+
+    /// Helper: modify the active site's brush size and record a SetBrushSettings op.
+    fn set_brush_size(canvas: &mut Canvas, size: f32) {
+        canvas.site_mut().brush.size = size;
+        let bytes = canvas.site().brush.to_serializable().to_bytes();
+        canvas.apply(Operation::SetBrushSettings(bytes));
+    }
+
+    /// Helper: modify the active site's brush color and record a SetBrushSettings op.
+    fn set_brush_color(canvas: &mut Canvas, r: u8, g: u8, b: u8) {
+        canvas.site_mut().brush.color = Color::new(r, g, b);
+        let bytes = canvas.site().brush.to_serializable().to_bytes();
+        canvas.apply(Operation::SetBrushSettings(bytes));
+    }
+
+    /// Helper: modify the active site's brush flow and record a SetBrushSettings op.
+    fn set_brush_flow(canvas: &mut Canvas, flow: f32) {
+        canvas.site_mut().brush.flow = flow;
+        let bytes = canvas.site().brush.to_serializable().to_bytes();
+        canvas.apply(Operation::SetBrushSettings(bytes));
+    }
+
+    /// Helper: modify the active site's brush opacity and record a SetBrushSettings op.
+    fn set_brush_opacity(canvas: &mut Canvas, opacity: f32) {
+        canvas.site_mut().brush.opacity = opacity;
+        let bytes = canvas.site().brush.to_serializable().to_bytes();
+        canvas.apply(Operation::SetBrushSettings(bytes));
+    }
+
+    /// Helper: reset brush to defaults (preserving color) and record a SetBrushSettings op.
+    fn reset_brush(canvas: &mut Canvas) {
+        let color = canvas.site().brush.color;
+        canvas.site_mut().brush = BrushSettings::default();
+        canvas.site_mut().brush.color = color;
+        // Clear tip references
+        canvas.site_mut().active_tip = None;
+        canvas.site_mut().secondary_tip = None;
+        canvas.site_mut().texture_tip = None;
+        let bytes = canvas.site().brush.to_serializable().to_bytes();
+        canvas.apply(Operation::SetBrushSettings(bytes));
+    }
 
     #[test]
     fn test_canvas_creation() {
@@ -527,22 +522,24 @@ mod tests {
         canvas.stroke_end();
 
         let ops = canvas.oplog.active_operations();
-        assert_eq!(ops.len(), pre + 3);
-        assert!(matches!(ops[pre].op, Operation::StrokeBegin { .. }));
-        assert!(matches!(ops[pre + 1].op, Operation::StrokeMove { .. }));
-        assert!(matches!(ops[pre + 2].op, Operation::StrokeEnd));
+        // SetBrushSettings + StrokeBegin + StrokeMove + StrokeEnd
+        assert_eq!(ops.len(), pre + 4);
+        assert!(matches!(ops[pre].op, Operation::SetBrushSettings(_)));
+        assert!(matches!(ops[pre + 1].op, Operation::StrokeBegin { .. }));
+        assert!(matches!(ops[pre + 2].op, Operation::StrokeMove { .. }));
+        assert!(matches!(ops[pre + 3].op, Operation::StrokeEnd));
     }
 
     #[test]
     fn test_oplog_records_property_changes() {
         let mut canvas = Canvas::new(100, 100);
-        canvas.set_brush_size(30.0);
-        canvas.set_brush_color(255, 0, 0);
+        set_brush_size(&mut canvas, 30.0);
+        set_brush_color(&mut canvas, 255, 0, 0);
 
         let ops = canvas.oplog.active_operations();
         assert_eq!(ops.len(), 2);
-        assert_eq!(ops[0].op, Operation::SetBrushSize(30.0));
-        assert_eq!(ops[1].op, Operation::SetBrushColor { r: 255, g: 0, b: 0 });
+        assert!(matches!(ops[0].op, Operation::SetBrushSettings(_)));
+        assert!(matches!(ops[1].op, Operation::SetBrushSettings(_)));
     }
 
     #[test]
@@ -558,7 +555,7 @@ mod tests {
         let before = canvas.oplog.active_len();
         assert!(canvas.oplog.undo(0));
         let after = canvas.oplog.active_len();
-        assert_eq!(before - after, 4); // StrokeBegin + 2*StrokeMove + StrokeEnd
+        assert_eq!(before - after, 5); // SetBrushSettings + StrokeBegin + 2*StrokeMove + StrokeEnd
     }
 
     #[test]
@@ -645,7 +642,7 @@ mod tests {
     #[test]
     fn test_undo_brush_size_reverts() {
         let mut canvas = Canvas::new(100, 100);
-        canvas.set_brush_size(30.0);
+        set_brush_size(&mut canvas, 30.0);
         assert!((canvas.site().brush.size - 30.0).abs() < 0.01);
 
         canvas.undo();
@@ -753,8 +750,8 @@ mod tests {
     #[test]
     fn test_load_chunk_restores_brush_settings() {
         let mut canvas1 = Canvas::new(50, 50);
-        canvas1.set_brush_size(42.0);
-        canvas1.set_brush_flow(0.3);
+        set_brush_size(&mut canvas1, 42.0);
+        set_brush_flow(&mut canvas1, 0.3);
 
         let data = canvas1.flush_pending_operations().unwrap();
 
@@ -870,11 +867,11 @@ mod tests {
 
         // Site 0 changes brush
         switch_site(&mut canvas, 0);
-        canvas.set_brush_size(30.0);
+        set_brush_size(&mut canvas, 30.0);
 
         // Site 1 changes brush
         switch_site(&mut canvas, 1);
-        canvas.set_brush_size(50.0);
+        set_brush_size(&mut canvas, 50.0);
 
         // Undo site 0
         switch_site(&mut canvas, 0);
@@ -944,7 +941,7 @@ mod tests {
 
         // Site 1 changes brush
         switch_site(&mut canvas1, 1);
-        canvas1.set_brush_size(42.0);
+        set_brush_size(&mut canvas1, 42.0);
 
         let data = canvas1.flush_pending_operations().unwrap();
 
@@ -1071,9 +1068,9 @@ mod tests {
     fn test_clear_layer_undo_with_stroke() {
         let mut canvas = Canvas::new(100, 100);
         canvas.add_layer();
-        canvas.set_brush_size(20.0);
-        canvas.set_brush_flow(1.0);
-        canvas.set_brush_opacity(1.0);
+        set_brush_size(&mut canvas, 20.0);
+        set_brush_flow(&mut canvas, 1.0);
+        set_brush_opacity(&mut canvas, 1.0);
 
         // Draw a stroke
         canvas.stroke_begin(0, 50.0, 50.0, 1.0);
@@ -1219,11 +1216,14 @@ mod tests {
     #[test]
     fn test_reset_brush_is_recorded_in_oplog() {
         let mut canvas = Canvas::new(10, 10);
-        canvas.set_brush_size(42.0);
-        canvas.reset_brush();
+        set_brush_size(&mut canvas, 42.0);
+        reset_brush(&mut canvas);
 
         let ops = canvas.oplog.active_operations();
-        assert!(matches!(ops.last().unwrap().op, Operation::ResetBrush));
+        assert!(matches!(
+            ops.last().unwrap().op,
+            Operation::SetBrushSettings(_)
+        ));
     }
 
     #[test]
@@ -1231,15 +1231,20 @@ mod tests {
         let mut canvas = Canvas::new(10, 10);
         // Register a tip and set it active
         canvas.register_brush_tip("tip-1".to_string(), vec![255, 128], 1, 2);
-        canvas.set_brush_tip("tip-1");
-        canvas.set_secondary_brush_tip("tip-1");
-        canvas.set_texture_tip("tip-1");
+        let cloned_tip = canvas.tip_registry.get("tip-1").cloned();
+        {
+            let site = canvas.site_mut();
+            site.brush.active_tip_id = Some("tip-1".to_string());
+            site.brush.secondary_tip_id = Some("tip-1".to_string());
+            site.brush.texture_tip_id = Some("tip-1".to_string());
+            site.active_tip = cloned_tip;
+        }
 
         let site = canvas.site_for_mut(0);
         assert!(site.brush.active_tip_id.is_some());
         assert!(site.active_tip.is_some());
 
-        canvas.reset_brush();
+        reset_brush(&mut canvas);
 
         let site = canvas.site_for_mut(0);
         assert!(
@@ -1271,8 +1276,8 @@ mod tests {
     #[test]
     fn test_reset_brush_preserves_color() {
         let mut canvas = Canvas::new(10, 10);
-        canvas.set_brush_color(255, 0, 128);
-        canvas.reset_brush();
+        set_brush_color(&mut canvas, 255, 0, 128);
+        reset_brush(&mut canvas);
 
         let site = canvas.site_for_mut(0);
         assert_eq!(site.brush.color.r, 255);
@@ -1285,8 +1290,8 @@ mod tests {
         // Live: set brush size, reset, then draw
         let mut canvas1 = Canvas::new(20, 20);
         canvas1.add_layer();
-        canvas1.set_brush_size(50.0);
-        canvas1.reset_brush();
+        set_brush_size(&mut canvas1, 50.0);
+        reset_brush(&mut canvas1);
         // Don't re-set size — should be default (10.0) after reset
         canvas1.stroke_begin(0, 10.0, 10.0, 1.0);
         canvas1.stroke_end();
@@ -1396,15 +1401,15 @@ mod tests {
         // Create a canvas, add layers of different types, paint, and flush
         let mut canvas1 = Canvas::new(64, 64);
         canvas1.add_layer();
-        canvas1.set_brush_size(5.0);
-        canvas1.set_brush_color(255, 0, 0);
+        set_brush_size(&mut canvas1, 5.0);
+        set_brush_color(&mut canvas1, 255, 0, 0);
         canvas1.stroke_begin(0, 10.0, 10.0, 1.0);
         canvas1.stroke_end();
         canvas1.add_adjustment_layer(AdjustmentKind::GradientMap {
             gradient_id: "test-grad".to_string(),
         });
         canvas1.add_layer();
-        canvas1.set_brush_color(0, 0, 255);
+        set_brush_color(&mut canvas1, 0, 0, 255);
         canvas1.stroke_begin(2, 30.0, 30.0, 1.0);
         canvas1.stroke_end();
 
@@ -1636,7 +1641,7 @@ mod tests {
         canvas1.rename_layer(0, "Background".to_string());
         canvas1.set_layer_opacity(0, 0.8);
         canvas1.set_layer_blend_mode(0, BlendMode::Normal);
-        canvas1.set_brush_color(255, 0, 0);
+        set_brush_color(&mut canvas1, 255, 0, 0);
         canvas1.stroke_begin(0, 10.0, 10.0, 1.0);
         canvas1.stroke_end();
 

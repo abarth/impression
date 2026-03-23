@@ -84,22 +84,13 @@ impl OpLog {
         let op = &site_op.op;
         matches!(
             (last, op),
-            (Operation::SetBrushSize(_), Operation::SetBrushSize(_))
-                | (Operation::SetBrushSpacing(_), Operation::SetBrushSpacing(_))
-                | (Operation::SetBrushOpacity(_), Operation::SetBrushOpacity(_))
-                | (Operation::SetBrushFlow(_), Operation::SetBrushFlow(_))
-                | (
-                    Operation::SetBrushBlendMode(_),
-                    Operation::SetBrushBlendMode(_)
-                )
-                | (
-                    Operation::SetBrushColor { .. },
-                    Operation::SetBrushColor { .. }
-                )
-                | (
-                    Operation::SetBackgroundColor { .. },
-                    Operation::SetBackgroundColor { .. }
-                )
+            (
+                Operation::SetBrushSettings(_),
+                Operation::SetBrushSettings(_)
+            ) | (
+                Operation::SetBackgroundColor { .. },
+                Operation::SetBackgroundColor { .. }
+            )
         ) || matches!(
             (last, op),
             (
@@ -325,14 +316,14 @@ mod tests {
     fn test_push_and_active_operations() {
         let mut log = OpLog::new();
         log.begin_undo_group(0);
-        log.push(site_op(Operation::SetBrushSize(10.0)));
-        log.push(site_op(Operation::SetBrushSpacing(0.15)));
+        log.push(site_op(Operation::SetBrushSettings(vec![1, 2, 3])));
+        log.push(site_op(Operation::AddLayer { id: 1 }));
 
         assert_eq!(log.active_len(), 2);
         let ops = log.active_operations();
         assert_eq!(ops.len(), 2);
-        assert_eq!(ops[0].op, Operation::SetBrushSize(10.0));
-        assert_eq!(ops[1].op, Operation::SetBrushSpacing(0.15));
+        assert_eq!(ops[0].op, Operation::SetBrushSettings(vec![1, 2, 3]));
+        assert_eq!(ops[1].op, Operation::AddLayer { id: 1 });
     }
 
     #[test]
@@ -356,7 +347,7 @@ mod tests {
 
         // Group 2: a property change
         log.begin_undo_group(0);
-        log.push(site_op(Operation::SetBrushSize(50.0)));
+        log.push(site_op(Operation::SetBrushSettings(vec![50])));
 
         assert_eq!(log.active_len(), 4);
 
@@ -377,10 +368,10 @@ mod tests {
         let mut log = OpLog::new();
 
         log.begin_undo_group(0);
-        log.push(site_op(Operation::SetBrushSize(10.0)));
+        log.push(site_op(Operation::SetBrushSettings(vec![10])));
 
         log.begin_undo_group(0);
-        log.push(site_op(Operation::SetBrushSize(20.0)));
+        log.push(site_op(Operation::SetBrushSettings(vec![20])));
 
         log.undo(0);
         assert_eq!(log.active_len(), 1);
@@ -396,10 +387,10 @@ mod tests {
         let mut log = OpLog::new();
 
         log.begin_undo_group(0);
-        log.push(site_op(Operation::SetBrushSize(10.0)));
+        log.push(site_op(Operation::SetBrushSettings(vec![10])));
 
         log.begin_undo_group(0);
-        log.push(site_op(Operation::SetBrushSize(20.0)));
+        log.push(site_op(Operation::SetBrushSettings(vec![20])));
 
         // Undo group 2
         log.undo(0);
@@ -407,12 +398,12 @@ mod tests {
 
         // Push new operation — should discard redo history
         log.begin_undo_group(0);
-        log.push(site_op(Operation::SetBrushSize(30.0)));
+        log.push(site_op(Operation::SetBrushSettings(vec![30])));
 
         assert!(!log.can_redo(0));
         assert_eq!(log.active_len(), 2);
         let ops = log.active_operations();
-        assert_eq!(ops[1].op, Operation::SetBrushSize(30.0));
+        assert_eq!(ops[1].op, Operation::SetBrushSettings(vec![30]));
     }
 
     #[test]
@@ -422,7 +413,7 @@ mod tests {
         assert!(!log.can_redo(0));
 
         log.begin_undo_group(0);
-        log.push(site_op(Operation::SetBrushSize(10.0)));
+        log.push(site_op(Operation::SetBrushSettings(vec![10])));
         assert!(log.can_undo(0));
         assert!(!log.can_redo(0));
 
@@ -439,8 +430,8 @@ mod tests {
     fn test_serialize_range_and_deserialize() {
         let mut log = OpLog::new();
         log.begin_undo_group(0);
-        log.push(site_op(Operation::SetBrushSize(10.0)));
-        log.push(site_op(Operation::SetBrushSpacing(0.15)));
+        log.push(site_op(Operation::SetBrushSettings(vec![10])));
+        log.push(site_op(Operation::AddLayer { id: 1 }));
 
         let bytes = log.serialize_range(0..2);
 
@@ -458,7 +449,7 @@ mod tests {
         let mut log = OpLog::new();
 
         log.begin_undo_group(0);
-        log.push(site_op(Operation::SetBrushSize(10.0)));
+        log.push(site_op(Operation::SetBrushSettings(vec![10])));
 
         log.begin_undo_group(0);
         log.push(site_op(Operation::SetLayerBlendMode {
@@ -489,7 +480,7 @@ mod tests {
     #[test]
     fn test_implicit_group_on_push() {
         let mut log = OpLog::new();
-        log.push(site_op(Operation::SetBrushSize(10.0)));
+        log.push(site_op(Operation::SetBrushSettings(vec![10])));
         assert_eq!(log.active_len(), 1);
         assert!(log.can_undo(0));
     }
@@ -497,22 +488,24 @@ mod tests {
     // -- Coalescing tests --
 
     #[test]
-    fn test_coalesce_brush_size() {
+    fn test_coalesce_brush_settings() {
         let mut log = OpLog::new();
         log.begin_undo_group(0);
-        for i in 1..=10 {
-            log.push(site_op(Operation::SetBrushSize(i as f32)));
-        }
+        log.push(site_op(Operation::SetBrushSettings(vec![1, 2, 3])));
+        log.push(site_op(Operation::SetBrushSettings(vec![4, 5, 6])));
         assert_eq!(log.active_len(), 1);
-        assert_eq!(log.active_operations()[0].op, Operation::SetBrushSize(10.0));
+        assert_eq!(
+            log.active_operations()[0].op,
+            Operation::SetBrushSettings(vec![4, 5, 6])
+        );
     }
 
     #[test]
     fn test_no_coalesce_different_types() {
         let mut log = OpLog::new();
         log.begin_undo_group(0);
-        log.push(site_op(Operation::SetBrushSize(10.0)));
-        log.push(site_op(Operation::SetBrushSpacing(0.5)));
+        log.push(site_op(Operation::SetBrushSettings(vec![1])));
+        log.push(site_op(Operation::AddLayer { id: 1 }));
         assert_eq!(log.active_len(), 2);
     }
 
@@ -579,15 +572,15 @@ mod tests {
     fn test_no_coalesce_across_undo_groups() {
         let mut log = OpLog::new();
         log.begin_undo_group(0);
-        log.push(site_op(Operation::SetBrushSize(10.0)));
+        log.push(site_op(Operation::SetBrushSettings(vec![1])));
 
         log.begin_undo_group(0);
-        log.push(site_op(Operation::SetBrushSize(20.0)));
+        log.push(site_op(Operation::SetBrushSettings(vec![2])));
 
         assert_eq!(log.active_len(), 2);
         let ops = log.active_operations();
-        assert_eq!(ops[0].op, Operation::SetBrushSize(10.0));
-        assert_eq!(ops[1].op, Operation::SetBrushSize(20.0));
+        assert_eq!(ops[0].op, Operation::SetBrushSettings(vec![1]));
+        assert_eq!(ops[1].op, Operation::SetBrushSettings(vec![2]));
     }
 
     #[test]
@@ -641,8 +634,8 @@ mod tests {
         assert_eq!(log.pending_flush_count(), 0);
 
         log.begin_undo_group(0);
-        log.push(site_op(Operation::SetBrushSize(10.0)));
-        log.push(site_op(Operation::SetBrushSpacing(0.15)));
+        log.push(site_op(Operation::SetBrushSettings(vec![1])));
+        log.push(site_op(Operation::AddLayer { id: 1 }));
         assert_eq!(log.pending_flush_count(), 2);
     }
 
@@ -650,7 +643,7 @@ mod tests {
     fn test_flush_pending_serializes_and_advances() {
         let mut log = OpLog::new();
         log.begin_undo_group(0);
-        log.push(site_op(Operation::SetBrushSize(10.0)));
+        log.push(site_op(Operation::SetBrushSettings(vec![1])));
         log.push(site_op(Operation::AddLayer { id: 1 }));
 
         let data = log.flush_pending().unwrap();
@@ -659,7 +652,7 @@ mod tests {
 
         let ops = deserialize_operations(&data).unwrap();
         assert_eq!(ops.len(), 2);
-        assert_eq!(ops[0].op, Operation::SetBrushSize(10.0));
+        assert_eq!(ops[0].op, Operation::SetBrushSettings(vec![1]));
         assert_eq!(ops[1].op, Operation::AddLayer { id: 1 });
     }
 
@@ -669,7 +662,7 @@ mod tests {
         assert!(log.flush_pending().is_none());
 
         log.begin_undo_group(0);
-        log.push(site_op(Operation::SetBrushSize(10.0)));
+        log.push(site_op(Operation::SetBrushSettings(vec![1])));
         log.flush_pending();
         assert!(log.flush_pending().is_none());
     }
@@ -679,17 +672,17 @@ mod tests {
         let mut log = OpLog::new();
 
         log.begin_undo_group(0);
-        log.push(site_op(Operation::SetBrushSize(10.0)));
+        log.push(site_op(Operation::SetBrushSettings(vec![1])));
         let data1 = log.flush_pending().unwrap();
 
         log.begin_undo_group(0);
         log.push(site_op(Operation::AddLayer { id: 1 }));
-        log.push(site_op(Operation::SetBrushFlow(0.5)));
+        log.push(site_op(Operation::StrokeEnd));
         let data2 = log.flush_pending().unwrap();
 
         let ops1 = deserialize_operations(&data1).unwrap();
         assert_eq!(ops1.len(), 1);
-        assert_eq!(ops1[0].op, Operation::SetBrushSize(10.0));
+        assert_eq!(ops1[0].op, Operation::SetBrushSettings(vec![1]));
 
         let ops2 = deserialize_operations(&data2).unwrap();
         assert_eq!(ops2.len(), 2);
@@ -702,18 +695,18 @@ mod tests {
     fn test_per_site_undo_only_affects_own_site() {
         let mut log = OpLog::new();
 
-        // Site 0 draws
+        // Site 0 adds a layer
         log.begin_undo_group(0);
         log.push(SiteOperation {
             site: 0,
-            op: Operation::SetBrushSize(10.0),
+            op: Operation::AddLayer { id: 1 },
         });
 
-        // Site 1 draws
+        // Site 1 adds a layer
         log.begin_undo_group(1);
         log.push(SiteOperation {
             site: 1,
-            op: Operation::SetBrushSize(20.0),
+            op: Operation::AddLayer { id: 2 },
         });
 
         assert_eq!(log.active_len(), 2);
@@ -723,7 +716,7 @@ mod tests {
         assert_eq!(log.active_len(), 1);
         let ops = log.active_operations();
         assert_eq!(ops[0].site, 1);
-        assert_eq!(ops[0].op, Operation::SetBrushSize(20.0));
+        assert_eq!(ops[0].op, Operation::AddLayer { id: 2 });
     }
 
     #[test]
@@ -733,13 +726,13 @@ mod tests {
         log.begin_undo_group(0);
         log.push(SiteOperation {
             site: 0,
-            op: Operation::SetBrushSize(10.0),
+            op: Operation::AddLayer { id: 1 },
         });
 
         log.begin_undo_group(1);
         log.push(SiteOperation {
             site: 1,
-            op: Operation::SetBrushSize(20.0),
+            op: Operation::AddLayer { id: 2 },
         });
 
         // Undo site 0
@@ -758,7 +751,7 @@ mod tests {
         log.begin_undo_group(1);
         log.push(SiteOperation {
             site: 1,
-            op: Operation::SetBrushSize(20.0),
+            op: Operation::AddLayer { id: 1 },
         });
 
         // Site 0 has nothing to undo

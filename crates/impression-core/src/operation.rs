@@ -1,8 +1,6 @@
 use serde::{Deserialize, Serialize};
 
 use crate::blend_mode::BlendMode;
-use crate::brush::{DualBrushSettings, ScatterSettings, TextureSettings};
-use crate::dynamics::{ShapeDynamics, TransferDynamics};
 use crate::selection::CombineMode;
 
 /// Unique identifier for a site (user session). In single-player mode, this
@@ -50,20 +48,12 @@ pub enum Operation {
         pressure: f32,
     },
     StrokeEnd,
-    SetBrushSize(f32),
-    SetBrushSpacing(f32),
-    SetBrushColor {
-        r: u8,
-        g: u8,
-        b: u8,
-    },
-    SetBrushOpacity(f32),
-    SetBrushFlow(f32),
-    SetBrushBlendMode(BlendMode),
-    SetBrushHardness(f32),
-    SetBrushRoundness(f32),
-    SetBrushAngle(f32),
-    SetBrushTip(Option<String>),
+    /// Atomic snapshot of all brush settings, serialized as MessagePack bytes.
+    /// Recorded automatically before each `StrokeBegin` so that replay
+    /// reproduces the exact brush state. New brush parameters can be added
+    /// to `SerializableBrushSettings` with `#[serde(default)]` without
+    /// changing the outer postcard format.
+    SetBrushSettings(Vec<u8>),
     /// Add a new layer with the given globally unique ID.
     AddLayer {
         id: LayerId,
@@ -116,18 +106,6 @@ pub enum Operation {
         layer: LayerId,
         before: Option<LayerId>,
     },
-    SetShapeDynamics(ShapeDynamics),
-    SetTransferDynamics(TransferDynamics),
-    SetBrushFlipX(bool),
-    SetBrushFlipY(bool),
-    SetScatter(ScatterSettings),
-    SetDualBrush(DualBrushSettings),
-    SetSecondaryBrushTip(Option<String>),
-    SetTexture(TextureSettings),
-    SetTextureTip(Option<String>),
-    /// Reset brush settings to defaults, preserving color. Ensures replay
-    /// matches live execution even if the frontend omits some properties.
-    ResetBrush,
     /// Add an adjustment layer with the given kind.
     AddAdjustmentLayer {
         id: LayerId,
@@ -145,7 +123,12 @@ impl Operation {
     /// to the op log. Most operations start a group, but stroke continuations
     /// default to extending the active group.
     pub fn starts_undo_group(&self) -> bool {
-        !matches!(self, Operation::StrokeMove { .. } | Operation::StrokeEnd)
+        !matches!(
+            self,
+            Operation::StrokeBegin { .. }
+                | Operation::StrokeMove { .. }
+                | Operation::StrokeEnd
+        )
     }
 }
 
@@ -156,7 +139,7 @@ impl Operation {
 const VERSION_MAGIC: u8 = 0xFF;
 
 /// Current serialization format version.
-const FORMAT_VERSION: u8 = 1;
+const FORMAT_VERSION: u8 = 2;
 
 /// Serialize a slice of site operations to bytes using postcard, with a version header.
 pub fn serialize_operations(ops: &[SiteOperation]) -> Vec<u8> {
@@ -180,14 +163,17 @@ pub fn deserialize_operations(data: &[u8]) -> Result<Vec<SiteOperation>, postcar
             _ => Err(postcard::Error::DeserializeUnexpectedEnd),
         }
     } else {
-        // Legacy format: no version header, parse directly
-        postcard::from_bytes(data)
+        Err(postcard::Error::DeserializeUnexpectedEnd)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn default_serializable_settings() -> crate::brush::SerializableBrushSettings {
+        crate::brush::BrushSettings::default().to_serializable()
+    }
 
     fn round_trip(op: Operation) {
         let site_op = SiteOperation {
@@ -233,16 +219,68 @@ mod tests {
     }
 
     #[test]
-    fn test_round_trip_brush_settings() {
-        round_trip(Operation::SetBrushSize(20.0));
-        round_trip(Operation::SetBrushSpacing(0.15));
-        round_trip(Operation::SetBrushColor {
-            r: 255,
-            g: 128,
-            b: 0,
-        });
-        round_trip(Operation::SetBrushOpacity(0.8));
-        round_trip(Operation::SetBrushFlow(0.6));
+    fn test_round_trip_brush_settings_blob() {
+        use crate::brush::SerializableBrushSettings;
+        let settings = SerializableBrushSettings {
+            size: 20.0,
+            spacing: 0.15,
+            color_r: 255,
+            color_g: 128,
+            color_b: 0,
+            opacity: 0.8,
+            flow: 0.6,
+            blend_mode: BlendMode::Normal,
+            hardness: 1.0,
+            roundness: 1.0,
+            angle: 0.0,
+            shape_dynamics: crate::dynamics::ShapeDynamics::default(),
+            transfer_dynamics: crate::dynamics::TransferDynamics::default(),
+            flip_x: false,
+            flip_y: false,
+            scatter: crate::brush::ScatterSettings::default(),
+            dual_brush: crate::brush::DualBrushSettings::default(),
+            texture: crate::brush::TextureSettings::default(),
+            active_tip_id: Some("tip-1".to_string()),
+            secondary_tip_id: None,
+            texture_tip_id: None,
+        };
+        round_trip(Operation::SetBrushSettings(settings.to_bytes()));
+    }
+
+    #[test]
+    fn test_brush_settings_msgpack_round_trip() {
+        use crate::brush::SerializableBrushSettings;
+        let settings = SerializableBrushSettings {
+            size: 42.0,
+            spacing: 0.25,
+            color_r: 10,
+            color_g: 20,
+            color_b: 30,
+            opacity: 0.5,
+            flow: 0.7,
+            blend_mode: BlendMode::Multiply,
+            hardness: 0.8,
+            roundness: 0.6,
+            angle: 45.0,
+            shape_dynamics: crate::dynamics::ShapeDynamics::default(),
+            transfer_dynamics: crate::dynamics::TransferDynamics::default(),
+            flip_x: true,
+            flip_y: false,
+            scatter: crate::brush::ScatterSettings {
+                scatter: 2.0,
+                both_axes: true,
+                count: 3,
+                count_jitter: 0.5,
+            },
+            dual_brush: crate::brush::DualBrushSettings::default(),
+            texture: crate::brush::TextureSettings::default(),
+            active_tip_id: None,
+            secondary_tip_id: Some("dual-tip".to_string()),
+            texture_tip_id: Some("tex-tip".to_string()),
+        };
+        let bytes = settings.to_bytes();
+        let decoded = SerializableBrushSettings::from_bytes(&bytes).unwrap();
+        assert_eq!(settings, decoded);
     }
 
     #[test]
@@ -324,63 +362,6 @@ mod tests {
         });
     }
 
-    #[test]
-    fn test_round_trip_dual_brush() {
-        use crate::brush::{DualBrushMode, DualBrushSettings, ScatterSettings};
-        round_trip(Operation::SetDualBrush(DualBrushSettings {
-            enabled: true,
-            mode: DualBrushMode::Darken,
-            hardness: 0.5,
-            size_ratio: 1.5,
-            spacing: 0.15,
-            flip: true,
-            scatter: ScatterSettings {
-                scatter: 1.5,
-                both_axes: true,
-                count: 2,
-                count_jitter: 0.0,
-            },
-        }));
-    }
-
-    #[test]
-    fn test_round_trip_secondary_brush_tip() {
-        round_trip(Operation::SetSecondaryBrushTip(Some("tip-123".to_string())));
-        round_trip(Operation::SetSecondaryBrushTip(None));
-    }
-
-    #[test]
-    fn test_round_trip_scatter() {
-        use crate::brush::ScatterSettings;
-        round_trip(Operation::SetScatter(ScatterSettings {
-            scatter: 2.5,
-            both_axes: true,
-            count: 3,
-            count_jitter: 0.5,
-        }));
-    }
-
-    #[test]
-    fn test_round_trip_texture() {
-        use crate::brush::TextureSettings;
-        round_trip(Operation::SetTexture(TextureSettings {
-            enabled: true,
-            scale: 200.0,
-            depth: 0.75,
-            texture_each_tip: true,
-        }));
-    }
-
-    #[test]
-    fn test_round_trip_texture_tip() {
-        round_trip(Operation::SetTextureTip(Some("pattern-abc".to_string())));
-        round_trip(Operation::SetTextureTip(None));
-    }
-
-    #[test]
-    fn test_round_trip_reset_brush() {
-        round_trip(Operation::ResetBrush);
-    }
 
     #[test]
     fn test_stroke_end_compact() {
@@ -398,8 +379,13 @@ mod tests {
 
     #[test]
     fn test_serialize_operations_batch() {
+        use crate::brush::SerializableBrushSettings;
+        let settings = SerializableBrushSettings {
+            size: 10.0,
+            ..default_serializable_settings()
+        };
         let ops: Vec<SiteOperation> = vec![
-            Operation::SetBrushSize(10.0),
+            Operation::SetBrushSettings(settings.to_bytes()),
             Operation::StrokeBegin {
                 layer: 1,
                 x: 50.0,
@@ -423,13 +409,14 @@ mod tests {
 
     #[test]
     fn test_site_operation_with_different_sites() {
+        let bytes = default_serializable_settings().to_bytes();
         let op1 = SiteOperation {
             site: 0,
-            op: Operation::SetBrushSize(10.0),
+            op: Operation::SetBrushSettings(bytes.clone()),
         };
         let op2 = SiteOperation {
             site: 1,
-            op: Operation::SetBrushSize(10.0),
+            op: Operation::SetBrushSettings(bytes),
         };
         assert_ne!(
             op1, op2,
@@ -456,20 +443,18 @@ mod tests {
         }];
         let bytes = serialize_operations(&ops);
         assert_eq!(bytes[0], 0xFF, "First byte should be version magic");
-        assert_eq!(bytes[1], 1, "Second byte should be version 1");
+        assert_eq!(bytes[1], 2, "Second byte should be version 2");
     }
 
     #[test]
-    fn test_deserialize_legacy_format() {
-        // Legacy format: no version header, raw postcard bytes
+    fn test_deserialize_legacy_format_rejected() {
+        // Legacy format (no version header) should be rejected
         let ops = vec![SiteOperation {
             site: 0,
             op: Operation::StrokeEnd,
         }];
         let legacy_bytes = postcard::to_allocvec(&ops).unwrap();
-        // Should still deserialize successfully (fallback)
-        let decoded = deserialize_operations(&legacy_bytes).unwrap();
-        assert_eq!(ops, decoded);
+        assert!(deserialize_operations(&legacy_bytes).is_err());
     }
 
     #[test]

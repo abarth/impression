@@ -221,6 +221,122 @@ impl Default for BrushSettings {
     }
 }
 
+/// Fully serializable snapshot of all brush settings. Used as the single
+/// `SetBrushSettings` operation payload so that brush state is recorded
+/// atomically at stroke start rather than as 20+ individual operations.
+///
+/// New fields should be added with `#[serde(default = "...")]` so that
+/// MessagePack payloads written before the field existed can still be
+/// deserialized (forward-compatible oplog extensibility).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SerializableBrushSettings {
+    pub size: f32,
+    pub spacing: f32,
+    pub color_r: u8,
+    pub color_g: u8,
+    pub color_b: u8,
+    pub opacity: f32,
+    pub flow: f32,
+    pub blend_mode: BlendMode,
+    pub hardness: f32,
+    pub roundness: f32,
+    pub angle: f32,
+    pub shape_dynamics: ShapeDynamics,
+    pub transfer_dynamics: TransferDynamics,
+    pub flip_x: bool,
+    pub flip_y: bool,
+    pub scatter: ScatterSettings,
+    pub dual_brush: DualBrushSettings,
+    pub texture: TextureSettings,
+    pub active_tip_id: Option<String>,
+    pub secondary_tip_id: Option<String>,
+    pub texture_tip_id: Option<String>,
+}
+
+impl SerializableBrushSettings {
+    /// Serialize to MessagePack bytes for embedding in the oplog.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        rmp_serde::to_vec(self).expect("brush settings serialization should not fail")
+    }
+
+    /// Deserialize from MessagePack bytes.
+    pub fn from_bytes(data: &[u8]) -> Result<Self, rmp_serde::decode::Error> {
+        rmp_serde::from_slice(data)
+    }
+}
+
+impl BrushSettings {
+    /// Create a serializable snapshot of the current brush settings.
+    pub fn to_serializable(&self) -> SerializableBrushSettings {
+        SerializableBrushSettings {
+            size: self.size,
+            spacing: self.spacing,
+            color_r: self.color.r,
+            color_g: self.color.g,
+            color_b: self.color.b,
+            opacity: self.opacity,
+            flow: self.flow,
+            blend_mode: self.blend_mode,
+            hardness: self.hardness,
+            roundness: self.roundness,
+            angle: self.angle,
+            shape_dynamics: self.shape_dynamics.clone(),
+            transfer_dynamics: self.transfer_dynamics.clone(),
+            flip_x: self.flip_x,
+            flip_y: self.flip_y,
+            scatter: self.scatter.clone(),
+            dual_brush: self.dual_brush.clone(),
+            texture: self.texture.clone(),
+            active_tip_id: self.active_tip_id.clone(),
+            secondary_tip_id: self.secondary_tip_id.clone(),
+            texture_tip_id: self.texture_tip_id.clone(),
+        }
+    }
+
+    /// Apply a deserialized settings snapshot, resolving tip IDs against the
+    /// provided registry. Returns the resolved tips so the caller can store
+    /// them in SiteState.
+    pub fn apply_serializable(
+        &mut self,
+        s: &SerializableBrushSettings,
+        tip_registry: &std::collections::HashMap<String, BrushTip>,
+    ) -> (Option<BrushTip>, Option<BrushTip>, Option<BrushTip>) {
+        self.size = s.size;
+        self.spacing = s.spacing;
+        self.color = Color::new(s.color_r, s.color_g, s.color_b);
+        self.opacity = s.opacity;
+        self.flow = s.flow;
+        self.blend_mode = s.blend_mode;
+        self.hardness = s.hardness;
+        self.roundness = s.roundness;
+        self.angle = s.angle;
+        self.shape_dynamics = s.shape_dynamics.clone();
+        self.transfer_dynamics = s.transfer_dynamics.clone();
+        self.flip_x = s.flip_x;
+        self.flip_y = s.flip_y;
+        self.scatter = s.scatter.clone();
+        self.dual_brush = s.dual_brush.clone();
+        self.texture = s.texture.clone();
+        self.active_tip_id = s.active_tip_id.clone();
+        self.secondary_tip_id = s.secondary_tip_id.clone();
+        self.texture_tip_id = s.texture_tip_id.clone();
+
+        let active = s
+            .active_tip_id
+            .as_ref()
+            .and_then(|id| tip_registry.get(id).cloned());
+        let secondary = s
+            .secondary_tip_id
+            .as_ref()
+            .and_then(|id| tip_registry.get(id).cloned());
+        let texture = s
+            .texture_tip_id
+            .as_ref()
+            .and_then(|id| tip_registry.get(id).cloned());
+        (active, secondary, texture)
+    }
+}
+
 /// Sample the secondary tip alpha at a given canvas position, relative to stamp center.
 /// Returns 1.0 if no secondary tip modulation.
 pub(crate) fn sample_secondary_tip(

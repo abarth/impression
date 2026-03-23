@@ -12,6 +12,7 @@ import {
   clearSelectionTexture,
 } from "./gpu";
 import type { Storage, DocumentMeta } from "./storage";
+import type { SerializableBrushSettings } from "./hooks/useBrushSettings";
 
 export interface PersistenceOptions {
   storage: Storage;
@@ -120,7 +121,10 @@ export class Engine {
     this.needsRender = true;
   }
 
-  strokeBegin(layer: number, x: number, y: number, pressure: number): void {
+  /** Send all brush settings to WASM and begin a stroke.
+   *  Settings are recorded in the oplog automatically by stroke_begin. */
+  strokeBegin(layer: number, x: number, y: number, pressure: number, settings: SerializableBrushSettings): void {
+    this.canvas.set_all_brush_settings(settings);
     this.canvas.stroke_begin(layer, x, y, pressure);
     this._dirty = true;
     this.syncLayer(layer);
@@ -201,127 +205,11 @@ export class Engine {
 
   // Brush settings
 
-  /** Reset brush settings to defaults (preserving color). Called before
-   *  applying new settings to avoid stale state from previous presets. */
-  resetBrush(): void {
-    this.canvas.reset_brush();
-  }
-
-  setBrushSize(size: number): void {
-    this.canvas.set_brush_size(size);
-  }
-
-  setBrushSpacing(spacing: number): void {
-    this.canvas.set_brush_spacing(spacing);
-  }
-
-  setBrushColor(r: number, g: number, b: number): void {
-    this.canvas.set_brush_color(r, g, b);
-  }
-
-  setBrushOpacity(opacity: number): void {
-    this.canvas.set_brush_opacity(opacity);
-  }
-
-  setBrushFlow(flow: number): void {
-    this.canvas.set_brush_flow(flow);
-  }
-
-  setBrushBlendMode(mode: number): void {
-    this.canvas.set_brush_blend_mode(mode);
-  }
-
-  setBrushHardness(hardness: number): void {
-    this.canvas.set_brush_hardness(hardness);
-  }
-
-  setBrushRoundness(roundness: number): void {
-    this.canvas.set_brush_roundness(roundness);
-  }
-
-  setBrushAngle(angle: number): void {
-    this.canvas.set_brush_angle(angle);
-  }
-
-  setBrushFlipX(flip: boolean): void {
-    this.canvas.set_brush_flip_x(flip);
-  }
-
-  setBrushFlipY(flip: boolean): void {
-    this.canvas.set_brush_flip_y(flip);
-  }
-
-  setScatter(
-    scatter: number, bothAxes: boolean,
-    count: number, countJitter: number,
-  ): void {
-    this.canvas.set_scatter(scatter, bothAxes, count, countJitter);
-  }
-
-  setDualBrush(
-    enabled: boolean, mode: number,
-    hardness: number, size: number, spacing: number,
-    flip: boolean, count: number, countJitter: number,
-    scatter: number, bothAxes: boolean,
-  ): void {
-    this.canvas.set_dual_brush(enabled, mode, hardness, size, spacing, flip, count, countJitter, scatter, bothAxes);
-  }
-
-  setSecondaryBrushTip(id: string): void {
-    this.canvas.set_secondary_brush_tip(id);
-  }
-
-  clearSecondaryBrushTip(): void {
-    this.canvas.clear_secondary_brush_tip();
-  }
-
-  setTexture(
-    enabled: boolean, scale: number,
-    depth: number, textureEachTip: boolean,
-  ): void {
-    this.canvas.set_texture(enabled, scale, depth, textureEachTip);
-  }
-
-  setTextureTip(id: string): void {
-    this.canvas.set_texture_tip(id);
-  }
-
-  clearTextureTip(): void {
-    this.canvas.clear_texture_tip();
-  }
-
-  setShapeDynamics(
-    sizeJitter: number, sizeControl: number, sizeMin: number,
-    angleJitter: number, angleControl: number,
-    roundnessJitter: number, roundnessControl: number, roundnessMin: number,
-  ): void {
-    this.canvas.set_shape_dynamics(
-      sizeJitter, sizeControl, sizeMin,
-      angleJitter, angleControl,
-      roundnessJitter, roundnessControl, roundnessMin,
-    );
-  }
-
-  setTransferDynamics(
-    opacityJitter: number, opacityControl: number, opacityMin: number,
-    flowJitter: number, flowControl: number, flowMin: number,
-  ): void {
-    this.canvas.set_transfer_dynamics(
-      opacityJitter, opacityControl, opacityMin,
-      flowJitter, flowControl, flowMin,
-    );
-  }
-
+  /** Register a custom brush tip image in the WASM tip registry.
+   *  This is separate from brush settings — tip pixel data must be
+   *  registered before a stroke references the tip ID. */
   registerBrushTip(id: string, pixels: Uint8Array, width: number, height: number): void {
     this.canvas.register_brush_tip(id, pixels, width, height);
-  }
-
-  setBrushTip(id: string): void {
-    this.canvas.set_brush_tip(id);
-  }
-
-  clearBrushTip(): void {
-    this.canvas.clear_brush_tip();
   }
 
   setBackgroundColor(r: number, g: number, b: number): void {

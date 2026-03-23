@@ -16,6 +16,55 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 };
 
 import { Engine } from "../engine";
+import type { SerializableBrushSettings } from "../hooks/useBrushSettings";
+
+/** Minimal valid settings blob for tests. */
+function defaultSettings(): SerializableBrushSettings {
+  const dynParam = { jitter: 0, control: 0, minimum: 0 };
+  return {
+    size: 20,
+    spacing: 0.15,
+    color_r: 0,
+    color_g: 0,
+    color_b: 0,
+    opacity: 1.0,
+    flow: 0.8,
+    blend_mode: 0,
+    hardness: 1.0,
+    roundness: 1.0,
+    angle: 0,
+    shape_dynamics: {
+      size: { ...dynParam },
+      angle: { ...dynParam },
+      roundness: { ...dynParam },
+    },
+    transfer_dynamics: {
+      opacity: { ...dynParam },
+      flow: { ...dynParam },
+    },
+    flip_x: false,
+    flip_y: false,
+    scatter: { scatter: 0, both_axes: false, count: 1, count_jitter: 0 },
+    dual_brush: {
+      enabled: false,
+      mode: 0,
+      hardness: 1.0,
+      size_ratio: 1.0,
+      spacing: 0.25,
+      flip: false,
+      scatter: { scatter: 0, both_axes: false, count: 1, count_jitter: 0 },
+    },
+    texture: {
+      enabled: false,
+      scale: 100,
+      depth: 1.0,
+      texture_each_tip: false,
+    },
+    active_tip_id: null,
+    secondary_tip_id: null,
+    texture_tip_id: null,
+  };
+}
 
 function createMockCanvas() {
   return {
@@ -34,12 +83,7 @@ function createMockCanvas() {
     stroke_begin: vi.fn(),
     stroke_move: vi.fn(),
     stroke_end: vi.fn(),
-    set_brush_size: vi.fn(),
-    set_brush_spacing: vi.fn(),
-    set_brush_color: vi.fn(),
-    set_brush_opacity: vi.fn(),
-    set_brush_flow: vi.fn(),
-    set_brush_blend_mode: vi.fn(),
+    set_all_brush_settings: vi.fn(),
     set_background_color: vi.fn(),
     remove_layer: vi.fn().mockReturnValue(true),
     layer_blend_mode: vi.fn().mockReturnValue(0),
@@ -61,10 +105,6 @@ function createMockCanvas() {
     load_chunk: vi.fn().mockReturnValue(true),
     move_layer: vi.fn(),
     register_brush_tip: vi.fn(),
-    set_brush_tip: vi.fn(),
-    clear_brush_tip: vi.fn(),
-    set_brush_flip_x: vi.fn(),
-    set_brush_flip_y: vi.fn(),
     is_adjustment_layer: vi.fn().mockReturnValue(false),
     layer_kind: vi.fn().mockReturnValue(0),
     add_adjustment_layer: vi.fn().mockReturnValue(0),
@@ -113,10 +153,11 @@ describe("Engine", () => {
     );
   });
 
-  it("should forward strokeBegin to canvas", () => {
-    // Need to add a layer first so syncLayer has a texture to upload to
+  it("should forward strokeBegin to canvas with settings", () => {
     engine.addLayer();
-    engine.strokeBegin(0, 10, 20, 0.8);
+    const settings = defaultSettings();
+    engine.strokeBegin(0, 10, 20, 0.8, settings);
+    expect(mockCanvas.set_all_brush_settings).toHaveBeenCalledWith(settings);
     expect(mockCanvas.stroke_begin).toHaveBeenCalledWith(0, 10, 20, 0.8);
   });
 
@@ -134,7 +175,7 @@ describe("Engine", () => {
   it("should sync dirty layers to GPU", () => {
     engine.addLayer();
     mockCanvas.is_layer_dirty.mockReturnValue(true);
-    engine.strokeBegin(0, 10, 20, 1.0);
+    engine.strokeBegin(0, 10, 20, 1.0, defaultSettings());
     expect(mockCanvas.clear_layer_dirty).toHaveBeenCalledWith(0);
   });
 
@@ -145,8 +186,7 @@ describe("Engine", () => {
     mockCanvas.layer_dirty_y.mockReturnValue(20);
     mockCanvas.layer_dirty_width.mockReturnValue(30);
     mockCanvas.layer_dirty_height.mockReturnValue(40);
-    engine.strokeBegin(0, 10, 20, 1.0);
-    // writeTexture should be called with origin for partial upload
+    engine.strokeBegin(0, 10, 20, 1.0, defaultSettings());
     const writeCall = mockGPU.device.queue.writeTexture.mock.calls[0];
     expect(writeCall[0].origin).toEqual({ x: 10, y: 20 });
     expect(writeCall[2].offset).toBe((20 * 100 + 10) * 4);
@@ -160,9 +200,8 @@ describe("Engine", () => {
     mockCanvas.layer_dirty_y.mockReturnValue(0);
     mockCanvas.layer_dirty_width.mockReturnValue(100);
     mockCanvas.layer_dirty_height.mockReturnValue(100);
-    engine.strokeBegin(0, 10, 20, 1.0);
+    engine.strokeBegin(0, 10, 20, 1.0, defaultSettings());
     const writeCall = mockGPU.device.queue.writeTexture.mock.calls[0];
-    // Full upload: no origin
     expect(writeCall[0].origin).toBeUndefined();
   });
 
@@ -175,20 +214,6 @@ describe("Engine", () => {
 
   it("should return background color", () => {
     expect(engine.getBackgroundColor()).toEqual([255, 255, 255]);
-  });
-
-  it("should forward brush settings", () => {
-    engine.setBrushSize(30);
-    expect(mockCanvas.set_brush_size).toHaveBeenCalledWith(30);
-
-    engine.setBrushColor(255, 0, 0);
-    expect(mockCanvas.set_brush_color).toHaveBeenCalledWith(255, 0, 0);
-
-    engine.setBrushOpacity(0.5);
-    expect(mockCanvas.set_brush_opacity).toHaveBeenCalledWith(0.5);
-
-    engine.setBrushFlow(0.3);
-    expect(mockCanvas.set_brush_flow).toHaveBeenCalledWith(0.3);
   });
 
   it("should track active layer", () => {
@@ -231,7 +256,7 @@ describe("Engine", () => {
 
   it("should get and set layer blend mode", () => {
     expect(engine.getLayerBlendMode(0)).toBe(0);
-    engine.setLayerBlendMode(0, 9); // Lighter
+    engine.setLayerBlendMode(0, 9);
     expect(mockCanvas.set_layer_blend_mode).toHaveBeenCalledWith(0, 9);
   });
 
@@ -242,7 +267,6 @@ describe("Engine", () => {
     engine.setLayerOpacity(0, 0.5);
 
     expect(mockCanvas.set_layer_opacity).toHaveBeenCalledWith(0, 0.5);
-    // Should write opacity to the GPU buffer
     expect(mockGPU.device.queue.writeBuffer).toHaveBeenCalled();
   });
 
@@ -263,11 +287,6 @@ describe("Engine", () => {
     expect(mockCanvas.set_layer_visible).toHaveBeenCalledWith(0, false);
   });
 
-  it("should forward setBrushBlendMode to WASM", () => {
-    engine.setBrushBlendMode(108); // DstOut
-    expect(mockCanvas.set_brush_blend_mode).toHaveBeenCalledWith(108);
-  });
-
   it("should forward pendingOperationCount to WASM", () => {
     mockCanvas.pending_operation_count.mockReturnValue(42);
     expect(engine.pendingOperationCount()).toBe(42);
@@ -277,16 +296,6 @@ describe("Engine", () => {
     const pixels = new Uint8Array([255, 128, 64, 32]);
     engine.registerBrushTip("tip-1", pixels, 2, 2);
     expect(mockCanvas.register_brush_tip).toHaveBeenCalledWith("tip-1", pixels, 2, 2);
-  });
-
-  it("should forward setBrushTip to WASM", () => {
-    engine.setBrushTip("tip-1");
-    expect(mockCanvas.set_brush_tip).toHaveBeenCalledWith("tip-1");
-  });
-
-  it("should forward clearBrushTip to WASM", () => {
-    engine.clearBrushTip();
-    expect(mockCanvas.clear_brush_tip).toHaveBeenCalled();
   });
 
   // Adjustment layer tests
@@ -322,8 +331,7 @@ describe("Engine", () => {
     it("should skip pixel sync for adjustment layers", () => {
       mockCanvas.is_adjustment_layer.mockReturnValue(true);
       mockCanvas.is_layer_dirty.mockReturnValue(true);
-      // strokeBegin calls syncLayer internally
-      engine.strokeBegin(0, 10, 10, 1.0);
+      engine.strokeBegin(0, 10, 10, 1.0, defaultSettings());
       expect(mockCanvas.layer_pixels_ptr).not.toHaveBeenCalled();
     });
   });
@@ -430,13 +438,11 @@ describe("Engine", () => {
 
       expect(engine.dirty).toBe(false);
 
-      // strokeBegin should mark dirty
       engine.addLayer();
       mockCanvas.is_layer_dirty.mockReturnValue(true);
-      engine.strokeBegin(0, 10, 20, 1.0);
+      engine.strokeBegin(0, 10, 20, 1.0, defaultSettings());
       expect(engine.dirty).toBe(true);
 
-      // flushAll should clear dirty
       mockCanvas.pending_operation_count.mockReturnValue(1);
       mockCanvas.flush_pending_operations.mockReturnValue(4);
       mockCanvas.flush_data_ptr.mockReturnValue(0);

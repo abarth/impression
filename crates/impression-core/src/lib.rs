@@ -215,198 +215,21 @@ impl ImpressionCanvas {
 
     // -- Brush settings --
 
-    /// Reset brush settings to defaults (preserving color). Called by the
-    /// frontend before applying new brush properties via individual setters.
-    pub fn reset_brush(&mut self) {
-        self.inner.reset_brush();
-    }
-
-    pub fn set_brush_size(&mut self, size: f32) {
-        self.inner.set_brush_size(size);
-    }
-
-    pub fn set_brush_spacing(&mut self, spacing: f32) {
-        self.inner.set_brush_spacing(spacing);
-    }
-
-    pub fn set_brush_color(&mut self, r: u8, g: u8, b: u8) {
-        self.inner.set_brush_color(r, g, b);
-    }
-
-    pub fn set_brush_opacity(&mut self, opacity: f32) {
-        self.inner.set_brush_opacity(opacity);
-    }
-
-    pub fn set_brush_flow(&mut self, flow: f32) {
-        self.inner.set_brush_flow(flow);
-    }
-
-    pub fn set_brush_blend_mode(&mut self, mode: u32) {
-        self.inner
-            .set_brush_blend_mode(blend_mode::BlendMode::from_u32(mode));
-    }
-
-    pub fn set_brush_hardness(&mut self, hardness: f32) {
-        self.inner.set_brush_hardness(hardness);
-    }
-
-    pub fn set_brush_roundness(&mut self, roundness: f32) {
-        self.inner.set_brush_roundness(roundness);
-    }
-
-    pub fn set_brush_angle(&mut self, angle: f32) {
-        self.inner.set_brush_angle(angle);
-    }
-
-    pub fn set_brush_flip_x(&mut self, flip: bool) {
-        self.inner.set_brush_flip_x(flip);
-    }
-
-    pub fn set_brush_flip_y(&mut self, flip: bool) {
-        self.inner.set_brush_flip_y(flip);
-    }
-
-    /// Set dual brush parameters.
-    pub fn set_dual_brush(
-        &mut self,
-        enabled: bool,
-        mode: u8,
-        hardness: f32,
-        size_ratio: f32,
-        spacing: f32,
-        flip: bool,
-        count: u32,
-        count_jitter: f32,
-        scatter: f32,
-        both_axes: bool,
-    ) {
-        self.inner.set_dual_brush(brush::DualBrushSettings {
-            enabled,
-            mode: brush::DualBrushMode::from_u8(mode),
-            hardness,
-            size_ratio,
-            spacing,
-            flip,
-            scatter: brush::ScatterSettings {
-                scatter,
-                both_axes,
-                count,
-                count_jitter,
-            },
-        });
-    }
-
-    /// Set the secondary (dual brush) tip by ID.
-    pub fn set_secondary_brush_tip(&mut self, id: &str) {
-        self.inner.set_secondary_brush_tip(id);
-    }
-
-    /// Clear the secondary brush tip (revert to computed circle).
-    pub fn clear_secondary_brush_tip(&mut self) {
-        self.inner.clear_secondary_brush_tip();
-    }
-
-    /// Set scattering parameters.
-    pub fn set_scatter(&mut self, scatter: f32, both_axes: bool, count: u32, count_jitter: f32) {
-        self.inner.set_scatter(brush::ScatterSettings {
-            scatter,
-            both_axes,
-            count,
-            count_jitter,
-        });
-    }
-
-    /// Set texture overlay parameters.
-    pub fn set_texture(&mut self, enabled: bool, scale: f32, depth: f32, texture_each_tip: bool) {
-        self.inner.set_texture(brush::TextureSettings {
-            enabled,
-            scale,
-            depth,
-            texture_each_tip,
-        });
-    }
-
-    /// Set the texture pattern tip by ID.
-    pub fn set_texture_tip(&mut self, id: &str) {
-        self.inner.set_texture_tip(id);
-    }
-
-    /// Clear the texture pattern tip.
-    pub fn clear_texture_tip(&mut self) {
-        self.inner.clear_texture_tip();
+    /// Apply all brush settings at once. Called from TypeScript before
+    /// stroke_begin. The settings are passed as a JsValue (serialized
+    /// SerializableBrushSettings). The oplog entry is recorded automatically
+    /// by stroke_begin.
+    pub fn set_all_brush_settings(&mut self, settings: JsValue) -> Result<(), JsValue> {
+        let s: brush::SerializableBrushSettings =
+            serde_wasm_bindgen::from_value(settings).map_err(|e| JsValue::from_str(&e.to_string()))?;
+        self.inner.apply_brush_settings(0, s);
+        Ok(())
     }
 
     /// Register a custom brush tip image. Called from TypeScript before replay.
     pub fn register_brush_tip(&mut self, id: &str, pixels: &[u8], width: u32, height: u32) {
         self.inner
             .register_brush_tip(id.to_string(), pixels.to_vec(), width, height);
-    }
-
-    /// Set the active brush tip by ID (must be registered first).
-    pub fn set_brush_tip(&mut self, id: &str) {
-        self.inner.set_brush_tip(id);
-    }
-
-    /// Clear the active brush tip (revert to computed circle).
-    pub fn clear_brush_tip(&mut self) {
-        self.inner.clear_brush_tip();
-    }
-
-    /// Set shape dynamics. Control values: 0=Off, 1=PenPressure, 2=Random.
-    pub fn set_shape_dynamics(
-        &mut self,
-        size_jitter: f32,
-        size_control: u8,
-        size_min: f32,
-        angle_jitter: f32,
-        angle_control: u8,
-        roundness_jitter: f32,
-        roundness_control: u8,
-        roundness_min: f32,
-    ) {
-        use dynamics::{DynamicControl, DynamicParam, ShapeDynamics};
-        self.inner.set_shape_dynamics(ShapeDynamics {
-            size: DynamicParam {
-                jitter: size_jitter,
-                control: DynamicControl::from_u8(size_control),
-                minimum: size_min,
-            },
-            angle: DynamicParam {
-                jitter: angle_jitter,
-                control: DynamicControl::from_u8(angle_control),
-                minimum: 0.0, // angle minimum is not meaningful (additive)
-            },
-            roundness: DynamicParam {
-                jitter: roundness_jitter,
-                control: DynamicControl::from_u8(roundness_control),
-                minimum: roundness_min,
-            },
-        });
-    }
-
-    /// Set transfer dynamics. Control values: 0=Off, 1=PenPressure, 2=Random.
-    pub fn set_transfer_dynamics(
-        &mut self,
-        opacity_jitter: f32,
-        opacity_control: u8,
-        opacity_min: f32,
-        flow_jitter: f32,
-        flow_control: u8,
-        flow_min: f32,
-    ) {
-        use dynamics::{DynamicControl, DynamicParam, TransferDynamics};
-        self.inner.set_transfer_dynamics(TransferDynamics {
-            opacity: DynamicParam {
-                jitter: opacity_jitter,
-                control: DynamicControl::from_u8(opacity_control),
-                minimum: opacity_min,
-            },
-            flow: DynamicParam {
-                jitter: flow_jitter,
-                control: DynamicControl::from_u8(flow_control),
-                minimum: flow_min,
-            },
-        });
     }
 
     pub fn set_background_color(&mut self, r: u8, g: u8, b: u8) {

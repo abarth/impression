@@ -76,61 +76,31 @@ export function useBrushPresets({
     return true;
   }, []);
 
-  const activateTip = useCallback(async (preset: BrushPreset) => {
-    const eng = engineRef.current;
-    if (!eng) return;
-
-    // Primary tip
+  /** Ensure all tip images for a preset are registered in the WASM tip registry.
+   *  Tip pixel data must be registered before a stroke references the tip ID.
+   *  Does NOT set active tips on the engine — that happens via the settings blob at stroke start. */
+  const ensurePresetTipsRegistered = useCallback(async (preset: BrushPreset) => {
     if (preset.tip.type === "image") {
-      const ok = await ensureTipRegistered(preset.tip.tipId, preset.name);
-      if (ok) {
-        eng.setBrushTip(preset.tip.tipId);
-      } else {
-        eng.clearBrushTip();
-      }
-    } else {
-      eng.clearBrushTip();
+      await ensureTipRegistered(preset.tip.tipId, preset.name);
     }
-
-    // Secondary (dual brush) tip
     if (preset.dualBrush?.enabled && preset.dualBrush.tipId && !preset.dualBrush.useComputed) {
-      const ok = await ensureTipRegistered(preset.dualBrush.tipId, `${preset.name} (dual)`);
-      if (ok) {
-        eng.setSecondaryBrushTip(preset.dualBrush.tipId);
-      } else {
-        eng.clearSecondaryBrushTip();
-      }
-    } else {
-      eng.clearSecondaryBrushTip();
+      await ensureTipRegistered(preset.dualBrush.tipId, `${preset.name} (dual)`);
     }
-
-    // Texture pattern tip
     if (preset.texture?.tipId) {
-      const ok = await ensureTipRegistered(preset.texture.tipId, `${preset.name} (texture)`);
-      if (ok) {
-        eng.setTextureTip(preset.texture.tipId);
-      } else {
-        eng.clearTextureTip();
-      }
-    } else {
-      eng.clearTextureTip();
+      await ensureTipRegistered(preset.texture.tipId, `${preset.name} (texture)`);
     }
   }, [ensureTipRegistered]);
 
-  // Re-activate the current tool's brush tip when switching tools
+  // Ensure tips are registered when switching tools (pixel data must exist before stroke start)
   const prevToolRef = useRef(currentTool);
   useEffect(() => {
     if (prevToolRef.current === currentTool) return;
     prevToolRef.current = currentTool;
     const presetId = activePresetIds[currentTool];
-    if (!presetId) {
-      // No preset selected for this tool — ensure computed tip
-      engineRef.current?.clearBrushTip();
-      return;
-    }
+    if (!presetId) return;
     const preset = presets.find((p) => p.id === presetId);
-    if (preset) activateTip(preset);
-  }, [currentTool, activePresetIds, presets, activateTip]);
+    if (preset) ensurePresetTipsRegistered(preset);
+  }, [currentTool, activePresetIds, presets, ensurePresetTipsRegistered]);
 
   const selectPreset = useCallback(
     (id: string) => {
@@ -161,31 +131,30 @@ export function useBrushPresets({
       if (preset.smoothing !== undefined) partial.smoothing = preset.smoothing;
 
       onApplyPreset(partial);
-      activateTip(preset);
+      ensurePresetTipsRegistered(preset);
     },
-    [presets, activeTool, onApplyPreset, activateTip],
+    [presets, activeTool, onApplyPreset, ensurePresetTipsRegistered],
   );
 
-  /** Toggle between Computed (circle) and Sampled (image) tip type for the active preset. */
+  /** Toggle between Computed (circle) and Sampled (image) tip type for the active preset.
+   *  Updates working brush state only — does NOT mutate the stored preset. */
   const toggleTipType = useCallback(async (type: "computed" | "image") => {
     const preset = presets.find((p) => p.id === activePresetId);
     if (!preset || !engine) return;
 
     const updated: BrushPreset = {
       ...preset,
-      tip: type === "computed" 
+      tip: type === "computed"
         ? { type: "computed", hardness: preset.tip.type === "computed" ? preset.tip.hardness : 1.0 }
         : { type: "image", tipId: preset.tip.type === "image" ? preset.tip.tipId : (presets.find(p => p.tip.type === "image")?.tip as any)?.tipId ?? "" }
     };
 
-    // Update state and storage
     setPresets(prev => prev.map(p => p.id === updated.id ? updated : p));
-    if (storage) await storage.savePreset(updated);
-    
-    // Sync with engine
-    activateTip(updated);
-  }, [activePresetId, presets, engine, storage, activateTip]);
+    ensurePresetTipsRegistered(updated);
+  }, [activePresetId, presets, engine, ensurePresetTipsRegistered]);
 
+  /** Toggle between Computed and Sampled dual brush tip.
+   *  Updates working brush state only — does NOT mutate the stored preset. */
   const toggleDualBrushType = useCallback(async (useComputed: boolean) => {
     const preset = presets.find((p) => p.id === activePresetId);
     if (!preset || !engine) return;
@@ -196,11 +165,9 @@ export function useBrushPresets({
     };
 
     setPresets(prev => prev.map(p => p.id === updated.id ? updated : p));
-    if (storage) await storage.savePreset(updated);
-
     onApplyPreset({ dualBrush: updated.dualBrush });
-    activateTip(updated);
-  }, [activePresetId, presets, engine, storage, onApplyPreset, activateTip]);
+    ensurePresetTipsRegistered(updated);
+  }, [activePresetId, presets, engine, onApplyPreset, ensurePresetTipsRegistered]);
 
   const savePreset = useCallback(
     async (preset: BrushPreset) => {

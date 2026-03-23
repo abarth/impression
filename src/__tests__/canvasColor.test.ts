@@ -20,7 +20,6 @@ function createMockEngine(layerCount = 1) {
     setLayerVisible: vi.fn(),
     setBackgroundColor: vi.fn(),
     setCanvasVisible: vi.fn(),
-    setBrushColor: vi.fn(),
     renameLayer: vi.fn(),
   };
 }
@@ -105,26 +104,50 @@ describe("Layer visibility in useLayerManager", () => {
   });
 });
 
-describe("useColorState does not set background color on engine", () => {
-  it("should not call setBackgroundColor when background swatch changes", () => {
-    const engine = createMockEngine();
-    const { result } = renderHook(() => useColorState(engine as never));
-
-    act(() => {
-      result.current.setBackground("#00ff00");
-    });
-
-    expect(engine.setBackgroundColor).not.toHaveBeenCalled();
-  });
-
-  it("should still set brush color when foreground changes", () => {
-    const engine = createMockEngine();
-    const { result } = renderHook(() => useColorState(engine as never));
+describe("useColorState is React-only", () => {
+  it("should update foreground color without engine calls", () => {
+    const { result } = renderHook(() => useColorState());
 
     act(() => {
       result.current.setForeground("#ff0000");
     });
 
-    expect(engine.setBrushColor).toHaveBeenCalledWith(255, 0, 0);
+    expect(result.current.colors.foreground).toBe("#ff0000");
+  });
+
+  it("should update background color without engine calls", () => {
+    const { result } = renderHook(() => useColorState());
+
+    act(() => {
+      result.current.setBackground("#00ff00");
+    });
+
+    expect(result.current.colors.background).toBe("#00ff00");
+  });
+
+  it("should swap colors", () => {
+    const { result } = renderHook(() => useColorState());
+
+    act(() => {
+      result.current.setForeground("#ff0000");
+    });
+
+    act(() => {
+      result.current.swapColors();
+    });
+
+    expect(result.current.colors.foreground).toBe("#ffffff");
+    expect(result.current.colors.background).toBe("#ff0000");
+  });
+
+  it("should provide getColorsRef for stable access", () => {
+    const { result } = renderHook(() => useColorState());
+
+    act(() => {
+      result.current.setForeground("#aabbcc");
+    });
+
+    const ref = result.current.getColorsRef();
+    expect(ref.foreground).toBe("#aabbcc");
   });
 });

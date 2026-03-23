@@ -3,8 +3,8 @@ import { useEngine, type EngineInitOptions } from "../hooks/useEngine";
 import { useViewTransform } from "../hooks/useViewTransform";
 import { useTool } from "../hooks/useTool";
 import { Storage } from "../storage"
-import { useBrushSettings } from "../hooks/useBrushSettings";
-import { useColorState } from "../hooks/useColorState";
+import { useBrushSettings, buildSerializableSettings, TOOL_BLEND_MODES, type ToolWithSettings } from "../hooks/useBrushSettings";
+import { useColorState, hexToRgb } from "../hooks/useColorState";
 import { useLayerManager } from "../hooks/useLayerManager";
 import { useSelection } from "../hooks/useSelection";
 import { useBrushPresets } from "../hooks/useBrushPresets";
@@ -37,9 +37,9 @@ export function DocumentViewer({
   const { engine, error: gpuError } = useEngine(canvasRef, engineOptions);
   const { transform, pan, zoom, fitToViewport } = useViewTransform();
   const { activeTool, selectTool } = useTool();
-  const { settings, updateSetting, applyPreset, toolLabel } = useBrushSettings(engine, activeTool);
-  const { colors, setForeground, setBackground, swapColors } =
-    useColorState(engine);
+  const { settings, updateSetting, applyPreset, toolLabel, getSettingsRef } = useBrushSettings(engine, activeTool);
+  const { colors, setForeground, setBackground, swapColors, getColorsRef } =
+    useColorState();
   const { layers, activeIndex, canvasColor, canvasVisible, addLayer, addGradientMapLayer, removeLayer, selectLayer, setLayerOpacity, setLayerBlendMode, renameLayer, moveLayer, toggleLayerVisible, setCanvasColor, toggleCanvasVisible, setGradientMapGradient, syncLayersFromEngine } =
     useLayerManager(engine);
   const storage = engineOptions.storage;
@@ -50,6 +50,15 @@ export function DocumentViewer({
     onApplyPreset: applyPreset,
   });
   const { groups: gradientGroups, activeGradientId, selectGradient, importGrd } = useGradientPresets({ storage });
+  /** Build the full serializable brush settings blob for stroke start. */
+  const getStrokeSettings = useCallback(() => {
+    const { settings: s, tool } = getSettingsRef();
+    const c = getColorsRef();
+    const [r, g, b] = hexToRgb(c.foreground);
+    const blendMode = TOOL_BLEND_MODES[tool as ToolWithSettings] ?? 0;
+    return buildSerializableSettings(s, blendMode, r, g, b);
+  }, [getSettingsRef, getColorsRef]);
+
   const [undoState, setUndoState] = useState({ canUndo: false, canRedo: false });
 
   // Poll undo/redo state (cheap WASM call) to keep buttons in sync
@@ -278,6 +287,7 @@ export function DocumentViewer({
           zoom={zoom}
           onColorPick={setForeground}
           fitToViewport={fitToViewport}
+          getStrokeSettings={getStrokeSettings}
         />}
 
         {/* Right panel */}

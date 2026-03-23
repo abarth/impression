@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { setupInput } from "../input";
 import type { Engine } from "../engine";
+import type { SerializableBrushSettings } from "../hooks/useBrushSettings";
 
 type MockCanvas = HTMLCanvasElement & {
   _fire: (event: string, data: Partial<PointerEvent>) => void;
@@ -13,6 +14,28 @@ function createMockEngine(): Engine {
     strokeMove: vi.fn(),
     strokeEnd: vi.fn(),
   } as unknown as Engine;
+}
+
+/** Minimal settings blob for tests. */
+function defaultSettings(): SerializableBrushSettings {
+  const dynParam = { jitter: 0, control: 0, minimum: 0 };
+  return {
+    size: 20, spacing: 0.15,
+    color_r: 0, color_g: 0, color_b: 0,
+    opacity: 1.0, flow: 0.8, blend_mode: 0,
+    hardness: 1.0, roundness: 1.0, angle: 0,
+    shape_dynamics: { size: { ...dynParam }, angle: { ...dynParam }, roundness: { ...dynParam } },
+    transfer_dynamics: { opacity: { ...dynParam }, flow: { ...dynParam } },
+    flip_x: false, flip_y: false,
+    scatter: { scatter: 0, both_axes: false, count: 1, count_jitter: 0 },
+    dual_brush: {
+      enabled: false, mode: 0, hardness: 1.0, size_ratio: 1.0,
+      spacing: 0.25, flip: false,
+      scatter: { scatter: 0, both_axes: false, count: 1, count_jitter: 0 },
+    },
+    texture: { enabled: false, scale: 100, depth: 1.0, texture_each_tip: false },
+    active_tip_id: null, secondary_tip_id: null, texture_tip_id: null,
+  };
 }
 
 function createMockCanvas(): MockCanvas {
@@ -43,11 +66,13 @@ function createMockCanvas(): MockCanvas {
 describe("setupInput", () => {
   let engine: Engine;
   let canvas: MockCanvas;
+  const getSettings = vi.fn().mockReturnValue(defaultSettings());
 
   beforeEach(() => {
     engine = createMockEngine();
     canvas = createMockCanvas();
-    setupInput(canvas as unknown as HTMLCanvasElement, engine);
+    getSettings.mockReturnValue(defaultSettings());
+    setupInput(canvas as unknown as HTMLCanvasElement, engine, getSettings);
   });
 
   it("should register pointer event listeners", () => {
@@ -65,15 +90,16 @@ describe("setupInput", () => {
     );
   });
 
-  it("should call strokeBegin on pointerdown with pressure 1.0 for mouse", () => {
+  it("should call strokeBegin on pointerdown with settings and pressure 1.0 for mouse", () => {
     canvas._fire("pointerdown", {
       offsetX: 100,
       offsetY: 200,
       pressure: 0.5,
     });
     expect(canvas.setPointerCapture).toHaveBeenCalled();
+    expect(getSettings).toHaveBeenCalled();
     // Mouse (no pointerType) should default to pressure 1.0
-    expect(engine.strokeBegin).toHaveBeenCalledWith(0, 100, 200, 1.0);
+    expect(engine.strokeBegin).toHaveBeenCalledWith(0, 100, 200, 1.0, expect.any(Object));
   });
 
   it("should use actual pressure for pen input", () => {
@@ -83,7 +109,7 @@ describe("setupInput", () => {
       pressure: 0.75,
       pointerType: "pen",
     } as unknown as Partial<PointerEvent>);
-    expect(engine.strokeBegin).toHaveBeenCalledWith(0, 100, 200, 0.75);
+    expect(engine.strokeBegin).toHaveBeenCalledWith(0, 100, 200, 0.75, expect.any(Object));
   });
 
   it("should call strokeMove on pointermove when button is pressed", () => {
@@ -118,8 +144,7 @@ describe("setupInput", () => {
       offsetY: 50,
       pressure: 0,
     });
-    // Mouse (no pointerType) should default to 1.0
-    expect(engine.strokeBegin).toHaveBeenCalledWith(0, 50, 50, 1.0);
+    expect(engine.strokeBegin).toHaveBeenCalledWith(0, 50, 50, 1.0, expect.any(Object));
   });
 
   it("should use coalesced events when available", () => {

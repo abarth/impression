@@ -121,6 +121,15 @@ impl Canvas {
 mod tests {
     use super::*;
     use crate::canvas::Canvas;
+    use crate::operation::Operation;
+
+    /// Helper: modify the active site's brush size and record a SetBrushSettings op.
+    /// This creates a new undo group each time (SetBrushSettings starts_undo_group = true).
+    fn set_brush_size(canvas: &mut Canvas, size: f32) {
+        canvas.site_mut().brush.size = size;
+        let bytes = canvas.site().brush.to_serializable().to_bytes();
+        canvas.apply(Operation::SetBrushSettings(bytes));
+    }
 
     #[test]
     fn test_checkpoint_taken_at_interval() {
@@ -129,7 +138,7 @@ mod tests {
 
         // Create CHECKPOINT_INTERVAL undo groups (each set_brush_size starts a new one)
         for i in 0..CHECKPOINT_INTERVAL {
-            canvas.set_brush_size(i as f32 + 1.0);
+            set_brush_size(&mut canvas, i as f32 + 1.0);
         }
 
         assert_eq!(
@@ -147,7 +156,7 @@ mod tests {
 
         // Create enough undo groups to trigger a checkpoint
         for i in 0..CHECKPOINT_INTERVAL {
-            canvas.set_brush_size(i as f32 + 1.0);
+            set_brush_size(&mut canvas, i as f32 + 1.0);
         }
         assert_eq!(canvas.checkpoints.len(), 1);
 
@@ -173,7 +182,7 @@ mod tests {
 
         // Create CHECKPOINT_INTERVAL groups to get a checkpoint
         for i in 0..CHECKPOINT_INTERVAL {
-            canvas.set_brush_size(i as f32 + 1.0);
+            set_brush_size(&mut canvas, i as f32 + 1.0);
         }
         assert_eq!(canvas.checkpoints.len(), 1);
 
@@ -193,7 +202,7 @@ mod tests {
 
         // Build up state past a checkpoint
         for i in 0..CHECKPOINT_INTERVAL {
-            canvas.set_brush_size(i as f32 + 5.0);
+            set_brush_size(&mut canvas, i as f32 + 5.0);
         }
 
         // Draw after checkpoint
@@ -222,7 +231,7 @@ mod tests {
 
         // Create 2 * CHECKPOINT_INTERVAL groups
         for i in 0..(2 * CHECKPOINT_INTERVAL) {
-            canvas.set_brush_size(i as f32 + 1.0);
+            set_brush_size(&mut canvas, i as f32 + 1.0);
         }
 
         assert_eq!(canvas.checkpoints.len(), 2, "Should have two checkpoints");
@@ -233,7 +242,7 @@ mod tests {
         let mut canvas = Canvas::new(10, 10);
 
         for i in 0..CHECKPOINT_INTERVAL {
-            canvas.set_brush_size(i as f32 + 1.0);
+            set_brush_size(&mut canvas, i as f32 + 1.0);
         }
         assert_eq!(canvas.checkpoints.len(), 1);
 
@@ -242,7 +251,7 @@ mod tests {
         canvas.undo();
 
         // New work discards redo groups, which may invalidate checkpoint
-        canvas.set_brush_size(99.0);
+        set_brush_size(&mut canvas, 99.0);
 
         // Checkpoint should be discarded since its group_count > current group count
         // (the redo groups were removed)
