@@ -6,6 +6,7 @@ services:
       # Map SSH keys and Git config to the container (read-only)
       - ~/.ssh:/root/.ssh:rw
       - ~/.gitconfig:/root/.gitconfig:rw
+      - ~/.claude:/root/.claude:rw
       - ~/.claude.json:/root/.claude.json
       - ~/.copilot:/root/.copilot:rw
       - ~/.config/gh:/root/.config/gh:rw
