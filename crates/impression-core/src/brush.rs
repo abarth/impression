@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::blend_mode::{porter_duff_composite, BlendMode};
 use crate::color::{blend_pixel, Color};
 use crate::dynamics::{jitter_angle_offset, Rng, ShapeDynamics, TransferDynamics};
-use crate::layer::Layer;
+use crate::layer::{DirtyBounds, Layer};
 
 /// A custom brush tip image: grayscale alpha mask.
 #[derive(Clone, Debug)]
@@ -619,8 +619,11 @@ fn stamp_loop<F>(
 ) where
     F: FnMut(f32, f32) -> f32,
 {
-    let (x_min, y_min, x_max, y_max) =
-        stamp_bounds(cx, cy, radius, roundness, layer.width, layer.height);
+    let bounds = match stamp_bounds(cx, cy, radius, roundness, layer.width, layer.height) {
+        Some(b) => b,
+        None => return,
+    };
+    let (x_min, y_min, x_max, y_max) = bounds;
 
     for py in y_min..=y_max {
         for px in x_min..=x_max {
@@ -668,19 +671,20 @@ pub(crate) fn stamp_bounds(
     _roundness: f32,
     width: u32,
     height: u32,
-) -> (u32, u32, u32, u32) {
+) -> Option<DirtyBounds> {
     // The maximum dimension of an elliptical stamp is its base radius (the major axis).
     // Roundness squashes the minor axis, but never expands beyond the radius.
     let extent = radius;
-    let x_min = (cx - extent - 1.0).floor().max(0.0) as u32;
-    let y_min = (cy - extent - 1.0).floor().max(0.0) as u32;
-    let x_max = ((cx + extent + 1.0).ceil())
-        .min(width as f32 - 1.0)
-        .max(0.0) as u32;
-    let y_max = ((cy + extent + 1.0).ceil())
-        .min(height as f32 - 1.0)
-        .max(0.0) as u32;
-    (x_min, y_min, x_max, y_max)
+    let x_min = (cx - extent - 1.0).floor().max(0.0) as f32;
+    let y_min = (cy - extent - 1.0).floor().max(0.0) as f32;
+    let x_max = (cx + extent + 1.0).ceil().min(width as f32 - 1.0);
+    let y_max = (cy + extent + 1.0).ceil().min(height as f32 - 1.0);
+
+    if x_min > x_max || y_min > y_max {
+        return None;
+    }
+
+    Some((x_min as u32, y_min as u32, x_max as u32, y_max as u32))
 }
 
 /// Composite the stroke buffer over the snapshot into the layer for a given region.

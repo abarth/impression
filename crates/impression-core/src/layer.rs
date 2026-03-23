@@ -99,6 +99,9 @@ impl Layer {
 
     /// Expand the dirty region to include the given bounds.
     pub fn expand_dirty(&mut self, bounds: DirtyBounds) {
+        if bounds.0 > bounds.2 || bounds.1 > bounds.3 {
+            return;
+        }
         self.dirty = true;
         self.dirty_bounds = Some(match self.dirty_bounds {
             Some((x0, y0, x1, y1)) => (

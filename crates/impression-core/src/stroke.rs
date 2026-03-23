@@ -3,7 +3,7 @@ use crate::brush::{
     BrushTip, DualStampInstance, SecondaryTipState,
 };
 use crate::dynamics::{self, Rng};
-use crate::layer::Layer;
+use crate::layer::{DirtyBounds, Layer};
 
 pub struct StrokeParams<'a> {
     pub brush: &'a BrushSettings,
@@ -204,22 +204,23 @@ fn segment_bounds(
     brush: &BrushSettings,
     width: u32,
     height: u32,
-) -> (u32, u32, u32, u32) {
+) -> Option<DirtyBounds> {
     let max_radius = brush.size * p0.max(p1) / 2.0;
-    let mut extent = max_radius / brush.roundness.clamp(0.01, 1.0);
+    let mut extent = max_radius;
     // Account for scatter offset: stamps can land up to scatter * size away
     if brush.scatter.scatter > 0.0 {
         extent += brush.scatter.scatter * brush.size;
     }
-    let x_min = (x0.min(x1) - extent - 1.0).floor().max(0.0) as u32;
-    let y_min = (y0.min(y1) - extent - 1.0).floor().max(0.0) as u32;
-    let x_max = ((x0.max(x1) + extent + 1.0).ceil())
-        .min(width as f32 - 1.0)
-        .max(0.0) as u32;
-    let y_max = ((y0.max(y1) + extent + 1.0).ceil())
-        .min(height as f32 - 1.0)
-        .max(0.0) as u32;
-    (x_min, y_min, x_max, y_max)
+    let x_min = (x0.min(x1) - extent - 1.0).floor().max(0.0) as f32;
+    let y_min = (y0.min(y1) - extent - 1.0).floor().max(0.0) as f32;
+    let x_max = (x0.max(x1) + extent + 1.0).ceil().min(width as f32 - 1.0);
+    let y_max = (y0.max(y1) + extent + 1.0).ceil().min(height as f32 - 1.0);
+
+    if x_min > x_max || y_min > y_max {
+        return None;
+    }
+
+    Some((x_min as u32, y_min as u32, x_max as u32, y_max as u32))
 }
 
 /// Interpolate points along a segment and stamp circles into the stroke buffer.
@@ -422,15 +423,16 @@ pub fn stroke_begin(
     .clamp(0.0, 1.0);
 
     // Composite stroke buffer over snapshot into layer
-    let bounds = stamp_bounds(x, y, sp.radius, sp.roundness, layer.width, layer.height);
-    recomposite_region(
-        layer,
-        &state.snapshot,
-        &stroke,
-        stroke_opacity,
-        brush.blend_mode,
-        bounds,
-    );
+    if let Some(bounds) = stamp_bounds(x, y, sp.radius, sp.roundness, layer.width, layer.height) {
+        recomposite_region(
+            layer,
+            &state.snapshot,
+            &stroke,
+            stroke_opacity,
+            brush.blend_mode,
+            bounds,
+        );
+    }
 
     // Set residual so stroke_move does not re-stamp at position 0
     state.residual_distance = (brush.spacing * effective_size).max(1.0);
@@ -492,15 +494,18 @@ pub fn stroke_move(
         state.residual_distance = residual;
 
         // Recomposite the segment's bounding box
-        let bounds = segment_bounds(lx, ly, lp, x, y, pressure, brush, layer.width, layer.height);
-        recomposite_region(
-            layer,
-            &state.snapshot,
-            stroke,
-            brush.opacity,
-            brush.blend_mode,
-            bounds,
-        );
+        if let Some(bounds) =
+            segment_bounds(lx, ly, lp, x, y, pressure, brush, layer.width, layer.height)
+        {
+            recomposite_region(
+                layer,
+                &state.snapshot,
+                stroke,
+                brush.opacity,
+                brush.blend_mode,
+                bounds,
+            );
+        }
     }
 
     state.last_point = Some((x, y, pressure));
