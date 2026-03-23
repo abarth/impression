@@ -1419,7 +1419,7 @@ mod tests {
             radius: 3.0,
             angle: 0.0,
             roundness: 1.0,
-        stroke_distance: 0.0,
+            stroke_distance: 0.0,
         }];
         let mut layer_dual = Layer::new(0, 40, 40);
         // Secondary radius = 3px (much smaller than primary radius = 8px)
@@ -1676,7 +1676,7 @@ mod tests {
                     radius: 3.0,
                     angle: 0.0,
                     roundness: 1.0,
-                stroke_distance: 0.0,
+                    stroke_distance: 0.0,
                 }],
                 &sec,
                 DualBrushMode::Lighten,
@@ -1727,7 +1727,7 @@ mod tests {
                     radius: 8.0,
                     angle: 0.0,
                     roundness: 1.0,
-                stroke_distance: 0.0,
+                    stroke_distance: 0.0,
                 }],
                 &sec,
                 DualBrushMode::Subtract,
@@ -1785,7 +1785,10 @@ mod tests {
         let b = generate_dual_instance(50.0, 50.0, 5.0, 1.0, 0.0, &dual, 42, 3, 1, 30.0);
         assert_eq!(a.cx, b.cx, "Same seed/index should produce same cx");
         assert_eq!(a.cy, b.cy, "Same seed/index should produce same cy");
-        assert_eq!(a.angle, b.angle, "Same seed/index should produce same angle");
+        assert_eq!(
+            a.angle, b.angle,
+            "Same seed/index should produce same angle"
+        );
     }
 
     #[test]
@@ -1840,7 +1843,7 @@ mod tests {
                 radius: 5.0,
                 angle: 0.0,
                 roundness: 1.0,
-            stroke_distance: 0.0,
+                stroke_distance: 0.0,
             }, // pixel at center -> alpha ~1.0
             DualStampInstance {
                 cx: 55.0,
@@ -1848,7 +1851,7 @@ mod tests {
                 radius: 5.0,
                 angle: 0.0,
                 roundness: 1.0,
-            stroke_distance: 0.0,
+                stroke_distance: 0.0,
             }, // pixel 5px from center -> lower alpha
         ];
         let alpha = sample_dual_stamps(50.0, 50.0, &instances, &sec);
@@ -1874,7 +1877,7 @@ mod tests {
             radius: 5.0,
             angle: 0.0,
             roundness: 1.0,
-        stroke_distance: 0.0,
+            stroke_distance: 0.0,
         }];
         // Pixel far from the instance
         let alpha = sample_dual_stamps(100.0, 100.0, &instances, &sec);
@@ -1892,7 +1895,10 @@ mod tests {
 
         // With size_ratio 0.5 and primary radius 10, dual radius should be 5
         let inst = generate_dual_instance(50.0, 50.0, 5.0, 1.0, 0.0, &dual, 123, 0, 0, 0.0);
-        assert_eq!(inst.radius, 5.0, "Dual radius should match the passed dual_radius");
+        assert_eq!(
+            inst.radius, 5.0,
+            "Dual radius should match the passed dual_radius"
+        );
     }
 
     /// When using a textured (sampled) dual brush with size_ratio=1.0,
@@ -1910,8 +1916,7 @@ mod tests {
         let mut tip_pixels = vec![0u8; (tip_size * tip_size) as usize];
         for y in 0..tip_size {
             for x in 0..tip_size {
-                tip_pixels[(y * tip_size + x) as usize] =
-                    if (x + y) % 2 == 0 { 255 } else { 0 };
+                tip_pixels[(y * tip_size + x) as usize] = if (x + y) % 2 == 0 { 255 } else { 0 };
             }
         }
         let tip = BrushTip {
@@ -1929,9 +1934,8 @@ mod tests {
         };
 
         // Generate a dual stamp centered on the primary stamp via generate_dual_instance
-        let inst = generate_dual_instance(
-            50.0, 50.0, primary_radius, 1.0, 0.0, &dual, 42, 0, 0, 0.0,
-        );
+        let inst =
+            generate_dual_instance(50.0, 50.0, primary_radius, 1.0, 0.0, &dual, 42, 0, 0, 0.0);
         let instances = vec![inst];
         assert!(!instances.is_empty(), "Should have at least one dual stamp");
 

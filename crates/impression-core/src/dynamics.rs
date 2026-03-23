@@ -169,7 +169,8 @@ pub fn jitter_angle_offset(jitter: f32, rng: &mut Rng) -> f32 {
     if jitter <= 0.0 {
         return 0.0;
     }
-    jitter * (rng.next_f32() * 2.0 - 1.0)
+    // jitter 0..1 maps to ±0..180° range
+    jitter * 180.0 * (rng.next_f32() * 2.0 - 1.0)
 }
 
 /// Apply an additive angle dynamic. Control and jitter contribute independently:
@@ -344,6 +345,27 @@ mod tests {
 
         // Direction=360 -> wraps to 0 -> factor=0.0
         assert!((apply_dynamic(&param, 10.0, 1.0, &mut rng, 360.0) - 0.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_jitter_angle_offset_range() {
+        let mut rng = Rng::from_coords(7.0, 13.0);
+        for _ in 0..500 {
+            let v = jitter_angle_offset(1.0, &mut rng);
+            assert!(
+                v >= -180.0 && v <= 180.0,
+                "jitter=1.0 should produce values in [-180, 180]: {v}"
+            );
+        }
+        // jitter=0.5 should produce values in [-90, 90]
+        let mut rng2 = Rng::from_coords(3.0, 5.0);
+        for _ in 0..500 {
+            let v = jitter_angle_offset(0.5, &mut rng2);
+            assert!(
+                v >= -90.0 && v <= 90.0,
+                "jitter=0.5 should produce values in [-90, 90]: {v}"
+            );
+        }
     }
 
     #[test]
