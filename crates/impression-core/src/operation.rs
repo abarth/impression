@@ -333,6 +333,7 @@ mod tests {
             hardness: 0.5,
             size_ratio: 1.5,
             spacing: 0.15,
+            flip: true,
             scatter: ScatterSettings {
                 scatter: 1.5,
                 both_axes: true,

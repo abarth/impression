@@ -1661,6 +1661,7 @@ mod tests {
             radius: primary_radius,
             angle: 0.0,
             roundness: 1.0,
+        flip: false,
         stroke_distance: 0.0,
         }];
 
@@ -1676,6 +1677,7 @@ mod tests {
                 hardness: 1.0,
                 size_ratio: 1.0,
                 spacing: 1.0,
+                flip: false,
                 scatter: ScatterSettings::default(),
             },
             ..Default::default()
@@ -1739,6 +1741,7 @@ mod tests {
                 hardness: 1.0,
                 size_ratio: 1.0,
                 spacing: 1.0, // dual step = 20.0
+                flip: false,
                 scatter: ScatterSettings {
                     scatter: 0.0,
                     count: 1,
@@ -1788,6 +1791,7 @@ mod tests {
                 hardness: 1.0,
                 size_ratio: 1.0,
                 spacing: 0.25, // dual step = 5.0
+                flip: false,
                 scatter: ScatterSettings::default(),
             },
             ..Default::default()
@@ -1830,6 +1834,7 @@ mod tests {
             hardness: 1.0,
             size_ratio: 1.0,
             spacing: 0.25,
+            flip: false,
             scatter: ScatterSettings {
                 scatter: 0.5,
                 both_axes: false,
@@ -1860,6 +1865,7 @@ mod tests {
             hardness: 1.0,
             size_ratio: 1.0,
             spacing: 0.25,
+            flip: false,
             scatter: ScatterSettings {
                 scatter: 0.5,
                 both_axes: false,

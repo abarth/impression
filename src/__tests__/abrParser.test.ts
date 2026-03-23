@@ -578,6 +578,7 @@ describe("abrParser", () => {
       boolItem("useDualBrush", true),
       enumItem("BlnM", "BlnM", "Drkn"),
       new BinaryBuilder().key("Brsh").tag("Objc").append(dualBrshDesc),
+      boolItem("Flip", true),
     ];
     const dualDesc = new BinaryBuilder()
       .unicodeString("")
@@ -606,6 +607,40 @@ describe("abrParser", () => {
     expect(db.spacing).toBeCloseTo(0.5);
     expect(db.hardness).toBeCloseTo(0.8);
     expect(db.useComputed).toBe(true); // No sampledData → computed tip
+    expect(db.flip).toBe(true);
+  });
+
+  it("defaults dual brush flip to false when not in descriptor", () => {
+    const header = new BinaryBuilder().u16(6).u16(2);
+    const samp = buildSampSection([
+      { width: 2, height: 2, pixels: [255, 255, 255, 255], uuid: "tip-1" },
+    ], 2);
+
+    const dualBrshDesc = new BinaryBuilder()
+      .unicodeString("").classId("computedBrush").u32(1)
+      .append(untfItem("Dmtr", "#Pxl", 20));
+
+    // No Flip key in the descriptor
+    const dualItems = [
+      boolItem("useDualBrush", true),
+      enumItem("BlnM", "BlnM", "Mltp"),
+      new BinaryBuilder().key("Brsh").tag("Objc").append(dualBrshDesc),
+    ];
+    const dualDesc = new BinaryBuilder()
+      .unicodeString("").classId("dualBrush").u32(dualItems.length);
+    for (const item of dualItems) dualDesc.append(item);
+
+    const desc = buildDescSection([{
+      name: "No Flip",
+      tipUuid: "tip-1",
+      presetItems: [new BinaryBuilder().key("dualBrush").tag("Objc").append(dualDesc)],
+    }]);
+
+    const buf = new Uint8Array(new BinaryBuilder().append(header).append(samp).append(desc).toArray()).buffer;
+    const result = parseAbrFile(buf);
+
+    const db = result[0].params!.dualBrush!;
+    expect(db.flip).toBe(false);
   });
 
   it("extracts sampled dual brush tip image", () => {

@@ -46,6 +46,8 @@ export interface DualBrushSettings {
   hardness: number;
   sizeRatio: number;
   spacing: number;
+  /** Randomly flip secondary tip horizontally (50% chance per stamp). */
+  flip: boolean;
   count: number;
   countJitter: number;
   scatter: number;
@@ -126,6 +128,7 @@ const DEFAULT_DUAL_BRUSH: DualBrushSettings = {
   hardness: 1.0,
   sizeRatio: 1.0,
   spacing: 0.25,
+  flip: false,
   count: 1,
   countJitter: 0,
   scatter: 0,
@@ -238,7 +241,7 @@ export function useBrushSettings(engine: Engine | null, activeTool: Tool) {
     eng.setDualBrush(
       db.enabled, db.mode, db.hardness,
       db.sizeRatio,
-      db.spacing, db.count, db.countJitter, db.scatter, db.bothAxes
+      db.spacing, db.flip, db.count, db.countJitter, db.scatter, db.bothAxes
     );
     // Sync secondary tip: useComputed is resolved here so the Rust engine
     // simply checks whether a secondary tip is registered.

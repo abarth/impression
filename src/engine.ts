@@ -261,9 +261,10 @@ export class Engine {
   setDualBrush(
     enabled: boolean, mode: number,
     hardness: number, size: number, spacing: number,
-    count: number, countJitter: number, scatter: number, bothAxes: boolean,
+    flip: boolean, count: number, countJitter: number,
+    scatter: number, bothAxes: boolean,
   ): void {
-    this.canvas.set_dual_brush(enabled, mode, hardness, size, spacing, count, countJitter, scatter, bothAxes);
+    this.canvas.set_dual_brush(enabled, mode, hardness, size, spacing, flip, count, countJitter, scatter, bothAxes);
   }
 
   setSecondaryBrushTip(id: string): void {

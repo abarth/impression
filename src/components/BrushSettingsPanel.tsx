@@ -410,6 +410,16 @@ function DualBrushPane({
             displayValue={`${Math.round(db.hardness * 100)}%`}
             onChange={(v) => update({ hardness: v })}
           />
+          <button
+            onClick={() => update({ flip: !db.flip })}
+            className={`px-2 py-1.5 text-[11px] rounded border transition-colors duration-150
+              ${db.flip
+                ? "bg-graphite-800 border-graphite-700 text-cream"
+                : "bg-graphite-850 border-graphite-800 text-cream-muted hover:bg-graphite-800"
+              }`}
+          >
+            Flip
+          </button>
           <SliderControl
             label="Scatter"
             value={db.scatter}

@@ -497,6 +497,7 @@ function extractPresetParams(presetItems: Map<string, DescriptorValue>): AbrBrus
       const dualHardness = dualBrshItems ? getNumber(dualBrshItems, "Hrdn") : undefined;
       const dualSpacing = dualBrshItems ? getNumber(dualBrshItems, "Spcn") : undefined;
       const dualHasSampledTip = dualBrshItems ? getText(dualBrshItems, "sampledData") !== undefined : false;
+      const dualFlip = getBool(dualItems, "Flip") ?? false;
       const dualUseScatter = getBool(dualItems, "useScatter");
       const dualCount = getNumber(dualItems, "Cnt ");
       const dualScatter = dualUseScatter ? getNumber(dualItems, "Sctr") : undefined;
@@ -509,6 +510,7 @@ function extractPresetParams(presetItems: Map<string, DescriptorValue>): AbrBrus
         hardness: dualHardness !== undefined ? dualHardness / 100 : 1.0,
         sizeRatio: dualDiameter !== undefined ? (dualDiameter / (params.diameter ?? 20)) : 1.0,
         spacing: dualSpacing !== undefined ? dualSpacing / 100 : 0.25,
+        flip: dualFlip,
         count: dualUseScatter ? (dualCount ?? 1) : 1,
         countJitter: dualCountJitter !== undefined ? dualCountJitter / 100 : 0,
         scatter: dualScatter !== undefined ? dualScatter / 100 : 0,

@@ -274,6 +274,7 @@ impl ImpressionCanvas {
         hardness: f32,
         size_ratio: f32,
         spacing: f32,
+        flip: bool,
         count: u32,
         count_jitter: f32,
         scatter: f32,
@@ -285,6 +286,7 @@ impl ImpressionCanvas {
             hardness,
             size_ratio,
             spacing,
+            flip,
             scatter: brush::ScatterSettings {
                 scatter,
                 both_axes,

@@ -106,6 +106,8 @@ pub struct DualBrushSettings {
     pub size_ratio: f32,
     /// Spacing for the secondary tip as a fraction of its size.
     pub spacing: f32,
+    /// Flip the secondary tip horizontally (mirrors the stamp image left-right).
+    pub flip: bool,
     /// Scattering and count settings for the secondary tip.
     pub scatter: ScatterSettings,
 }
@@ -118,6 +120,7 @@ impl Default for DualBrushSettings {
             hardness: 1.0,
             size_ratio: 1.0,
             spacing: 0.25,
+            flip: false,
             scatter: ScatterSettings::default(),
         }
     }
@@ -228,6 +231,7 @@ pub(crate) fn sample_secondary_tip(
     radius: f32,
     angle: f32,
     roundness: f32,
+    flip: bool,
     secondary: &SecondaryTipState,
 ) -> f32 {
     let dx = px - cx;
@@ -243,7 +247,7 @@ pub(crate) fn sample_secondary_tip(
 
     match secondary {
         SecondaryTipState::Computed { hardness } => smoothstep_falloff(dist, radius, *hardness),
-        SecondaryTipState::Image(tip) => sample_tip_alpha(tip, rx, ry, radius, false, false),
+        SecondaryTipState::Image(tip) => sample_tip_alpha(tip, rx, ry, radius, flip, false),
     }
 }
 
@@ -261,6 +265,7 @@ pub struct DualStampInstance {
     pub radius: f32,
     pub angle: f32,
     pub roundness: f32,
+    pub flip: bool,
     /// Cumulative stroke distance where this instance was placed (for sliding-window pruning).
     pub stroke_distance: f32,
 }
@@ -302,6 +307,8 @@ pub fn generate_dual_instance(
     };
 
     let angle = jitter_angle_offset(1.0, &mut rng);
+    // When flip is enabled, each instance is independently flipped with 50% probability.
+    let flip = dual.flip && rng.next_f32() < 0.5;
 
     let cx = path_cx + scatter_along * dir_x + scatter_perp * perp_x;
     let cy = path_cy + scatter_along * dir_y + scatter_perp * perp_y;
@@ -312,6 +319,7 @@ pub fn generate_dual_instance(
         radius: dual_radius,
         angle,
         roundness: 1.0,
+        flip,
         stroke_distance,
     }
 }
@@ -334,6 +342,7 @@ pub(crate) fn sample_dual_stamps(
             inst.radius,
             inst.angle,
             inst.roundness,
+            inst.flip,
             secondary,
         );
         if a > max_alpha {
@@ -1419,6 +1428,7 @@ mod tests {
             radius: 3.0,
             angle: 0.0,
             roundness: 1.0,
+            flip: false,
             stroke_distance: 0.0,
         }];
         let mut layer_dual = Layer::new(0, 40, 40);
@@ -1676,6 +1686,7 @@ mod tests {
                     radius: 3.0,
                     angle: 0.0,
                     roundness: 1.0,
+                    flip: false,
                     stroke_distance: 0.0,
                 }],
                 &sec,
@@ -1727,6 +1738,7 @@ mod tests {
                     radius: 8.0,
                     angle: 0.0,
                     roundness: 1.0,
+                    flip: false,
                     stroke_distance: 0.0,
                 }],
                 &sec,
@@ -1748,6 +1760,7 @@ mod tests {
             enabled: true,
             size_ratio: 0.5,
             spacing: 1.0,
+            flip: false,
             scatter: ScatterSettings {
                 scatter: 0.0,
                 count: 1,
@@ -1772,6 +1785,7 @@ mod tests {
             enabled: true,
             size_ratio: 0.5,
             spacing: 0.5,
+            flip: false,
             scatter: ScatterSettings {
                 scatter: 0.5,
                 count: 2,
@@ -1797,6 +1811,7 @@ mod tests {
             enabled: true,
             size_ratio: 0.5,
             spacing: 1.0,
+            flip: false,
             scatter: ScatterSettings {
                 scatter: 0.3,
                 count: 3,
@@ -1833,6 +1848,45 @@ mod tests {
     }
 
     #[test]
+    fn test_generate_dual_instance_flip_randomizes() {
+        let dual = DualBrushSettings {
+            enabled: true,
+            size_ratio: 0.5,
+            spacing: 1.0,
+            flip: true,
+            scatter: ScatterSettings::default(),
+            hardness: 1.0,
+            mode: DualBrushMode::Multiply,
+        };
+        // With flip enabled, roughly 50% of instances should be flipped.
+        let flip_count: usize = (0..40)
+            .map(|n| generate_dual_instance(50.0, 50.0, 5.0, 1.0, 0.0, &dual, 99, n, 0, 0.0))
+            .filter(|inst| inst.flip)
+            .count();
+        assert!(
+            flip_count > 5 && flip_count < 35,
+            "With flip enabled, expected roughly 50% flipped (got {flip_count}/40)"
+        );
+    }
+
+    #[test]
+    fn test_generate_dual_instance_flip_disabled_never_flips() {
+        let dual = DualBrushSettings {
+            enabled: true,
+            size_ratio: 0.5,
+            spacing: 1.0,
+            flip: false,
+            scatter: ScatterSettings::default(),
+            hardness: 1.0,
+            mode: DualBrushMode::Multiply,
+        };
+        let any_flipped = (0..40)
+            .map(|n| generate_dual_instance(50.0, 50.0, 5.0, 1.0, 0.0, &dual, 99, n, 0, 0.0))
+            .any(|inst| inst.flip);
+        assert!(!any_flipped, "With flip disabled, no instance should be flipped");
+    }
+
+    #[test]
     fn test_sample_dual_stamps_max_blending() {
         let sec = SecondaryTipState::Computed { hardness: 1.0 };
         // Two instances at different positions, pixel at (50,50)
@@ -1843,6 +1897,7 @@ mod tests {
                 radius: 5.0,
                 angle: 0.0,
                 roundness: 1.0,
+                flip: false,
                 stroke_distance: 0.0,
             }, // pixel at center -> alpha ~1.0
             DualStampInstance {
@@ -1851,6 +1906,7 @@ mod tests {
                 radius: 5.0,
                 angle: 0.0,
                 roundness: 1.0,
+                flip: false,
                 stroke_distance: 0.0,
             }, // pixel 5px from center -> lower alpha
         ];
@@ -1877,6 +1933,7 @@ mod tests {
             radius: 5.0,
             angle: 0.0,
             roundness: 1.0,
+            flip: false,
             stroke_distance: 0.0,
         }];
         // Pixel far from the instance
