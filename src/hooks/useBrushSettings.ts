@@ -234,10 +234,17 @@ export function useBrushSettings(engine: Engine | null, activeTool: Tool) {
     eng.setScatter(sc.scatter, sc.bothAxes, sc.count, sc.countJitter);
     const db = s.dualBrush;
     eng.setDualBrush(
-      db.enabled, db.mode, db.useComputed, db.hardness,
+      db.enabled, db.mode, db.hardness,
       db.sizeRatio,
       db.spacing, db.count, db.scatter, db.bothAxes
     );
+    // Sync secondary tip: useComputed is resolved here so the Rust engine
+    // simply checks whether a secondary tip is registered.
+    if (db.enabled && !db.useComputed && db.tipId) {
+      eng.setSecondaryBrushTip(db.tipId);
+    } else {
+      eng.clearSecondaryBrushTip();
+    }
     const tx = s.texture;
     eng.setTexture(tx.enabled, tx.scale, tx.depth, tx.textureEachTip);
   }, []);

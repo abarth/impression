@@ -99,8 +99,6 @@ pub struct DualBrushSettings {
     pub enabled: bool,
     /// How the secondary tip alpha combines with the primary.
     pub mode: DualBrushMode,
-    /// Use a computed circle (true) or the registered secondary tip (false).
-    pub use_computed: bool,
     /// Hardness for computed circle secondary tip.
     pub hardness: f32,
     /// Diameter of the secondary tip expressed as a ratio of the primary brush diameter.
@@ -117,7 +115,6 @@ impl Default for DualBrushSettings {
         Self {
             enabled: false,
             mode: DualBrushMode::Multiply,
-            use_computed: true,
             hardness: 1.0,
             size_ratio: 1.0,
             spacing: 0.25,
@@ -1804,7 +1801,6 @@ mod tests {
             },
             hardness: 1.0,
             mode: DualBrushMode::Multiply,
-            use_computed: true,
         };
         // Primary stamp at distance 50.0, direction (1,0), radius 10
         // dual_step = 10.0, dual_radius = 5.0
@@ -1836,7 +1832,6 @@ mod tests {
             },
             hardness: 1.0,
             mode: DualBrushMode::Multiply,
-            use_computed: true,
         };
         let instances_c3 = compute_dual_stamps(50.0, 50.0, 10.0, 50.0, 1.0, 0.0, &dual, 42);
         let dual_c1 = DualBrushSettings {
@@ -1868,7 +1863,6 @@ mod tests {
             },
             hardness: 1.0,
             mode: DualBrushMode::Multiply,
-            use_computed: true,
         };
         let a = compute_dual_stamps(50.0, 50.0, 10.0, 50.0, 1.0, 0.0, &dual, 42);
         let b = compute_dual_stamps(50.0, 50.0, 10.0, 50.0, 1.0, 0.0, &dual, 42);

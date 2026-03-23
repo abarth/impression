@@ -330,7 +330,6 @@ mod tests {
         round_trip(Operation::SetDualBrush(DualBrushSettings {
             enabled: true,
             mode: DualBrushMode::Darken,
-            use_computed: false,
             hardness: 0.5,
             size_ratio: 1.5,
             spacing: 0.15,

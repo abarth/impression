@@ -509,9 +509,78 @@ describe("useBrushSettings dualBrush", () => {
 
     const calls = (engine.setDualBrush as ReturnType<typeof vi.fn>).mock.calls;
     const lastCall = calls[calls.length - 1];
-    // The size parameter (index 4) should be the ratio (0.5), NOT ratio * brushSize
+    // The size parameter (index 3) should be the ratio (0.5), NOT ratio * brushSize
     expect(lastCall[0]).toBe(true);   // enabled
-    expect(lastCall[4]).toBe(0.5);    // sizeRatio passed directly
+    expect(lastCall[3]).toBe(0.5);    // sizeRatio passed directly
+  });
+
+  it("should not pass useComputed to engine setDualBrush", () => {
+    const engine = createMockEngine();
+    const { result } = renderHook(() => useBrushSettings(engine, "brush"));
+
+    act(() => {
+      result.current.updateSetting("dualBrush", {
+        enabled: true,
+        mode: 0,
+        useComputed: true,
+        hardness: 1.0,
+        sizeRatio: 1.0,
+        spacing: 0.25,
+        count: 1,
+        scatter: 0,
+        bothAxes: false,
+      });
+    });
+
+    const calls = (engine.setDualBrush as ReturnType<typeof vi.fn>).mock.calls;
+    const lastCall = calls[calls.length - 1];
+    // setDualBrush now takes 8 args (no useComputed): enabled, mode, hardness, sizeRatio, spacing, count, scatter, bothAxes
+    expect(lastCall).toHaveLength(8);
+  });
+
+  it("should clear secondary tip when useComputed is true", () => {
+    const engine = createMockEngine();
+    const { result } = renderHook(() => useBrushSettings(engine, "brush"));
+
+    act(() => {
+      result.current.updateSetting("dualBrush", {
+        enabled: true,
+        mode: 0,
+        useComputed: true,
+        hardness: 1.0,
+        sizeRatio: 1.0,
+        spacing: 0.25,
+        count: 1,
+        scatter: 0,
+        bothAxes: false,
+        tipId: "some-tip",
+      });
+    });
+
+    // useComputed=true should clear the secondary tip even though tipId is set
+    expect(engine.clearSecondaryBrushTip).toHaveBeenCalled();
+  });
+
+  it("should set secondary tip when useComputed is false and tipId exists", () => {
+    const engine = createMockEngine();
+    const { result } = renderHook(() => useBrushSettings(engine, "brush"));
+
+    act(() => {
+      result.current.updateSetting("dualBrush", {
+        enabled: true,
+        mode: 0,
+        useComputed: false,
+        hardness: 1.0,
+        sizeRatio: 1.0,
+        spacing: 0.25,
+        count: 1,
+        scatter: 0,
+        bothAxes: false,
+        tipId: "some-tip",
+      });
+    });
+
+    expect(engine.setSecondaryBrushTip).toHaveBeenCalledWith("some-tip");
   });
 });
 

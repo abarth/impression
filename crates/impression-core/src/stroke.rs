@@ -144,17 +144,11 @@ fn place_stamp(
     texture: Option<(&crate::brush::TextureSettings, &BrushTip)>,
 ) {
     let dual = if !dual_instances.is_empty() {
-        let sec_state = if brush.dual_brush.use_computed {
-            SecondaryTipState::Computed {
+        let sec_state = match secondary_tip {
+            Some(t) => SecondaryTipState::Image(t),
+            None => SecondaryTipState::Computed {
                 hardness: brush.dual_brush.hardness,
-            }
-        } else {
-            match secondary_tip {
-                Some(t) => SecondaryTipState::Image(t),
-                None => SecondaryTipState::Computed {
-                    hardness: brush.dual_brush.hardness,
-                },
-            }
+            },
         };
         Some((dual_instances, sec_state, brush.dual_brush.mode))
     } else {
@@ -1426,9 +1420,9 @@ mod tests {
     }
 
     #[test]
-    fn test_place_stamp_use_computed_overrides_secondary_tip() {
-        // When use_computed is true, place_stamp should use a computed circle
-        // even when a secondary tip image is provided.
+    fn test_place_stamp_secondary_tip_none_uses_computed() {
+        // When secondary_tip is None, place_stamp should use a computed circle.
+        // When secondary_tip is Some, place_stamp should use the tip image.
         use crate::brush::{
             BrushTip, DualBrushMode, DualBrushSettings, DualStampInstance, ScatterSettings,
         };
@@ -1457,8 +1451,7 @@ mod tests {
             roundness: 1.0,
         }];
 
-        // Stamp WITH use_computed = true (should ignore the tip image)
-        let brush_computed = BrushSettings {
+        let brush = BrushSettings {
             size: primary_radius * 2.0,
             color: Color::black(),
             opacity: 1.0,
@@ -1467,7 +1460,6 @@ mod tests {
             dual_brush: DualBrushSettings {
                 enabled: true,
                 mode: DualBrushMode::Multiply,
-                use_computed: true,
                 hardness: 1.0,
                 size_ratio: 1.0,
                 spacing: 1.0,
@@ -1475,7 +1467,6 @@ mod tests {
             },
             ..Default::default()
         };
-        let mut layer_computed = Layer::new(0, 40, 40);
         let sp = StampParams {
             x: 20.0,
             y: 20.0,
@@ -1484,38 +1475,22 @@ mod tests {
             angle: 0.0,
             flow: 1.0,
         };
+
+        // Stamp with secondary_tip = None (computed circle)
+        let mut layer_computed = Layer::new(0, 40, 40);
         place_stamp(
-            &mut layer_computed,
-            &sp,
-            &brush_computed,
-            None,
-            None,
-            &dual_instances,
-            Some(&secondary_tip),
-            None,
+            &mut layer_computed, &sp, &brush, None, None,
+            &dual_instances, None, None,
         );
 
-        // Stamp WITH use_computed = false (should use the tip image)
-        let brush_sampled = BrushSettings {
-            dual_brush: DualBrushSettings {
-                use_computed: false,
-                ..brush_computed.dual_brush.clone()
-            },
-            ..brush_computed.clone()
-        };
+        // Stamp with secondary_tip = Some (checkerboard image)
         let mut layer_sampled = Layer::new(0, 40, 40);
         place_stamp(
-            &mut layer_sampled,
-            &sp,
-            &brush_sampled,
-            None,
-            None,
-            &dual_instances,
-            Some(&secondary_tip),
-            None,
+            &mut layer_sampled, &sp, &brush, None, None,
+            &dual_instances, Some(&secondary_tip), None,
         );
 
-        // The two layers should differ: use_computed produces a smooth circle,
+        // The two layers should differ: computed produces a smooth circle,
         // while the sampled tip produces a checkerboard pattern.
         let mut differ = false;
         for y in 15..25u32 {
@@ -1527,14 +1502,12 @@ mod tests {
                     break;
                 }
             }
-            if differ {
-                break;
-            }
+            if differ { break; }
         }
         assert!(
             differ,
-            "use_computed=true should produce different output than use_computed=false \
-             when a secondary tip image is provided"
+            "secondary_tip=None (computed) should produce different output than \
+             secondary_tip=Some (sampled image)"
         );
     }
 }
