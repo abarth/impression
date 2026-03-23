@@ -1,6 +1,6 @@
 use crate::brush::{
-    compute_dual_stamps, recomposite_region, stamp_bounds, stamp_ellipse, stamp_tip,
-    BrushSettings, BrushTip, DualStampInstance, SecondaryTipState,
+    compute_dual_stamps, recomposite_region, stamp_bounds, stamp_ellipse, stamp_tip, BrushSettings,
+    BrushTip, DualStampInstance, SecondaryTipState,
 };
 use crate::dynamics::{self, Rng};
 use crate::layer::Layer;
@@ -271,7 +271,13 @@ pub fn interpolate_and_stamp(
         let pressure = p0 + (p1 - p0) * t;
 
         let sp = compute_stamp_params(
-            brush, x, y, pressure, rng, direction_angle, initial_direction_angle,
+            brush,
+            x,
+            y,
+            pressure,
+            rng,
+            direction_angle,
+            initial_direction_angle,
         );
         let effective_size = sp.radius * 2.0;
 
@@ -309,8 +315,14 @@ pub fn interpolate_and_stamp(
 
             // Compute dual brush instances for this primary stamp
             let dual_instances = compute_dual_stamps(
-                sx, sy, sp.radius, stamp_dist, dir_x, dir_y,
-                &brush.dual_brush, stroke_seed,
+                sx,
+                sy,
+                sp.radius,
+                stamp_dist,
+                dir_x,
+                dir_y,
+                &brush.dual_brush,
+                stroke_seed,
             );
 
             let tex_ref = if brush.texture.enabled {
@@ -372,8 +384,14 @@ pub fn stroke_begin(
 
     // Compute dual brush instances for the initial stamp (no direction yet)
     let dual_instances = compute_dual_stamps(
-        x, y, sp.radius, 0.0, 0.0, 0.0,
-        &brush.dual_brush, state.stroke_seed,
+        x,
+        y,
+        sp.radius,
+        0.0,
+        0.0,
+        0.0,
+        &brush.dual_brush,
+        state.stroke_seed,
     );
 
     let tex_ref = if brush.texture.enabled {
@@ -383,8 +401,14 @@ pub fn stroke_begin(
     };
 
     place_stamp(
-        &mut stroke, &sp, brush, params.active_tip, params.selection,
-        &dual_instances, params.secondary_tip, tex_ref,
+        &mut stroke,
+        &sp,
+        brush,
+        params.active_tip,
+        params.selection,
+        &dual_instances,
+        params.secondary_tip,
+        tex_ref,
     );
 
     // Apply transfer dynamics to stroke opacity
@@ -1337,8 +1361,12 @@ mod tests {
         // First segment: 50 pixels
         interpolate_and_stamp(
             &mut layer,
-            0.0, 5.0, 1.0,
-            50.0, 5.0, 1.0,
+            0.0,
+            5.0,
+            1.0,
+            50.0,
+            5.0,
+            1.0,
             &StrokeParams {
                 brush: &brush,
                 active_tip: None,
@@ -1361,8 +1389,12 @@ mod tests {
         let td_before = total_dist;
         interpolate_and_stamp(
             &mut layer,
-            50.0, 5.0, 1.0,
-            80.0, 5.0, 1.0,
+            50.0,
+            5.0,
+            1.0,
+            80.0,
+            5.0,
+            1.0,
             &StrokeParams {
                 brush: &brush,
                 active_tip: None,

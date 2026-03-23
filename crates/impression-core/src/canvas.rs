@@ -1554,7 +1554,9 @@ mod tests {
         assert!(canvas2.layers[1].is_adjustment());
         assert_eq!(canvas2.layers[1].blend_mode, BlendMode::SoftLight);
         assert!((canvas2.layers[1].opacity - 0.75).abs() < 1e-6);
-        if let LayerKind::Adjustment(AdjustmentKind::GradientMap { gradient_id }) = &canvas2.layers[1].kind {
+        if let LayerKind::Adjustment(AdjustmentKind::GradientMap { gradient_id }) =
+            &canvas2.layers[1].kind
+        {
             assert_eq!(gradient_id, "grad-1");
         } else {
             panic!("Expected gradient map adjustment layer");
@@ -1669,11 +1671,27 @@ mod tests {
 
         // Verify the layer order and properties match canvas1
         for i in 0..canvas1.layers.len() {
-            assert_eq!(canvas2.layers[i].name, canvas1.layers[i].name, "name mismatch at {i}");
-            assert_eq!(canvas2.layers[i].blend_mode, canvas1.layers[i].blend_mode, "blend mismatch at {i}");
-            assert!((canvas2.layers[i].opacity - canvas1.layers[i].opacity).abs() < 1e-6, "opacity mismatch at {i}");
-            assert_eq!(canvas2.layers[i].visible, canvas1.layers[i].visible, "visible mismatch at {i}");
-            assert_eq!(canvas2.layers[i].is_adjustment(), canvas1.layers[i].is_adjustment(), "kind mismatch at {i}");
+            assert_eq!(
+                canvas2.layers[i].name, canvas1.layers[i].name,
+                "name mismatch at {i}"
+            );
+            assert_eq!(
+                canvas2.layers[i].blend_mode, canvas1.layers[i].blend_mode,
+                "blend mismatch at {i}"
+            );
+            assert!(
+                (canvas2.layers[i].opacity - canvas1.layers[i].opacity).abs() < 1e-6,
+                "opacity mismatch at {i}"
+            );
+            assert_eq!(
+                canvas2.layers[i].visible, canvas1.layers[i].visible,
+                "visible mismatch at {i}"
+            );
+            assert_eq!(
+                canvas2.layers[i].is_adjustment(),
+                canvas1.layers[i].is_adjustment(),
+                "kind mismatch at {i}"
+            );
         }
     }
 }

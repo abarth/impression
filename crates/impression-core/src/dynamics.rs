@@ -165,6 +165,13 @@ pub fn apply_dynamic(
     base * jittered.max(0.0)
 }
 
+pub fn jitter_angle_offset(jitter: f32, rng: &mut Rng) -> f32 {
+    if jitter <= 0.0 {
+        return 0.0;
+    }
+    jitter * (rng.next_f32() * 2.0 - 1.0)
+}
+
 /// Apply an additive angle dynamic. Control and jitter contribute independently:
 /// - Control adds a directed offset based on the input source
 /// - Jitter adds random angular variation
@@ -191,12 +198,7 @@ pub fn apply_angle_dynamic(
         DynamicControl::Direction | DynamicControl::InitialDirection => direction_angle,
     };
 
-    // Jitter adds independent random offset
-    let jitter_offset = if param.jitter > 0.0 {
-        180.0 * param.jitter * (rng.next_f32() * 2.0 - 1.0)
-    } else {
-        0.0
-    };
+    let jitter_offset = jitter_angle_offset(param.jitter, rng);
 
     base + control_offset + jitter_offset
 }

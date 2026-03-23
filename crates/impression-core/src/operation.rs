@@ -326,7 +326,7 @@ mod tests {
 
     #[test]
     fn test_round_trip_dual_brush() {
-        use crate::brush::{DualBrushMode, DualBrushSettings};
+        use crate::brush::{DualBrushMode, DualBrushSettings, ScatterSettings};
         round_trip(Operation::SetDualBrush(DualBrushSettings {
             enabled: true,
             mode: DualBrushMode::Darken,
@@ -334,9 +334,12 @@ mod tests {
             hardness: 0.5,
             size: 30.0,
             spacing: 0.15,
-            count: 2,
-            scatter: 1.5,
-            both_axes: true,
+            scatter: ScatterSettings {
+                scatter: 1.5,
+                both_axes: true,
+                count: 2,
+                count_jitter: 0.0,
+            },
         }));
     }
 

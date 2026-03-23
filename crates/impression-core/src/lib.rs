@@ -16,19 +16,19 @@ pub mod stroke;
 
 use wasm_bindgen::prelude::*;
 #[cfg(all(target_arch = "wasm32", not(test)))]
- #[wasm_bindgen]
- extern "C" {
-     #[wasm_bindgen(js_namespace = console)]
-     pub fn log(s: &str);
- }
- 
- #[cfg(any(not(target_arch = "wasm32"), test))]
- pub fn log(s: &str) {
-     println!("{}", s);
- }
- 
- #[macro_export]
- macro_rules! console_log {
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_namespace = console)]
+    pub fn log(s: &str);
+}
+
+#[cfg(any(not(target_arch = "wasm32"), test))]
+pub fn log(s: &str) {
+    println!("{}", s);
+}
+
+#[macro_export]
+macro_rules! console_log {
      ($($t:tt)*) => (crate::log(&format!($($t)*)))
  }
 
@@ -286,9 +286,12 @@ impl ImpressionCanvas {
             hardness,
             size,
             spacing,
-            count,
-            scatter,
-            both_axes,
+            scatter: brush::ScatterSettings {
+                scatter,
+                both_axes,
+                count,
+                count_jitter: 0.0,
+            },
         });
     }
 
