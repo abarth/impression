@@ -233,53 +233,25 @@ pub(crate) fn sample_secondary_tip(
     py: f32,
     cx: f32,
     cy: f32,
-    secondary_radius: f32,
+    radius: f32,
+    angle: f32,
+    roundness: f32,
     secondary: &SecondaryTipState,
 ) -> f32 {
     let dx = px - cx;
     let dy = py - cy;
-    let dist = (dx * dx + dy * dy).sqrt();
-    if dist > secondary_radius + 0.5 {
+
+    let transform = TipTransform::new(angle, roundness);
+    let (rx, ry) = transform.transform(dx, dy);
+    let dist = (rx * rx + ry * ry).sqrt();
+
+    if dist > radius + 0.5 {
         return 0.0;
     }
 
     match secondary {
-        SecondaryTipState::Computed { hardness } => {
-            let inner_r = secondary_radius * hardness;
-            if dist <= inner_r {
-                1.0
-            } else {
-                let falloff = (secondary_radius + 0.5) - inner_r;
-                if falloff <= 0.0 {
-                    1.0
-                } else {
-                    let t = ((secondary_radius + 0.5 - dist) / falloff).clamp(0.0, 1.0);
-                    t * t * (3.0 - 2.0 * t)
-                }
-            }
-        }
-        SecondaryTipState::Image(tip) => {
-            let diameter = secondary_radius * 2.0;
-            let u = (dx + secondary_radius) / diameter * tip.width as f32;
-            let v = (dy + secondary_radius) / diameter * tip.height as f32;
-            if u < 0.0 || u >= tip.width as f32 || v < 0.0 || v >= tip.height as f32 {
-                return 0.0;
-            }
-            let u0 = u.floor() as u32;
-            let v0 = v.floor() as u32;
-            let u1 = (u0 + 1).min(tip.width - 1);
-            let v1 = (v0 + 1).min(tip.height - 1);
-            let fu = u - u0 as f32;
-            let fv = v - v0 as f32;
-            let s00 = tip.pixels[(v0 * tip.width + u0) as usize] as f32 / 255.0;
-            let s10 = tip.pixels[(v0 * tip.width + u1) as usize] as f32 / 255.0;
-            let s01 = tip.pixels[(v1 * tip.width + u0) as usize] as f32 / 255.0;
-            let s11 = tip.pixels[(v1 * tip.width + u1) as usize] as f32 / 255.0;
-            s00 * (1.0 - fu) * (1.0 - fv)
-                + s10 * fu * (1.0 - fv)
-                + s01 * (1.0 - fu) * fv
-                + s11 * fu * fv
-        }
+        SecondaryTipState::Computed { hardness } => smoothstep_falloff(dist, radius, *hardness),
+        SecondaryTipState::Image(tip) => sample_tip_alpha(tip, rx, ry, radius, false, false),
     }
 }
 
@@ -289,12 +261,14 @@ pub(crate) enum SecondaryTipState<'a> {
     Image(&'a BrushTip),
 }
 
-/// A resolved dual-brush stamp instance: position and radius in canvas coordinates.
+/// A resolved dual-brush stamp instance: position, radius, angle, and roundness in canvas coordinates.
 #[derive(Debug, Clone)]
 pub struct DualStampInstance {
     pub cx: f32,
     pub cy: f32,
     pub radius: f32,
+    pub angle: f32,
+    pub roundness: f32,
 }
 
 /// Compute all secondary (dual brush) stamp instances that could overlap
@@ -371,6 +345,8 @@ pub fn compute_dual_stamps(
                     cx,
                     cy,
                     radius: dual_radius,
+                    angle: 0.0,     // Future: add angle jitter here
+                    roundness: 1.0, // Future: add roundness jitter here
                 });
             }
         }
@@ -389,7 +365,16 @@ pub(crate) fn sample_dual_stamps(
 ) -> f32 {
     let mut max_alpha: f32 = 0.0;
     for inst in instances {
-        let a = sample_secondary_tip(px, py, inst.cx, inst.cy, inst.radius, secondary);
+        let a = sample_secondary_tip(
+            px,
+            py,
+            inst.cx,
+            inst.cy,
+            inst.radius,
+            inst.angle,
+            inst.roundness,
+            secondary,
+        );
         if a > max_alpha {
             max_alpha = a;
         }
@@ -432,30 +417,12 @@ pub(crate) fn sample_texture(
     let u = ((ox % tw) + tw) % tw / scale;
     let v = ((oy % th) + th) % th / scale;
 
-    // Bilinear interpolation
-    let u0 = u.floor() as u32 % pattern.width;
-    let v0 = v.floor() as u32 % pattern.height;
-    let u1 = (u0 + 1) % pattern.width;
-    let v1 = (v0 + 1) % pattern.height;
-    let fu = u.fract();
-    let fv = v.fract();
-
-    let s00 = pattern.pixels[(v0 * pattern.width + u0) as usize] as f32 / 255.0;
-    let s10 = pattern.pixels[(v0 * pattern.width + u1) as usize] as f32 / 255.0;
-    let s01 = pattern.pixels[(v1 * pattern.width + u0) as usize] as f32 / 255.0;
-    let s11 = pattern.pixels[(v1 * pattern.width + u1) as usize] as f32 / 255.0;
-
-    let pattern_value = s00 * (1.0 - fu) * (1.0 - fv)
-        + s10 * fu * (1.0 - fv)
-        + s01 * (1.0 - fu) * fv
-        + s11 * fu * fv;
+    let pattern_value = sample_bilinear_wrap(pattern, u, v);
 
     // Lerp between 1.0 (no effect) and pattern_value based on depth
     1.0 - texture.depth * (1.0 - pattern_value)
 }
 
-/// Draw a filled elliptical stamp with hardness, roundness, and angle onto the layer.
-/// If a selection mask is provided, the stamp is clipped to the selected region.
 pub fn stamp_ellipse(
     layer: &mut Layer,
     cx: f32,
@@ -474,91 +441,27 @@ pub fn stamp_ellipse(
         return;
     }
 
-    let roundness = roundness.clamp(0.01, 1.0);
-    let r = radius;
-    // The effective bounding extent: when roundness < 1, the ellipse extends
-    // further along the elongated axis. Account for rotation.
-    let extent = r / roundness;
-    let x_min = ((cx - extent - 1.0).floor().max(0.0)) as u32;
-    let y_min = ((cy - extent - 1.0).floor().max(0.0)) as u32;
-    let x_max = ((cx + extent + 1.0).ceil()).min(layer.width as f32 - 1.0) as u32;
-    let y_max = ((cy + extent + 1.0).ceil()).min(layer.height as f32 - 1.0) as u32;
+    let transform = TipTransform::new(angle_degrees, roundness);
 
-    // Inner radius where the falloff begins.
-    let inner_r = r * hardness;
-
-    // Precompute inverse rotation to map canvas pixels back to brush space.
-    // Positive angle = counter-clockwise on screen (Photoshop convention, Y-down).
-    let angle_rad = angle_degrees.to_radians();
-    let cos_a = angle_rad.cos();
-    let sin_a = angle_rad.sin();
-    let inv_roundness = 1.0 / roundness;
-
-    for py in y_min..=y_max {
-        for px in x_min..=x_max {
-            let dx = px as f32 + 0.5 - cx;
-            let dy = py as f32 + 0.5 - cy;
-
-            // Inverse rotation (canvas → brush space)
-            let rx = dx * cos_a - dy * sin_a;
-            let ry = dx * sin_a + dy * cos_a;
-
-            // Scale y by 1/roundness to squash circle into ellipse
-            let ry_scaled = ry * inv_roundness;
-
-            let dist = (rx * rx + ry_scaled * ry_scaled).sqrt();
-
-            if dist > r + 0.5 {
-                continue;
-            }
-
-            // Hardness-aware falloff
-            let edge_alpha = if dist <= inner_r {
-                1.0
-            } else {
-                let falloff_range = (r + 0.5) - inner_r;
-                if falloff_range <= 0.0 {
-                    1.0
-                } else {
-                    let t = ((r + 0.5 - dist) / falloff_range).clamp(0.0, 1.0);
-                    t * t * (3.0 - 2.0 * t) // smoothstep
-                }
-            };
-
-            let combined_alpha = match &dual {
-                Some((instances, secondary, mode)) => {
-                    let sec = sample_dual_stamps(
-                        px as f32 + 0.5,
-                        py as f32 + 0.5,
-                        instances,
-                        secondary,
-                    );
-                    mode.apply(edge_alpha, sec)
-                }
-                None => edge_alpha,
-            };
-            let texture_alpha = match &texture {
-                Some((tex, pattern)) => {
-                    sample_texture(px as f32 + 0.5, py as f32 + 0.5, cx, cy, tex, pattern)
-                }
-                None => 1.0,
-            };
-            let selection_alpha = match selection {
-                Some(mask) => mask[(py * layer.width + px) as usize] as f32 / 255.0,
-                None => 1.0,
-            };
-            let final_alpha = alpha * combined_alpha * texture_alpha * selection_alpha;
-            if let Some(pixel) = layer.pixel_mut(px, py) {
-                blend_pixel(pixel, color, final_alpha);
-            }
-        }
-    }
-    layer.expand_dirty((x_min, y_min, x_max, y_max));
+    stamp_loop(
+        layer,
+        cx,
+        cy,
+        radius,
+        roundness,
+        color,
+        alpha,
+        selection,
+        dual,
+        texture,
+        |px, py| {
+            let (rx, ry) = transform.transform(px - cx, py - cy);
+            let dist = (rx * rx + ry * ry).sqrt();
+            smoothstep_falloff(dist, radius, hardness)
+        },
+    );
 }
 
-/// Stamp a custom brush tip image onto the layer, scaled to the given radius.
-/// The tip is rotated by `angle_degrees` and squashed by `roundness`.
-/// Uses bilinear interpolation for smooth scaling.
 pub fn stamp_tip(
     layer: &mut Layer,
     cx: f32,
@@ -579,98 +482,182 @@ pub fn stamp_tip(
         return;
     }
 
-    let roundness = roundness.clamp(0.01, 1.0);
-    let extent = radius / roundness;
-    let x_min = ((cx - extent - 1.0).floor().max(0.0)) as u32;
-    let y_min = ((cy - extent - 1.0).floor().max(0.0)) as u32;
-    let x_max = ((cx + extent + 1.0).ceil()).min(layer.width as f32 - 1.0) as u32;
-    let y_max = ((cy + extent + 1.0).ceil()).min(layer.height as f32 - 1.0) as u32;
+    let transform = TipTransform::new(angle_degrees, roundness);
 
-    // Positive angle = counter-clockwise on screen (Photoshop convention, Y-down).
-    let angle_rad = angle_degrees.to_radians();
-    let cos_a = angle_rad.cos();
-    let sin_a = angle_rad.sin();
-    let inv_roundness = 1.0 / roundness;
+    stamp_loop(
+        layer,
+        cx,
+        cy,
+        radius,
+        roundness,
+        color,
+        alpha,
+        selection,
+        dual,
+        texture,
+        |px, py| {
+            let (rx, ry) = transform.transform(px - cx, py - cy);
+            sample_tip_alpha(tip, rx, ry, radius, flip_x, flip_y)
+        },
+    );
+}
 
-    // Map from canvas-space offset to tip-space UV coordinates.
-    // The tip image spans [-radius, radius] in x and [-radius*roundness, radius*roundness] in y
-    // (before rotation). We need to map the rotated/scaled coordinates to [0, tip.width) x [0, tip.height).
+// --- DRY Helpers ---
+
+struct TipTransform {
+    cos_a: f32,
+    sin_a: f32,
+    inv_roundness: f32,
+}
+
+impl TipTransform {
+    fn new(angle_degrees: f32, roundness: f32) -> Self {
+        let angle_rad = angle_degrees.to_radians();
+        Self {
+            cos_a: angle_rad.cos(),
+            sin_a: angle_rad.sin(),
+            inv_roundness: 1.0 / roundness.clamp(0.01, 1.0),
+        }
+    }
+
+    fn transform(&self, dx: f32, dy: f32) -> (f32, f32) {
+        let rx = dx * self.cos_a - dy * self.sin_a;
+        let ry = (dx * self.sin_a + dy * self.cos_a) * self.inv_roundness;
+        (rx, ry)
+    }
+}
+
+fn smoothstep_falloff(dist: f32, radius: f32, hardness: f32) -> f32 {
+    let inner_r = radius * hardness;
+    if dist <= inner_r {
+        1.0
+    } else {
+        let falloff_range = (radius + 0.5) - inner_r;
+        if falloff_range <= 0.0 {
+            1.0
+        } else {
+            let t = ((radius + 0.5 - dist) / falloff_range).clamp(0.0, 1.0);
+            t * t * (3.0 - 2.0 * t)
+        }
+    }
+}
+
+fn sample_bilinear(tip: &BrushTip, u: f32, v: f32) -> f32 {
+    if u < 0.0 || u >= tip.width as f32 || v < 0.0 || v >= tip.height as f32 {
+        return 0.0;
+    }
+    let u0 = u.floor() as u32;
+    let v0 = v.floor() as u32;
+    let u1 = (u0 + 1).min(tip.width - 1);
+    let v1 = (v0 + 1).min(tip.height - 1);
+    let fu = u - u0 as f32;
+    let fv = v - v0 as f32;
+
+    let s00 = tip.pixels[(v0 * tip.width + u0) as usize] as f32 / 255.0;
+    let s10 = tip.pixels[(v0 * tip.width + u1) as usize] as f32 / 255.0;
+    let s01 = tip.pixels[(v1 * tip.width + u0) as usize] as f32 / 255.0;
+    let s11 = tip.pixels[(v1 * tip.width + u1) as usize] as f32 / 255.0;
+
+    s00 * (1.0 - fu) * (1.0 - fv)
+        + s10 * fu * (1.0 - fv)
+        + s01 * (1.0 - fu) * fv
+        + s11 * fu * fv
+}
+
+fn sample_bilinear_wrap(tip: &BrushTip, u: f32, v: f32) -> f32 {
+    let u0 = u.floor() as u32 % tip.width;
+    let v0 = v.floor() as u32 % tip.height;
+    let u1 = (u0 + 1) % tip.width;
+    let v1 = (v0 + 1) % tip.height;
+    let fu = u.fract();
+    let fv = v.fract();
+
+    let s00 = tip.pixels[(v0 * tip.width + u0) as usize] as f32 / 255.0;
+    let s10 = tip.pixels[(v0 * tip.width + u1) as usize] as f32 / 255.0;
+    let s01 = tip.pixels[(v1 * tip.width + u0) as usize] as f32 / 255.0;
+    let s11 = tip.pixels[(v1 * tip.width + u1) as usize] as f32 / 255.0;
+
+    s00 * (1.0 - fu) * (1.0 - fv)
+        + s10 * fu * (1.0 - fv)
+        + s01 * (1.0 - fu) * fv
+        + s11 * fu * fv
+}
+
+fn sample_tip_alpha(
+    tip: &BrushTip,
+    rx: f32,
+    ry: f32,
+    radius: f32,
+    flip_x: bool,
+    flip_y: bool,
+) -> f32 {
     let diameter = radius * 2.0;
     let tw = tip.width as f32;
     let th = tip.height as f32;
+    let u = if flip_x {
+        (radius - rx) / diameter * tw
+    } else {
+        (rx + radius) / diameter * tw
+    };
+    let v = if flip_y {
+        (radius - ry) / diameter * th
+    } else {
+        (ry + radius) / diameter * th
+    };
+    sample_bilinear(tip, u, v)
+}
+
+fn stamp_loop<F>(
+    layer: &mut Layer,
+    cx: f32,
+    cy: f32,
+    radius: f32,
+    roundness: f32,
+    color: Color,
+    alpha: f32,
+    selection: Option<&[u8]>,
+    dual: Option<(&[DualStampInstance], &SecondaryTipState, DualBrushMode)>,
+    texture: Option<(&TextureSettings, &BrushTip)>,
+    mut alpha_sampler: F,
+) where
+    F: FnMut(f32, f32) -> f32,
+{
+    let (x_min, y_min, x_max, y_max) =
+        stamp_bounds(cx, cy, radius, roundness, layer.width, layer.height);
 
     for py in y_min..=y_max {
         for px in x_min..=x_max {
-            let dx = px as f32 + 0.5 - cx;
-            let dy = py as f32 + 0.5 - cy;
+            let pxf = px as f32 + 0.5;
+            let pyf = py as f32 + 0.5;
 
-            // Inverse rotation (canvas → brush space)
-            let rx = dx * cos_a - dy * sin_a;
-            let ry = (dx * sin_a + dy * cos_a) * inv_roundness;
-
-            // Map to tip UV: rx in [-radius, radius] -> [0, tw)
-            let u = if flip_x {
-                (radius - rx) / diameter * tw
-            } else {
-                (rx + radius) / diameter * tw
-            };
-            let v = if flip_y {
-                (radius - ry) / diameter * th
-            } else {
-                (ry + radius) / diameter * th
-            };
-
-            if u < 0.0 || u >= tw || v < 0.0 || v >= th {
-                continue;
-            }
-
-            // Bilinear interpolation
-            let u0 = u.floor() as u32;
-            let v0 = v.floor() as u32;
-            let u1 = (u0 + 1).min(tip.width - 1);
-            let v1 = (v0 + 1).min(tip.height - 1);
-            let fu = u - u0 as f32;
-            let fv = v - v0 as f32;
-
-            let s00 = tip.pixels[(v0 * tip.width + u0) as usize] as f32 / 255.0;
-            let s10 = tip.pixels[(v0 * tip.width + u1) as usize] as f32 / 255.0;
-            let s01 = tip.pixels[(v1 * tip.width + u0) as usize] as f32 / 255.0;
-            let s11 = tip.pixels[(v1 * tip.width + u1) as usize] as f32 / 255.0;
-
-            let tip_alpha = s00 * (1.0 - fu) * (1.0 - fv)
-                + s10 * fu * (1.0 - fv)
-                + s01 * (1.0 - fu) * fv
-                + s11 * fu * fv;
-
+            let tip_alpha = alpha_sampler(pxf, pyf);
             if tip_alpha <= 0.0 {
                 continue;
             }
 
             let combined_alpha = match &dual {
                 Some((instances, secondary, mode)) => {
-                    let sec = sample_dual_stamps(
-                        px as f32 + 0.5,
-                        py as f32 + 0.5,
-                        instances,
-                        secondary,
-                    );
+                    let sec = sample_dual_stamps(pxf, pyf, instances, secondary);
                     mode.apply(tip_alpha, sec)
                 }
                 None => tip_alpha,
             };
+
             let texture_alpha = match &texture {
-                Some((tex, pattern)) => {
-                    sample_texture(px as f32 + 0.5, py as f32 + 0.5, cx, cy, tex, pattern)
-                }
+                Some((tex, pattern)) => sample_texture(pxf, pyf, cx, cy, tex, pattern),
                 None => 1.0,
             };
+
             let selection_alpha = match selection {
                 Some(mask) => mask[(py * layer.width + px) as usize] as f32 / 255.0,
                 None => 1.0,
             };
+
             let final_alpha = alpha * combined_alpha * texture_alpha * selection_alpha;
-            if let Some(pixel) = layer.pixel_mut(px, py) {
-                blend_pixel(pixel, color, final_alpha);
+            if final_alpha > 0.0 {
+                if let Some(pixel) = layer.pixel_mut(px, py) {
+                    blend_pixel(pixel, color, final_alpha);
+                }
             }
         }
     }
@@ -1460,7 +1447,7 @@ mod tests {
         // With dual brush using a small secondary tip, pixels far from center
         // should have reduced alpha due to secondary tip falloff
         let sec = SecondaryTipState::Computed { hardness: 1.0 };
-        let instances = vec![DualStampInstance { cx: 20.0, cy: 20.0, radius: 3.0 }];
+        let instances = vec![DualStampInstance { cx: 20.0, cy: 20.0, radius: 3.0, angle: 0.0, roundness: 1.0 }];
         let mut layer_dual = Layer::new(0, 40, 40);
         // Secondary radius = 3px (much smaller than primary radius = 8px)
         stamp_ellipse(
@@ -1709,7 +1696,7 @@ mod tests {
             1.0,
             0.0,
             None,
-            Some((&[DualStampInstance { cx: 20.0, cy: 20.0, radius: 3.0 }], &sec, DualBrushMode::Lighten)),
+            Some((&[DualStampInstance { cx: 20.0, cy: 20.0, radius: 3.0, angle: 0.0, roundness: 1.0 }], &sec, DualBrushMode::Lighten)),
             None,
         );
 
@@ -1749,7 +1736,7 @@ mod tests {
             1.0,
             0.0,
             None,
-            Some((&[DualStampInstance { cx: 20.0, cy: 20.0, radius: 8.0 }], &sec, DualBrushMode::Subtract)),
+            Some((&[DualStampInstance { cx: 20.0, cy: 20.0, radius: 8.0, angle: 0.0, roundness: 1.0 }], &sec, DualBrushMode::Subtract)),
             None,
         );
 
@@ -1845,8 +1832,8 @@ mod tests {
         let sec = SecondaryTipState::Computed { hardness: 1.0 };
         // Two instances at different positions, pixel at (50,50)
         let instances = vec![
-            DualStampInstance { cx: 50.0, cy: 50.0, radius: 5.0 },  // pixel at center -> alpha ~1.0
-            DualStampInstance { cx: 55.0, cy: 50.0, radius: 5.0 },  // pixel 5px from center -> lower alpha
+            DualStampInstance { cx: 50.0, cy: 50.0, radius: 5.0, angle: 0.0, roundness: 1.0 },  // pixel at center -> alpha ~1.0
+            DualStampInstance { cx: 55.0, cy: 50.0, radius: 5.0, angle: 0.0, roundness: 1.0 },  // pixel 5px from center -> lower alpha
         ];
         let alpha = sample_dual_stamps(50.0, 50.0, &instances, &sec);
         assert!(alpha > 0.9, "Should be high alpha since pixel is at center of first instance");
@@ -1863,7 +1850,7 @@ mod tests {
     fn test_sample_dual_stamps_far_pixel() {
         let sec = SecondaryTipState::Computed { hardness: 1.0 };
         let instances = vec![
-            DualStampInstance { cx: 50.0, cy: 50.0, radius: 5.0 },
+            DualStampInstance { cx: 50.0, cy: 50.0, radius: 5.0, angle: 0.0, roundness: 1.0 },
         ];
         // Pixel far from the instance
         let alpha = sample_dual_stamps(100.0, 100.0, &instances, &sec);
