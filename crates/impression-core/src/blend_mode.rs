@@ -1,8 +1,9 @@
-use serde::{Deserialize, Serialize};
+use serde_repr::{Deserialize_repr, Serialize_repr};
 
 /// Blend modes covering both Photoshop-compatible modes (0–19)
 /// and Porter-Duff compositing operators (100+).
-#[derive(Clone, Copy, Debug, PartialEq, Default, Serialize, Deserialize)]
+/// Serializes as integer to match the TypeScript numeric representation.
+#[derive(Clone, Copy, Debug, PartialEq, Default, Serialize_repr, Deserialize_repr)]
 #[repr(u32)]
 pub enum BlendMode {
     // -- Photoshop blend modes (0–19) --

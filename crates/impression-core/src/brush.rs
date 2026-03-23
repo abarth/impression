@@ -43,7 +43,7 @@ impl Default for TextureSettings {
 /// In Photoshop, the dual brush panel has a "Mode" dropdown that controls
 /// this combination. These operate on scalar alpha values (0.0–1.0),
 /// not on RGB colors.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, serde_repr::Serialize_repr, serde_repr::Deserialize_repr)]
 #[repr(u8)]
 pub enum DualBrushMode {
     /// `primary * secondary` — masks the primary where secondary is transparent.

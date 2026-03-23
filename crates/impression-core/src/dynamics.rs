@@ -1,15 +1,18 @@
 use serde::{Deserialize, Serialize};
+use serde_repr::{Deserialize_repr, Serialize_repr};
 
 /// Control source for a dynamic brush parameter.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+/// Serializes as integer (0–4) to match the TypeScript numeric representation.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize_repr, Deserialize_repr)]
+#[repr(u8)]
 pub enum DynamicControl {
-    Off,
-    PenPressure,
-    Random,
+    Off = 0,
+    PenPressure = 1,
+    Random = 2,
     /// Angle follows the current stroke direction (tangent).
-    Direction,
+    Direction = 3,
     /// Angle is set to the initial stroke direction and held constant.
-    InitialDirection,
+    InitialDirection = 4,
 }
 
 impl DynamicControl {

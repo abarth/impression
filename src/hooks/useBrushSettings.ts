@@ -120,7 +120,12 @@ export interface SerializableBrushSettings {
   transfer_dynamics: TransferDynamics;
   flip_x: boolean;
   flip_y: boolean;
-  scatter: ScatterSettings;
+  scatter: {
+    scatter: number;
+    both_axes: boolean;
+    count: number;
+    count_jitter: number;
+  };
   dual_brush: {
     enabled: boolean;
     mode: number;
@@ -128,7 +133,12 @@ export interface SerializableBrushSettings {
     size_ratio: number;
     spacing: number;
     flip: boolean;
-    scatter: ScatterSettings;
+    scatter: {
+      scatter: number;
+      both_axes: boolean;
+      count: number;
+      count_jitter: number;
+    };
   };
   texture: {
     enabled: boolean;
@@ -166,7 +176,12 @@ export function buildSerializableSettings(
     transfer_dynamics: s.transferDynamics,
     flip_x: s.flipX,
     flip_y: s.flipY,
-    scatter: s.scatterSettings,
+    scatter: {
+      scatter: s.scatterSettings.scatter,
+      both_axes: s.scatterSettings.bothAxes,
+      count: s.scatterSettings.count,
+      count_jitter: s.scatterSettings.countJitter,
+    },
     dual_brush: {
       enabled: db.enabled,
       mode: db.mode,
