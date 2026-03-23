@@ -235,7 +235,7 @@ export function useBrushSettings(engine: Engine | null, activeTool: Tool) {
     const db = s.dualBrush;
     eng.setDualBrush(
       db.enabled, db.mode, db.useComputed, db.hardness,
-      db.sizeRatio * s.size,
+      db.sizeRatio,
       db.spacing, db.count, db.scatter, db.bothAxes
     );
     const tx = s.texture;

@@ -1953,4 +1953,74 @@ mod tests {
         let center2 = instances2.iter().find(|i| (i.cx - 50.0).abs() < 0.1).expect("center2 not found");
         assert_eq!(center2.radius, 10.0, "Dual radius should be half of primary radius (20)");
     }
+
+    /// When using a textured (sampled) dual brush with size_ratio=1.0,
+    /// the dual brush texture should be clearly visible within the primary
+    /// stamp — different pixels should get different alpha values based on
+    /// the spatial pattern of the secondary tip image.
+    ///
+    /// Regression test: a bug passed `sizeRatio * brushSize` (an absolute
+    /// pixel size) as the ratio, inflating the dual stamp to thousands of
+    /// pixels and collapsing texture detail to a near-constant value.
+    #[test]
+    fn test_dual_brush_sampled_tip_produces_spatial_variation() {
+        // Create a checkerboard secondary tip: alternating 0 and 255
+        let tip_size = 8u32;
+        let mut tip_pixels = vec![0u8; (tip_size * tip_size) as usize];
+        for y in 0..tip_size {
+            for x in 0..tip_size {
+                tip_pixels[(y * tip_size + x) as usize] =
+                    if (x + y) % 2 == 0 { 255 } else { 0 };
+            }
+        }
+        let tip = BrushTip {
+            pixels: tip_pixels,
+            width: tip_size,
+            height: tip_size,
+        };
+
+        let primary_radius = 20.0_f32;
+        // size_ratio = 1.0 means the dual stamp is the same size as primary
+        let dual = DualBrushSettings {
+            enabled: true,
+            size_ratio: 1.0,
+            spacing: 1.0,
+            ..Default::default()
+        };
+
+        // Compute a dual stamp centered on the primary stamp
+        let instances = compute_dual_stamps(
+            50.0, 50.0, primary_radius, 0.0, 1.0, 0.0, &dual, 42,
+        );
+        assert!(!instances.is_empty(), "Should have at least one dual stamp");
+
+        let sec = SecondaryTipState::Image(&tip);
+
+        // Sample several pixels across the primary stamp area and collect
+        // unique alpha values. A textured tip should produce distinct values.
+        let mut alphas = Vec::new();
+        for dy in -10..=10 {
+            for dx in -10..=10 {
+                let px = 50.0 + dx as f32 + 0.5;
+                let py = 50.0 + dy as f32 + 0.5;
+                let a = sample_dual_stamps(px, py, &instances, &sec);
+                alphas.push(a);
+            }
+        }
+
+        let mut unique: Vec<f32> = alphas.clone();
+        unique.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        unique.dedup_by(|a, b| (*a - *b).abs() < 0.01);
+
+        // A checkerboard pattern should produce clearly distinct values
+        // (at least opaque and transparent). If the dual stamp were
+        // enormous, all samples would be nearly identical.
+        assert!(
+            unique.len() >= 2,
+            "Dual brush with textured tip should produce spatially varying alpha, \
+             but only got {} distinct value(s): {:?}",
+            unique.len(),
+            &unique[..unique.len().min(5)]
+        );
+    }
 }

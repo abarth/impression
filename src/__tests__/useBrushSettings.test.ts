@@ -488,6 +488,33 @@ describe("useBrushSettings scatter", () => {
   });
 });
 
+describe("useBrushSettings dualBrush", () => {
+  it("should pass sizeRatio directly to engine, not multiplied by brush size", () => {
+    const engine = createMockEngine();
+    const { result } = renderHook(() => useBrushSettings(engine, "brush"));
+
+    act(() => {
+      result.current.updateSetting("dualBrush", {
+        enabled: true,
+        mode: 0,
+        useComputed: false,
+        hardness: 1.0,
+        sizeRatio: 0.5,
+        spacing: 0.25,
+        count: 1,
+        scatter: 0,
+        bothAxes: false,
+      });
+    });
+
+    const calls = (engine.setDualBrush as ReturnType<typeof vi.fn>).mock.calls;
+    const lastCall = calls[calls.length - 1];
+    // The size parameter (index 4) should be the ratio (0.5), NOT ratio * brushSize
+    expect(lastCall[0]).toBe(true);   // enabled
+    expect(lastCall[4]).toBe(0.5);    // sizeRatio passed directly
+  });
+});
+
 describe("useBrushSettings texture", () => {
   it("should default to texture off", () => {
     const engine = createMockEngine();
