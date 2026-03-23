@@ -582,19 +582,25 @@ fn sample_tip_alpha(
     flip_x: bool,
     flip_y: bool,
 ) -> f32 {
-    let diameter = radius * 2.0;
     let tw = tip.width as f32;
     let th = tip.height as f32;
-    let u = if flip_x {
-        (radius - rx) / diameter * tw
-    } else {
-        (rx + radius) / diameter * tw
-    };
-    let v = if flip_y {
-        (radius - ry) / diameter * th
-    } else {
-        (ry + radius) / diameter * th
-    };
+    if tw == 0.0 || th == 0.0 {
+        return 0.0;
+    }
+
+    let max_dim = tw.max(th);
+    let diameter = radius * 2.0;
+
+    // Scale factor: image pixels per canvas pixel
+    let inv_scale = max_dim / diameter;
+
+    // Map brush-space (centered on 0,0) to image-space [0, tw] x [0, th]
+    let u_base = rx * inv_scale + tw / 2.0;
+    let v_base = ry * inv_scale + th / 2.0;
+
+    let u = if flip_x { tw - u_base } else { u_base };
+    let v = if flip_y { th - v_base } else { v_base };
+
     sample_bilinear(tip, u, v)
 }
 
@@ -655,16 +661,17 @@ fn stamp_loop<F>(
     layer.expand_dirty((x_min, y_min, x_max, y_max));
 }
 
-/// Compute the bounding box of a stamp for recompositing.
 pub(crate) fn stamp_bounds(
     cx: f32,
     cy: f32,
     radius: f32,
-    roundness: f32,
+    _roundness: f32,
     width: u32,
     height: u32,
 ) -> (u32, u32, u32, u32) {
-    let extent = radius / roundness.clamp(0.01, 1.0);
+    // The maximum dimension of an elliptical stamp is its base radius (the major axis).
+    // Roundness squashes the minor axis, but never expands beyond the radius.
+    let extent = radius;
     let x_min = (cx - extent - 1.0).floor().max(0.0) as u32;
     let y_min = (cy - extent - 1.0).floor().max(0.0) as u32;
     let x_max = ((cx + extent + 1.0).ceil())
