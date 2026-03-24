@@ -347,7 +347,7 @@ fn place_stamp(
     secondary_tip: Option<&BrushTip>,
     texture: Option<(&crate::brush::TextureSettings, &BrushTip)>,
 ) {
-    let dual = if !dual_instances.is_empty() {
+    let dual = if brush.dual_brush.enabled {
         let sec_state = match secondary_tip {
             Some(t) => SecondaryTipState::Image(t),
             None => SecondaryTipState::Computed {
@@ -1897,5 +1897,93 @@ mod tests {
         // But overlapping should return empty since no instances are added
         let overlap = interp.overlapping(50.0, 50.0, 10.0);
         assert!(overlap.is_empty(), "Disabled dual brush should produce no overlapping instances");
+    }
+
+    #[test]
+    fn test_secondary_image_tip_not_clipped_to_circle() {
+        // Regression: sample_secondary_tip used to apply a hard circular distance
+        // check (`dist > radius + 0.5`) before sampling the image tip, which clipped
+        // non-circular image tips (e.g. square) to a circle.  After the fix, the
+        // image's own bounds determine the shape.
+        use crate::brush::{sample_secondary_tip, BrushTip, SecondaryTipState};
+
+        let tip_size = 64u32;
+        // Fully opaque square tip — every pixel is 255.
+        let tip_pixels = vec![255u8; (tip_size * tip_size) as usize];
+        let tip = BrushTip {
+            pixels: tip_pixels,
+            width: tip_size,
+            height: tip_size,
+        };
+        let secondary = SecondaryTipState::Image(&tip);
+
+        let radius = 20.0_f32;
+        // At 45° from center, a point inside the square but outside the inscribed
+        // circle should still be sampled from the image.
+        // dist = sqrt(14^2 + 14^2) ≈ 19.8 — inside circle → should always work
+        let alpha_inside = sample_secondary_tip(
+            14.0, 14.0, 0.0, 0.0, radius, 0.0, 1.0, false, &secondary,
+        );
+        assert!(alpha_inside > 0.0, "Point inside inscribed circle should have alpha");
+
+        // dist = sqrt(15^2 + 15^2) ≈ 21.2 — outside the circle radius + 0.5 = 20.5,
+        // but inside the square image bounds.  The old code clipped this to 0.
+        let alpha_corner = sample_secondary_tip(
+            15.0, 15.0, 0.0, 0.0, radius, 0.0, 1.0, false, &secondary,
+        );
+        assert!(
+            alpha_corner > 0.0,
+            "Corner point outside inscribed circle but inside image bounds \
+             should NOT be clipped to zero (was clipped by circular check)"
+        );
+    }
+
+    #[test]
+    fn test_place_stamp_with_empty_dual_instances_multiply_produces_no_paint() {
+        // Regression: when dual_brush.enabled is true but no dual instances overlap
+        // the primary stamp, place_stamp used to fall through to no-modulation,
+        // painting at full primary alpha.  For Multiply mode the correct behavior
+        // is zero combined alpha (primary × 0 = 0), so no paint should appear.
+        use crate::brush::{DualBrushMode, DualBrushSettings, ScatterSettings};
+
+        let brush = BrushSettings {
+            size: 20.0,
+            color: Color::black(),
+            opacity: 1.0,
+            flow: 1.0,
+            hardness: 1.0,
+            dual_brush: DualBrushSettings {
+                enabled: true,
+                mode: DualBrushMode::Multiply,
+                hardness: 1.0,
+                size_ratio: 1.0,
+                spacing: 1.0,
+                flip: false,
+                scatter: ScatterSettings::default(),
+            },
+            ..Default::default()
+        };
+        let sp = StampParams {
+            x: 20.0,
+            y: 20.0,
+            radius: 10.0,
+            roundness: 1.0,
+            angle: 0.0,
+            flow: 1.0,
+        };
+
+        let mut layer = Layer::new(0, 40, 40);
+        // Empty dual instances slice — no secondary stamps overlap.
+        let empty: &[crate::brush::DualStampInstance] = &[];
+        place_stamp(&mut layer, &sp, &brush, None, None, empty, None, None);
+
+        // With Multiply mode and no secondary coverage, every pixel should be 0.
+        let has_paint = (0..40u32).any(|y| {
+            (0..40u32).any(|x| layer.pixel(x, y).unwrap()[3] > 0)
+        });
+        assert!(
+            !has_paint,
+            "Multiply mode with empty dual instances should produce no paint"
+        );
     }
 }

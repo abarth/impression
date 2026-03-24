@@ -355,14 +355,12 @@ pub(crate) fn sample_secondary_tip(
 
     let transform = TipTransform::new(angle, roundness);
     let (rx, ry) = transform.transform(dx, dy);
-    let dist = (rx * rx + ry * ry).sqrt();
-
-    if dist > radius + 0.5 {
-        return 0.0;
-    }
 
     match secondary {
-        SecondaryTipState::Computed { hardness } => smoothstep_falloff(dist, radius, *hardness),
+        SecondaryTipState::Computed { hardness } => {
+            let dist = (rx * rx + ry * ry).sqrt();
+            smoothstep_falloff(dist, radius, *hardness)
+        }
         SecondaryTipState::Image(tip) => sample_tip_alpha(tip, rx, ry, radius, flip, false),
     }
 }
