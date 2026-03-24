@@ -102,6 +102,16 @@ export function useLayerManager(engine: Engine | null) {
     return layerIndex;
   }, [syncLayersFromEngine]);
 
+  const addWetMediaLayer = useCallback(() => {
+    const eng = engineRef.current;
+    if (!eng) return;
+    const layerIndex = eng.addWetMediaLayer();
+    syncLayersFromEngine();
+    activeIndexRef.current = layerIndex;
+    setActiveIndex(layerIndex);
+    eng.setActiveLayer(layerIndex);
+  }, [syncLayersFromEngine]);
+
   const removeLayer = useCallback(
     (index: number) => {
       const eng = engineRef.current;
@@ -235,5 +245,5 @@ export function useLayerManager(engine: Engine | null) {
     [],
   );
 
-  return { layers, activeIndex, canvasColor, canvasVisible, addLayer, addGradientMapLayer, removeLayer, selectLayer, setLayerOpacity, setLayerBlendMode, renameLayer, moveLayer, toggleLayerVisible, setCanvasColor, toggleCanvasVisible, setGradientMapGradient, syncLayersFromEngine };
+  return { layers, activeIndex, canvasColor, canvasVisible, addLayer, addGradientMapLayer, addWetMediaLayer, removeLayer, selectLayer, setLayerOpacity, setLayerBlendMode, renameLayer, moveLayer, toggleLayerVisible, setCanvasColor, toggleCanvasVisible, setGradientMapGradient, syncLayersFromEngine };
 }

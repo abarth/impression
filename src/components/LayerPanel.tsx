@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { Plus, Trash2, Eye, EyeOff, GripVertical, Blend, ChevronDown, ChevronRight } from "lucide-react";
+import { Plus, Trash2, Eye, EyeOff, GripVertical, Blend, Droplets, ChevronDown, ChevronRight } from "lucide-react";
 import * as Popover from "@radix-ui/react-popover";
 import { OklchColorPicker } from "./OklchColorPicker";
 import type { LayerInfo } from "../hooks/useLayerManager";
@@ -77,6 +77,7 @@ interface LayerPanelProps {
   gradientGroups?: Record<string, Gradient[]>;
   onAdd: () => void;
   onAddGradientMap: () => void;
+  onAddWetMediaLayer: () => void;
   onRemove: (index: number) => void;
   onSelect: (index: number) => void;
   onOpacityChange: (index: number, opacity: number) => void;
@@ -96,6 +97,7 @@ export function LayerPanel({
   canvasVisible,
   onAdd,
   onAddGradientMap,
+  onAddWetMediaLayer,
   onRemove,
   onSelect,
   onOpacityChange,
@@ -213,6 +215,15 @@ export function LayerPanel({
                   >
                     <Blend size={12} strokeWidth={1.75} />
                     Gradient Map
+                  </button>
+                  <button
+                    onClick={onAddWetMediaLayer}
+                    className="w-full text-left px-3 py-1.5 rounded-lg text-[12px] text-cream-dim
+                      hover:bg-graphite-800 hover:text-cream transition-all duration-150 cursor-pointer
+                      flex items-center gap-2"
+                  >
+                    <Droplets size={12} strokeWidth={1.75} />
+                    Wet Media Layer
                   </button>
                   <Popover.Arrow className="fill-graphite-750" />
                 </Popover.Content>
