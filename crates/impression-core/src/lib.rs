@@ -163,6 +163,94 @@ impl ImpressionCanvas {
         self.inner.add_wet_media_layer()
     }
 
+    /// Number of pending wet media footprints for the active site.
+    pub fn wet_media_footprint_count(&self) -> u32 {
+        self.inner.site().wet_media_stroke.footprints.len() as u32
+    }
+
+    /// Pointer to the mask data of a wet media footprint.
+    pub fn wet_media_footprint_mask_ptr(&self, index: u32) -> *const f32 {
+        self.inner
+            .site()
+            .wet_media_stroke
+            .footprints
+            .get(index as usize)
+            .map(|fp| fp.mask.as_ptr())
+            .unwrap_or(std::ptr::null())
+    }
+
+    /// Length (in f32 elements) of the mask data of a wet media footprint.
+    pub fn wet_media_footprint_mask_len(&self, index: u32) -> u32 {
+        self.inner
+            .site()
+            .wet_media_stroke
+            .footprints
+            .get(index as usize)
+            .map(|fp| fp.mask.len() as u32)
+            .unwrap_or(0)
+    }
+
+    /// Width of a wet media footprint mask.
+    pub fn wet_media_footprint_width(&self, index: u32) -> u32 {
+        self.inner
+            .site()
+            .wet_media_stroke
+            .footprints
+            .get(index as usize)
+            .map(|fp| fp.width)
+            .unwrap_or(0)
+    }
+
+    /// Height of a wet media footprint mask.
+    pub fn wet_media_footprint_height(&self, index: u32) -> u32 {
+        self.inner
+            .site()
+            .wet_media_stroke
+            .footprints
+            .get(index as usize)
+            .map(|fp| fp.height)
+            .unwrap_or(0)
+    }
+
+    /// Get footprint parameters as a JsValue object.
+    pub fn wet_media_footprint_params(&self, index: u32) -> JsValue {
+        match self
+            .inner
+            .site()
+            .wet_media_stroke
+            .footprints
+            .get(index as usize)
+        {
+            Some(fp) => {
+                // Return as a flat array: [origin_x, origin_y, r, g, b, paint_load,
+                //                          velocity_x, velocity_y, mixing_strength,
+                //                          paint_thickness, wetness, width, height]
+                let params: [f32; 13] = [
+                    fp.origin_x,
+                    fp.origin_y,
+                    fp.paint_color[0],
+                    fp.paint_color[1],
+                    fp.paint_color[2],
+                    fp.paint_load,
+                    fp.velocity[0],
+                    fp.velocity[1],
+                    fp.mixing_strength,
+                    fp.paint_thickness,
+                    fp.wetness,
+                    fp.width as f32,
+                    fp.height as f32,
+                ];
+                serde_wasm_bindgen::to_value(&params).unwrap_or(JsValue::NULL)
+            }
+            None => JsValue::NULL,
+        }
+    }
+
+    /// Clear all pending wet media footprints for the active site.
+    pub fn wet_media_clear_footprints(&mut self) {
+        self.inner.site_mut().wet_media_stroke.footprints.clear();
+    }
+
     /// Get the gradient ID for a gradient map adjustment layer.
     pub fn gradient_map_gradient_id(&self, layer_idx: u32) -> Option<String> {
         match self.inner.layer(layer_idx) {

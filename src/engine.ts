@@ -10,6 +10,7 @@ import {
   updateLayerBlendMode,
   removeLayerTexture,
   removeWetMediaLayer,
+  dispatchWetMediaDeposit,
   uploadSelectionTexture,
   clearSelectionTexture,
 } from "./gpu";
@@ -151,18 +152,69 @@ export class Engine {
     this.canvas.set_all_brush_settings(settings);
     this.canvas.stroke_begin(layer, x, y, pressure);
     this._dirty = true;
-    this.syncLayer(layer);
+    if (settings.brush_model === "WetMedia" && this.isWetMediaLayer(layer)) {
+      this.dispatchWetMediaFootprints(layer);
+    } else {
+      this.syncLayer(layer);
+    }
   }
 
   strokeMove(layer: number, x: number, y: number, pressure: number): void {
     this.canvas.stroke_move(layer, x, y, pressure);
     this._dirty = true;
-    this.syncLayer(layer);
+    if (this.isWetMediaLayer(layer)) {
+      this.dispatchWetMediaFootprints(layer);
+    } else {
+      this.syncLayer(layer);
+    }
   }
 
   strokeEnd(): void {
     this.canvas.stroke_end();
     this.flushAll();
+  }
+
+  /** Read wet media footprints from WASM and dispatch GPU deposit for each. */
+  private dispatchWetMediaFootprints(layer: number): void {
+    const count = this.canvas.wet_media_footprint_count();
+    if (count === 0) return;
+
+    const canvasWidth = this.canvas.width();
+    const canvasHeight = this.canvas.height();
+
+    for (let i = 0; i < count; i++) {
+      const maskPtr = this.canvas.wet_media_footprint_mask_ptr(i);
+      const maskLen = this.canvas.wet_media_footprint_mask_len(i);
+      if (maskLen === 0) continue;
+
+      // Read mask from WASM memory (f32 array)
+      const maskData = new Float32Array(this.wasmMemory.buffer, maskPtr, maskLen);
+
+      // Read params (flat array of 13 f32s)
+      const paramsArray = this.canvas.wet_media_footprint_params(i) as number[];
+      if (!paramsArray || paramsArray.length < 13) continue;
+
+      dispatchWetMediaDeposit(this.gpu, layer, maskData, {
+        originX: paramsArray[0],
+        originY: paramsArray[1],
+        paintR: paramsArray[2],
+        paintG: paramsArray[3],
+        paintB: paramsArray[4],
+        paintLoad: paramsArray[5],
+        velocityX: paramsArray[6],
+        velocityY: paramsArray[7],
+        mixingStrength: paramsArray[8],
+        paintThickness: paramsArray[9],
+        wetness: paramsArray[10],
+        maskWidth: paramsArray[11],
+        maskHeight: paramsArray[12],
+        canvasWidth,
+        canvasHeight,
+      });
+    }
+
+    this.canvas.wet_media_clear_footprints();
+    this.needsRender = true;
   }
 
   private syncLayer(layer: number): void {

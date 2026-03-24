@@ -2,6 +2,7 @@ import compositeShaderSource from "../shaders/composite.wgsl?raw";
 import selectionShaderSource from "../shaders/selection.wgsl?raw";
 import gradientMapShaderSource from "../shaders/gradient_map.wgsl?raw";
 import wetMediaCompositeShaderSource from "../shaders/wet_media_composite.wgsl?raw";
+import wetMediaDepositShaderSource from "../shaders/wet_media_deposit.wgsl?raw";
 
 export interface GPUContext {
   device: GPUDevice;
@@ -39,6 +40,10 @@ export interface GPUContext {
   // Wet media layer compositing
   wetMediaPipeline: GPURenderPipeline;
   wetMediaBindGroupLayout: GPUBindGroupLayout;
+
+  // Wet media paint deposition compute
+  wetMediaDepositPipeline: GPUComputePipeline;
+  wetMediaDepositBindGroupLayout: GPUBindGroupLayout;
 }
 
 export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
@@ -279,6 +284,46 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
     primitive: { topology: "triangle-list" },
   });
 
+  // --- Wet media deposit compute pipeline ---
+  const wetMediaDepositBindGroupLayout = device.createBindGroupLayout({
+    entries: [
+      {
+        binding: 0,
+        visibility: GPUShaderStage.COMPUTE,
+        buffer: { type: "read-only-storage" },
+      },
+      {
+        binding: 1,
+        visibility: GPUShaderStage.COMPUTE,
+        storageTexture: { access: "read-write", format: "rgba32float" },
+      },
+      {
+        binding: 2,
+        visibility: GPUShaderStage.COMPUTE,
+        storageTexture: { access: "read-write", format: "rgba32float" },
+      },
+      {
+        binding: 3,
+        visibility: GPUShaderStage.COMPUTE,
+        buffer: { type: "uniform" },
+      },
+    ],
+  });
+
+  const wetMediaDepositModule = device.createShaderModule({
+    code: wetMediaDepositShaderSource,
+  });
+
+  const wetMediaDepositPipeline = device.createComputePipeline({
+    layout: device.createPipelineLayout({
+      bindGroupLayouts: [wetMediaDepositBindGroupLayout],
+    }),
+    compute: {
+      module: wetMediaDepositModule,
+      entryPoint: "main",
+    },
+  });
+
   // --- Selection overlay pipeline ---
 
   const selectionBindGroupLayout = device.createBindGroupLayout({
@@ -368,6 +413,8 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
     selectionTimeBuffer,
     wetMediaPipeline,
     wetMediaBindGroupLayout,
+    wetMediaDepositPipeline,
+    wetMediaDepositBindGroupLayout,
   };
 }
 
@@ -658,6 +705,100 @@ export function createWetMediaLayerTexture(
 
   wetMediaLayers.set(index, { colorTexture, propsTexture, bindGroup });
   return index;
+}
+
+/** Dispatch the paint deposition compute shader for a single footprint. */
+export function dispatchWetMediaDeposit(
+  gpu: GPUContext,
+  layerIndex: number,
+  maskData: Float32Array,
+  params: {
+    originX: number;
+    originY: number;
+    paintR: number;
+    paintG: number;
+    paintB: number;
+    paintLoad: number;
+    velocityX: number;
+    velocityY: number;
+    mixingStrength: number;
+    paintThickness: number;
+    wetness: number;
+    maskWidth: number;
+    maskHeight: number;
+    canvasWidth: number;
+    canvasHeight: number;
+  },
+): void {
+  const wm = wetMediaLayers.get(layerIndex);
+  if (!wm) return;
+
+  // Upload mask to a storage buffer
+  const maskBuffer = gpu.device.createBuffer({
+    size: maskData.byteLength,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    mappedAtCreation: true,
+  });
+  new Float32Array(maskBuffer.getMappedRange()).set(maskData);
+  maskBuffer.unmap();
+
+  // Create uniform buffer with deposit params
+  // Must match the WGSL DepositParams struct layout (16 floats + 4 u32 = 80 bytes)
+  // Align to 16 bytes as required by WebGPU
+  const uniformData = new ArrayBuffer(80);
+  const floatView = new Float32Array(uniformData);
+  const uintView = new Uint32Array(uniformData);
+  floatView[0] = params.originX;
+  floatView[1] = params.originY;
+  floatView[2] = params.paintR;
+  floatView[3] = params.paintG;
+  floatView[4] = params.paintB;
+  floatView[5] = params.paintLoad;
+  floatView[6] = params.velocityX;
+  floatView[7] = params.velocityY;
+  floatView[8] = params.mixingStrength;
+  floatView[9] = params.paintThickness;
+  floatView[10] = params.wetness;
+  uintView[11] = params.maskWidth;
+  uintView[12] = params.maskHeight;
+  uintView[13] = params.canvasWidth;
+  uintView[14] = params.canvasHeight;
+  // padding to 80 bytes (struct is 15 * 4 = 60 bytes, pad to 80 for alignment)
+
+  const uniformBuffer = gpu.device.createBuffer({
+    size: 80,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    mappedAtCreation: true,
+  });
+  new Uint8Array(uniformBuffer.getMappedRange()).set(new Uint8Array(uniformData));
+  uniformBuffer.unmap();
+
+  // Create bind group
+  const bindGroup = gpu.device.createBindGroup({
+    layout: gpu.wetMediaDepositBindGroupLayout,
+    entries: [
+      { binding: 0, resource: { buffer: maskBuffer } },
+      { binding: 1, resource: wm.colorTexture.createView() },
+      { binding: 2, resource: wm.propsTexture.createView() },
+      { binding: 3, resource: { buffer: uniformBuffer } },
+    ],
+  });
+
+  // Dispatch
+  const encoder = gpu.device.createCommandEncoder();
+  const pass = encoder.beginComputePass();
+  pass.setPipeline(gpu.wetMediaDepositPipeline);
+  pass.setBindGroup(0, bindGroup);
+  pass.dispatchWorkgroups(
+    Math.ceil(params.maskWidth / 8),
+    Math.ceil(params.maskHeight / 8),
+  );
+  pass.end();
+  gpu.device.queue.submit([encoder.finish()]);
+
+  // Clean up transient buffers
+  maskBuffer.destroy();
+  uniformBuffer.destroy();
 }
 
 /** Get wet media GPU resources for a layer, or undefined if not a wet media layer. */

@@ -2,6 +2,7 @@ use crate::brush::{BrushSettings, BrushTip};
 use crate::operation::LayerId;
 use crate::selection::SelectionMask;
 use crate::stroke::StrokeState;
+use crate::wet_media::WetMediaStrokeState;
 
 /// Per-site state: brush settings, selection, stroke state, and lasso points.
 /// Each connected user (site) has their own isolated copy of these.
@@ -20,6 +21,8 @@ pub struct SiteState {
     pub secondary_tip: Option<BrushTip>,
     /// Cloned tip data for the texture pattern.
     pub texture_tip: Option<BrushTip>,
+    /// Per-stroke state for wet media brush model.
+    pub wet_media_stroke: WetMediaStrokeState,
 }
 
 impl Default for SiteState {
@@ -33,6 +36,7 @@ impl Default for SiteState {
             active_tip: None,
             secondary_tip: None,
             texture_tip: None,
+            wet_media_stroke: WetMediaStrokeState::default(),
         }
     }
 }

@@ -4,6 +4,7 @@ use crate::color::Color;
 use crate::operation::{Operation, SiteOperation};
 use crate::selection::{CombineMode, SelectionMask};
 use crate::stroke;
+use crate::wet_media::{self, BrushModel};
 
 impl Canvas {
     /// Execute a single operation mutating the canvas state, without recording it
@@ -22,33 +23,70 @@ impl Canvas {
             } => {
                 let site_state = self.sites.entry(site).or_default();
                 site_state.stroke_layer = layer;
-                let params = stroke::StrokeParams {
-                    brush: &site_state.brush,
-                    active_tip: site_state.active_tip.as_ref(),
-                    secondary_tip: site_state.secondary_tip.as_ref(),
-                    texture_tip: site_state.texture_tip.as_ref(),
-                    selection: site_state.selection.as_ref().map(|s| s.data.as_slice()),
-                };
-                if let Some(l) = self.layers.iter_mut().find(|l| l.id == layer) {
-                    stroke::stroke_begin(l, &mut site_state.stroke_state, &params, x, y, pressure);
+                if site_state.brush.brush_model == BrushModel::WetMedia {
+                    let brush = &site_state.brush;
+                    let color = [
+                        brush.color.r as f32 / 255.0,
+                        brush.color.g as f32 / 255.0,
+                        brush.color.b as f32 / 255.0,
+                    ];
+                    wet_media::wet_media_stroke_begin(
+                        &mut site_state.wet_media_stroke,
+                        x, y, pressure,
+                        brush.size, brush.angle, brush.roundness, brush.spacing,
+                        &brush.wet_media,
+                        color,
+                    );
+                } else {
+                    let params = stroke::StrokeParams {
+                        brush: &site_state.brush,
+                        active_tip: site_state.active_tip.as_ref(),
+                        secondary_tip: site_state.secondary_tip.as_ref(),
+                        texture_tip: site_state.texture_tip.as_ref(),
+                        selection: site_state.selection.as_ref().map(|s| s.data.as_slice()),
+                    };
+                    if let Some(l) = self.layers.iter_mut().find(|l| l.id == layer) {
+                        stroke::stroke_begin(l, &mut site_state.stroke_state, &params, x, y, pressure);
+                    }
                 }
             }
             Operation::StrokeMove { x, y, pressure } => {
                 let site_state = self.sites.entry(site).or_default();
-                let stroke_layer = site_state.stroke_layer;
-                let params = stroke::StrokeParams {
-                    brush: &site_state.brush,
-                    active_tip: site_state.active_tip.as_ref(),
-                    secondary_tip: site_state.secondary_tip.as_ref(),
-                    texture_tip: site_state.texture_tip.as_ref(),
-                    selection: site_state.selection.as_ref().map(|s| s.data.as_slice()),
-                };
-                if let Some(l) = self.layers.iter_mut().find(|l| l.id == stroke_layer) {
-                    stroke::stroke_move(l, &mut site_state.stroke_state, &params, x, y, pressure);
+                if site_state.brush.brush_model == BrushModel::WetMedia {
+                    let brush = &site_state.brush;
+                    let color = [
+                        brush.color.r as f32 / 255.0,
+                        brush.color.g as f32 / 255.0,
+                        brush.color.b as f32 / 255.0,
+                    ];
+                    wet_media::wet_media_stroke_move(
+                        &mut site_state.wet_media_stroke,
+                        x, y, pressure,
+                        brush.size, brush.angle, brush.roundness, brush.spacing,
+                        &brush.wet_media,
+                        color,
+                    );
+                } else {
+                    let stroke_layer = site_state.stroke_layer;
+                    let params = stroke::StrokeParams {
+                        brush: &site_state.brush,
+                        active_tip: site_state.active_tip.as_ref(),
+                        secondary_tip: site_state.secondary_tip.as_ref(),
+                        texture_tip: site_state.texture_tip.as_ref(),
+                        selection: site_state.selection.as_ref().map(|s| s.data.as_slice()),
+                    };
+                    if let Some(l) = self.layers.iter_mut().find(|l| l.id == stroke_layer) {
+                        stroke::stroke_move(l, &mut site_state.stroke_state, &params, x, y, pressure);
+                    }
                 }
             }
             Operation::StrokeEnd => {
-                stroke::stroke_end(&mut self.site_for_mut(site).stroke_state);
+                let site_state = self.site_for_mut(site);
+                if site_state.brush.brush_model == BrushModel::WetMedia {
+                    wet_media::wet_media_stroke_end(&mut site_state.wet_media_stroke);
+                } else {
+                    stroke::stroke_end(&mut site_state.stroke_state);
+                }
             }
             Operation::SetBrushSettings(ref data) => {
                 match SerializableBrushSettings::from_bytes(data) {
