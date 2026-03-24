@@ -2,6 +2,9 @@
 //
 // Reads a bristle footprint mask and deposits paint onto the wet media canvas,
 // mixing with existing wet paint using the provided parameters.
+// Uses separate read/write textures since rgba32float does not support read_write.
+// Before dispatch, the caller copies the current canvas state to the src textures
+// so this shader can read from src and write the mixed result to dst.
 
 struct DepositParams {
     // Footprint origin in canvas coordinates.
@@ -29,9 +32,11 @@ struct DepositParams {
 };
 
 @group(0) @binding(0) var<storage, read> footprint_mask: array<f32>;
-@group(0) @binding(1) var canvas_color: texture_storage_2d<rgba32float, read_write>;
-@group(0) @binding(2) var canvas_props: texture_storage_2d<rgba32float, read_write>;
-@group(0) @binding(3) var<uniform> params: DepositParams;
+@group(0) @binding(1) var canvas_color_src: texture_storage_2d<rgba32float, read>;
+@group(0) @binding(2) var canvas_color_dst: texture_storage_2d<rgba32float, write>;
+@group(0) @binding(3) var canvas_props_src: texture_storage_2d<rgba32float, read>;
+@group(0) @binding(4) var canvas_props_dst: texture_storage_2d<rgba32float, write>;
+@group(0) @binding(5) var<uniform> params: DepositParams;
 
 @compute @workgroup_size(8, 8)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
@@ -45,10 +50,6 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     // Read footprint pressure at this pixel
     let mask_idx = mask_y * params.mask_width + mask_x;
     let footprint_pressure = footprint_mask[mask_idx];
-
-    if (footprint_pressure <= 0.0) {
-        return;
-    }
 
     // Compute canvas coordinates
     let half_w = f32(params.mask_width) * 0.5;
@@ -64,9 +65,17 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 
     let coord = vec2i(canvas_x, canvas_y);
 
-    // Read existing canvas state
-    let existing_color = textureLoad(canvas_color, coord);
-    let existing_props = textureLoad(canvas_props, coord);
+    // Read existing canvas state from src textures
+    let existing_color = textureLoad(canvas_color_src, coord);
+    let existing_props = textureLoad(canvas_props_src, coord);
+
+    // If no footprint pressure, pass through unchanged
+    if (footprint_pressure <= 0.0) {
+        textureStore(canvas_color_dst, coord, existing_color);
+        textureStore(canvas_props_dst, coord, existing_props);
+        return;
+    }
+
     let existing_wetness = existing_props.g;
 
     // Mixing: new paint blends with existing wet paint
@@ -91,7 +100,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let existing_amount = existing_props.b;
     let new_amount = min(1.0, existing_amount + deposit_strength);
 
-    // Write back
-    textureStore(canvas_color, coord, vec4f(new_color, new_alpha));
-    textureStore(canvas_props, coord, vec4f(new_height, new_wetness, new_amount, 0.0));
+    // Write to dst textures
+    textureStore(canvas_color_dst, coord, vec4f(new_color, new_alpha));
+    textureStore(canvas_props_dst, coord, vec4f(new_height, new_wetness, new_amount, 0.0));
 }

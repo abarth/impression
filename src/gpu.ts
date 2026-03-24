@@ -67,7 +67,14 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
     throw new Error("Failed to get GPU adapter.");
   }
 
-  const device = await adapter.requestDevice();
+  const device = await adapter.requestDevice({
+    requiredLimits: {
+      maxStorageTexturesPerShaderStage: Math.min(
+        8,
+        adapter.limits.maxStorageTexturesPerShaderStage,
+      ),
+    },
+  });
   const context = canvas.getContext("webgpu");
   if (!context) {
     throw new Error("Failed to get WebGPU context.");
@@ -298,26 +305,12 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
   // --- Wet media deposit compute pipeline ---
   const wetMediaDepositBindGroupLayout = device.createBindGroupLayout({
     entries: [
-      {
-        binding: 0,
-        visibility: GPUShaderStage.COMPUTE,
-        buffer: { type: "read-only-storage" },
-      },
-      {
-        binding: 1,
-        visibility: GPUShaderStage.COMPUTE,
-        storageTexture: { access: "read-write", format: "rgba32float" },
-      },
-      {
-        binding: 2,
-        visibility: GPUShaderStage.COMPUTE,
-        storageTexture: { access: "read-write", format: "rgba32float" },
-      },
-      {
-        binding: 3,
-        visibility: GPUShaderStage.COMPUTE,
-        buffer: { type: "uniform" },
-      },
+      { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+      { binding: 1, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "read-only", format: "rgba32float" } },
+      { binding: 2, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba32float" } },
+      { binding: 3, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "read-only", format: "rgba32float" } },
+      { binding: 4, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba32float" } },
+      { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
     ],
   });
 
@@ -370,8 +363,9 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
   // --- Wet media drying pipeline ---
   const wetMediaDryBindGroupLayout = device.createBindGroupLayout({
     entries: [
-      { binding: 0, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "read-write", format: "rgba32float" } },
-      { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+      { binding: 0, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "read-only", format: "rgba32float" } },
+      { binding: 1, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba32float" } },
+      { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
     ],
   });
   const wetMediaDryPipeline = device.createComputePipeline({
@@ -854,19 +848,33 @@ export function dispatchWetMediaDeposit(
   new Uint8Array(uniformBuffer.getMappedRange()).set(new Uint8Array(uniformData));
   uniformBuffer.unmap();
 
-  // Create bind group
+  // Copy current state (A textures) to B textures so shader can read from B
+  const encoder = gpu.device.createCommandEncoder();
+  encoder.copyTextureToTexture(
+    { texture: wm.colorTexture },
+    { texture: wm.colorTextureB },
+    { width: params.canvasWidth, height: params.canvasHeight },
+  );
+  encoder.copyTextureToTexture(
+    { texture: wm.propsTexture },
+    { texture: wm.propsTextureB },
+    { width: params.canvasWidth, height: params.canvasHeight },
+  );
+
+  // Create bind group: read from B (src), write to A (dst)
   const bindGroup = gpu.device.createBindGroup({
     layout: gpu.wetMediaDepositBindGroupLayout,
     entries: [
       { binding: 0, resource: { buffer: maskBuffer } },
-      { binding: 1, resource: wm.colorTexture.createView() },
-      { binding: 2, resource: wm.propsTexture.createView() },
-      { binding: 3, resource: { buffer: uniformBuffer } },
+      { binding: 1, resource: wm.colorTextureB.createView() },
+      { binding: 2, resource: wm.colorTexture.createView() },
+      { binding: 3, resource: wm.propsTextureB.createView() },
+      { binding: 4, resource: wm.propsTexture.createView() },
+      { binding: 5, resource: { buffer: uniformBuffer } },
     ],
   });
 
-  // Dispatch
-  const encoder = gpu.device.createCommandEncoder();
+  // Dispatch deposit (reads from B, writes to A)
   const pass = encoder.beginComputePass();
   pass.setPipeline(gpu.wetMediaDepositPipeline);
   pass.setBindGroup(0, bindGroup);
@@ -978,7 +986,7 @@ export function stepWetMediaSimulation(
   }
 
   // After diffusion, src is now current again (ping-pong stays the same)
-  // --- Drying pass (in-place on propsSrc) ---
+  // --- Drying pass (propsSrc → propsDst, then copy back to propsSrc) ---
   const dryUniform = gpu.device.createBuffer({
     size: 16,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
@@ -996,7 +1004,8 @@ export function stepWetMediaSimulation(
     layout: gpu.wetMediaDryBindGroupLayout,
     entries: [
       { binding: 0, resource: propsSrc.createView() },
-      { binding: 1, resource: { buffer: dryUniform } },
+      { binding: 1, resource: propsDst.createView() },
+      { binding: 2, resource: { buffer: dryUniform } },
     ],
   });
 
@@ -1007,6 +1016,13 @@ export function stepWetMediaSimulation(
     pass.dispatchWorkgroups(workgroupsX, workgroupsY);
     pass.end();
   }
+
+  // Copy dried props back to src so compositing (which always reads from A textures) stays correct
+  encoder.copyTextureToTexture(
+    { texture: propsDst },
+    { texture: propsSrc },
+    { width: canvasWidth, height: canvasHeight },
+  );
 
   gpu.device.queue.submit([encoder.finish()]);
 
