@@ -1042,6 +1042,45 @@ export function getWetMediaLayer(index: number): WetMediaLayerGPU | undefined {
   return wetMediaLayers.get(index);
 }
 
+/** Clear all wet media textures for a layer (color, props, velocity) to zero.
+ *  Used during undo/redo to reset GPU state before replaying operations. */
+export function clearWetMediaTextures(gpu: GPUContext, index: number): void {
+  const wm = wetMediaLayers.get(index);
+  if (!wm) return;
+
+  // Create a zeroed buffer large enough for the largest texture
+  const textures = [
+    wm.colorTexture, wm.propsTexture,
+    wm.colorTextureB, wm.propsTextureB,
+  ];
+  for (const tex of textures) {
+    const { width, height } = tex;
+    const bytesPerPixel = 16; // rgba32float = 4 * 4 bytes
+    const buf = new ArrayBuffer(width * height * bytesPerPixel);
+    gpu.device.queue.writeTexture(
+      { texture: tex },
+      buf,
+      { bytesPerRow: width * bytesPerPixel, rowsPerImage: height },
+      { width, height },
+    );
+  }
+  // rg32float velocity textures = 8 bytes per pixel
+  for (const tex of [wm.velocityTexture, wm.velocityTextureB]) {
+    const { width, height } = tex;
+    const bytesPerPixel = 8;
+    const buf = new ArrayBuffer(width * height * bytesPerPixel);
+    gpu.device.queue.writeTexture(
+      { texture: tex },
+      buf,
+      { bytesPerRow: width * bytesPerPixel, rowsPerImage: height },
+      { width, height },
+    );
+  }
+
+  wm.pingPong = 0;
+  wm.hasWetPaint = false;
+}
+
 /** Remove wet media GPU resources for a layer. */
 export function removeWetMediaLayer(index: number): void {
   const wm = wetMediaLayers.get(index);

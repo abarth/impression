@@ -9,6 +9,22 @@ use crate::oplog::OpLog;
 use crate::replay::{Checkpoint, CHECKPOINT_INTERVAL};
 use crate::selection::CombineMode;
 use crate::site::SiteState;
+use crate::wet_media::BristleFootprint;
+
+/// An event recorded during wet media replay for the TS side to re-execute on GPU.
+#[derive(Clone, Debug)]
+pub enum WetMediaReplayEvent {
+    /// Deposit a bristle footprint onto the GPU canvas.
+    Deposit {
+        layer: LayerId,
+        footprint: BristleFootprint,
+    },
+    /// Run N simulation frames (advection, diffusion, drying) on the GPU.
+    SimStep {
+        layer: LayerId,
+        frames: u32,
+    },
+}
 
 pub struct Canvas {
     pub width: u32,
@@ -27,6 +43,9 @@ pub struct Canvas {
     pub(crate) checkpoints: Vec<Checkpoint>,
     /// Registry of custom brush tip images, keyed by tip ID.
     pub tip_registry: HashMap<String, BrushTip>,
+    /// Accumulated wet media replay events from the most recent `replay_active`.
+    /// TS reads these after undo/redo to re-execute GPU operations in order.
+    pub wet_media_replay_events: Vec<WetMediaReplayEvent>,
 }
 
 impl Canvas {
@@ -44,6 +63,7 @@ impl Canvas {
             layer_id_counter: 0,
             checkpoints: Vec::new(),
             tip_registry: HashMap::new(),
+            wet_media_replay_events: Vec::new(),
         }
     }
 

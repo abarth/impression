@@ -10,6 +10,7 @@ import {
   updateLayerBlendMode,
   removeLayerTexture,
   removeWetMediaLayer,
+  clearWetMediaTextures,
   dispatchWetMediaDeposit,
   setWetMediaHasWetPaint,
   stepWetMediaSimulation,
@@ -41,6 +42,8 @@ export class Engine {
   private _dirty: boolean = false;
   /** Called after syncAllLayers so consumers can re-read layer state. */
   private _onLayersChanged?: () => void;
+  /** Simulation frames elapsed per wet media layer since last stroke, for deterministic replay. */
+  private wetMediaSimFrames: Map<number, number> = new Map();
 
   constructor(
     canvas: ImpressionCanvas,
@@ -154,6 +157,10 @@ export class Engine {
    *  Settings are recorded in the oplog automatically by stroke_begin. */
   strokeBegin(layer: number, x: number, y: number, pressure: number, settings: SerializableBrushSettings): void {
     this.canvas.set_all_brush_settings(settings);
+    // Record accumulated simulation frames before starting a new wet media stroke
+    if (settings.brush_model === "WetMedia" && this.isWetMediaLayer(layer)) {
+      this.recordSimFrames(layer);
+    }
     this.canvas.stroke_begin(layer, x, y, pressure);
     this._dirty = true;
     if (settings.brush_model === "WetMedia" && this.isWetMediaLayer(layer)) {
@@ -222,6 +229,19 @@ export class Engine {
     this.needsRender = true;
   }
 
+  /** Record accumulated simulation frame count for a wet media layer into the oplog.
+   *  Called before starting a new stroke so replay can reproduce the simulation. */
+  private recordSimFrames(layer: number): void {
+    const frames = this.wetMediaSimFrames.get(layer) ?? 0;
+    if (frames === 0) return;
+    // layer_id returns f64 from WASM (since JS doesn't have u64)
+    const layerId = this.canvas.layer_id(layer);
+    const hi = Math.floor(layerId / 0x100000000) >>> 0;
+    const lo = (layerId % 0x100000000) >>> 0;
+    this.canvas.record_wet_media_sim_step(hi, lo, frames);
+    this.wetMediaSimFrames.set(layer, 0);
+  }
+
   /** Run per-frame simulation for all wet media layers.
    *  Called from the render loop when wet paint exists. */
   stepWetMediaSimulation(): void {
@@ -230,6 +250,8 @@ export class Engine {
     const h = this.canvas.height();
     for (const idx of getWetMediaLayerIndices()) {
       stepWetMediaSimulation(this.gpu, idx, w, h);
+      // Track frames for deterministic replay
+      this.wetMediaSimFrames.set(idx, (this.wetMediaSimFrames.get(idx) ?? 0) + 1);
     }
     this.needsRender = true;
   }
@@ -434,14 +456,88 @@ export class Engine {
 
   undo(): boolean {
     const result = this.canvas.undo();
-    if (result) this.syncAllLayers();
+    if (result) {
+      this.replayWetMediaEvents();
+      this.syncAllLayers();
+    }
     return result;
   }
 
   redo(): boolean {
     const result = this.canvas.redo();
-    if (result) this.syncAllLayers();
+    if (result) {
+      this.replayWetMediaEvents();
+      this.syncAllLayers();
+    }
     return result;
+  }
+
+  /** After undo/redo, replay wet media GPU operations (deposits + sim steps)
+   *  that were accumulated during Rust's replay_active. */
+  private replayWetMediaEvents(): void {
+    const eventCount = this.canvas.wet_media_replay_event_count();
+    if (eventCount === 0) return;
+
+    const canvasWidth = this.canvas.width();
+    const canvasHeight = this.canvas.height();
+
+    // Clear all wet media GPU textures before replaying
+    for (const idx of getWetMediaLayerIndices()) {
+      clearWetMediaTextures(this.gpu, idx);
+    }
+
+    // Replay events in order
+    for (let i = 0; i < eventCount; i++) {
+      const eventType = this.canvas.wet_media_replay_event_type(i);
+
+      if (eventType === 0) {
+        // Deposit event
+        const layerIdx = this.canvas.wet_media_replay_deposit_layer(i);
+        if (layerIdx === 0xFFFFFFFF) continue;
+
+        const maskPtr = this.canvas.wet_media_replay_deposit_mask_ptr(i);
+        const maskLen = this.canvas.wet_media_replay_deposit_mask_len(i);
+        if (maskLen === 0) continue;
+
+        const maskData = new Float32Array(this.wasmMemory.buffer, maskPtr, maskLen);
+        const paramsArray = this.canvas.wet_media_replay_deposit_params(i) as number[];
+        if (!paramsArray || paramsArray.length < 13) continue;
+
+        dispatchWetMediaDeposit(this.gpu, layerIdx, maskData, {
+          originX: paramsArray[0],
+          originY: paramsArray[1],
+          paintR: paramsArray[2],
+          paintG: paramsArray[3],
+          paintB: paramsArray[4],
+          paintLoad: paramsArray[5],
+          velocityX: paramsArray[6],
+          velocityY: paramsArray[7],
+          mixingStrength: paramsArray[8],
+          paintThickness: paramsArray[9],
+          wetness: paramsArray[10],
+          maskWidth: paramsArray[11],
+          maskHeight: paramsArray[12],
+          canvasWidth,
+          canvasHeight,
+        });
+        setWetMediaHasWetPaint(layerIdx, true);
+      } else if (eventType === 1) {
+        // SimStep event
+        const params = this.canvas.wet_media_replay_sim_step_params(i) as number[];
+        if (!params || params.length < 2) continue;
+        const layerIdx = params[0];
+        const frames = params[1];
+        if (layerIdx === 0xFFFFFFFF) continue;
+
+        for (let f = 0; f < frames; f++) {
+          stepWetMediaSimulation(this.gpu, layerIdx, canvasWidth, canvasHeight);
+        }
+      }
+    }
+
+    // Clear replay events and reset sim frame counters
+    this.canvas.wet_media_clear_replay_events();
+    this.wetMediaSimFrames.clear();
   }
 
   /** Re-upload layer textures after replay, skipping unchanged layers. */

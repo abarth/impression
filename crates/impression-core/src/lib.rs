@@ -146,6 +146,14 @@ impl ImpressionCanvas {
             .unwrap_or(false)
     }
 
+    /// Get the LayerId for a layer at a given index (as f64 since JS doesn't have u64).
+    pub fn layer_id(&self, layer_idx: u32) -> f64 {
+        self.inner
+            .layer(layer_idx)
+            .map(|l| l.id as f64)
+            .unwrap_or(0.0)
+    }
+
     /// Get layer kind: 0 = Raster, 1 = GradientMap, 2 = WetMedia.
     pub fn layer_kind(&self, layer_idx: u32) -> u32 {
         match self.inner.layer(layer_idx) {
@@ -249,6 +257,101 @@ impl ImpressionCanvas {
     /// Clear all pending wet media footprints for the active site.
     pub fn wet_media_clear_footprints(&mut self) {
         self.inner.site_mut().wet_media_stroke.footprints.clear();
+    }
+
+    /// Record a WetMediaSimStep operation in the oplog.
+    /// Called by TS before each wet media stroke to record how many simulation
+    /// frames elapsed since the last stroke, enabling deterministic replay.
+    pub fn record_wet_media_sim_step(&mut self, layer_id_hi: u32, layer_id_lo: u32, frames: u32) {
+        if frames == 0 {
+            return;
+        }
+        let layer = ((layer_id_hi as u64) << 32) | (layer_id_lo as u64);
+        self.inner.apply(operation::Operation::WetMediaSimStep { layer, frames });
+    }
+
+    /// Number of wet media replay events from the most recent undo/redo.
+    pub fn wet_media_replay_event_count(&self) -> u32 {
+        self.inner.wet_media_replay_events.len() as u32
+    }
+
+    /// Get the type of a replay event: 0 = Deposit, 1 = SimStep.
+    pub fn wet_media_replay_event_type(&self, index: u32) -> u32 {
+        match self.inner.wet_media_replay_events.get(index as usize) {
+            Some(canvas::WetMediaReplayEvent::Deposit { .. }) => 0,
+            Some(canvas::WetMediaReplayEvent::SimStep { .. }) => 1,
+            None => u32::MAX,
+        }
+    }
+
+    /// For a Deposit replay event, get the footprint mask pointer.
+    pub fn wet_media_replay_deposit_mask_ptr(&self, index: u32) -> *const f32 {
+        match self.inner.wet_media_replay_events.get(index as usize) {
+            Some(canvas::WetMediaReplayEvent::Deposit { footprint, .. }) => footprint.mask.as_ptr(),
+            _ => std::ptr::null(),
+        }
+    }
+
+    /// For a Deposit replay event, get the footprint mask length (in f32 elements).
+    pub fn wet_media_replay_deposit_mask_len(&self, index: u32) -> u32 {
+        match self.inner.wet_media_replay_events.get(index as usize) {
+            Some(canvas::WetMediaReplayEvent::Deposit { footprint, .. }) => footprint.mask.len() as u32,
+            _ => 0,
+        }
+    }
+
+    /// For a Deposit replay event, get params as [originX, originY, r, g, b, load, vx, vy, mixing, thickness, wetness, maskW, maskH].
+    pub fn wet_media_replay_deposit_params(&self, index: u32) -> JsValue {
+        match self.inner.wet_media_replay_events.get(index as usize) {
+            Some(canvas::WetMediaReplayEvent::Deposit { footprint, .. }) => {
+                let fp = footprint;
+                let arr: js_sys::Float32Array = js_sys::Float32Array::new_with_length(13);
+                arr.set_index(0, fp.origin_x);
+                arr.set_index(1, fp.origin_y);
+                arr.set_index(2, fp.paint_color[0]);
+                arr.set_index(3, fp.paint_color[1]);
+                arr.set_index(4, fp.paint_color[2]);
+                arr.set_index(5, fp.paint_load);
+                arr.set_index(6, fp.velocity[0]);
+                arr.set_index(7, fp.velocity[1]);
+                arr.set_index(8, fp.mixing_strength);
+                arr.set_index(9, fp.paint_thickness);
+                arr.set_index(10, fp.wetness);
+                arr.set_index(11, fp.width as f32);
+                arr.set_index(12, fp.height as f32);
+                arr.into()
+            }
+            _ => JsValue::NULL,
+        }
+    }
+
+    /// For a Deposit replay event, get the target layer index.
+    pub fn wet_media_replay_deposit_layer(&self, index: u32) -> u32 {
+        match self.inner.wet_media_replay_events.get(index as usize) {
+            Some(canvas::WetMediaReplayEvent::Deposit { layer, .. }) => {
+                self.inner.layer_index_by_id(*layer).unwrap_or(u32::MAX as usize) as u32
+            }
+            _ => u32::MAX,
+        }
+    }
+
+    /// For a SimStep replay event, get the layer index and frame count as [layerIdx, frames].
+    pub fn wet_media_replay_sim_step_params(&self, index: u32) -> JsValue {
+        match self.inner.wet_media_replay_events.get(index as usize) {
+            Some(canvas::WetMediaReplayEvent::SimStep { layer, frames }) => {
+                let layer_idx = self.inner.layer_index_by_id(*layer).unwrap_or(u32::MAX as usize) as u32;
+                let arr: js_sys::Uint32Array = js_sys::Uint32Array::new_with_length(2);
+                arr.set_index(0, layer_idx);
+                arr.set_index(1, *frames);
+                arr.into()
+            }
+            _ => JsValue::NULL,
+        }
+    }
+
+    /// Clear replay events after TS has consumed them.
+    pub fn wet_media_clear_replay_events(&mut self) {
+        self.inner.wet_media_replay_events.clear();
     }
 
     /// Get the gradient ID for a gradient map adjustment layer.

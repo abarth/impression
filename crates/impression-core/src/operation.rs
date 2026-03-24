@@ -120,6 +120,13 @@ pub enum Operation {
     AddWetMediaLayer {
         id: LayerId,
     },
+    /// Record how many GPU simulation frames elapsed between strokes
+    /// on a wet media layer. Used for deterministic replay of advection,
+    /// diffusion, and drying simulation during undo/redo.
+    WetMediaSimStep {
+        layer: LayerId,
+        frames: u32,
+    },
 }
 
 impl Operation {
@@ -132,6 +139,7 @@ impl Operation {
             Operation::StrokeBegin { .. }
                 | Operation::StrokeMove { .. }
                 | Operation::StrokeEnd
+                | Operation::WetMediaSimStep { .. }
         )
     }
 }
@@ -484,6 +492,26 @@ mod tests {
     #[test]
     fn test_round_trip_add_wet_media_layer() {
         round_trip(Operation::AddWetMediaLayer { id: 77 });
+    }
+
+    #[test]
+    fn test_round_trip_wet_media_sim_step() {
+        round_trip(Operation::WetMediaSimStep {
+            layer: 42,
+            frames: 120,
+        });
+    }
+
+    #[test]
+    fn test_wet_media_sim_step_does_not_start_undo_group() {
+        let op = Operation::WetMediaSimStep {
+            layer: 1,
+            frames: 60,
+        };
+        assert!(
+            !op.starts_undo_group(),
+            "WetMediaSimStep should not start an undo group"
+        );
     }
 
     #[test]

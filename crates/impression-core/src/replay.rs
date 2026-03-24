@@ -72,7 +72,11 @@ impl Canvas {
 
     /// Replay active operations, using a checkpoint if available.
     /// Only marks layers as dirty if their pixel content actually changed.
+    /// Also populates `wet_media_replay_events` with GPU operations for TS.
     pub(crate) fn replay_active(&mut self) {
+        // Clear replay events — will be populated by execute_op calls
+        self.wet_media_replay_events.clear();
+
         // Fingerprint each layer's pixels before replay
         let old_fingerprints: Vec<u64> =
             self.layers.iter().map(|l| l.pixel_fingerprint()).collect();
@@ -120,7 +124,7 @@ impl Canvas {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::canvas::Canvas;
+    use crate::canvas::{Canvas, WetMediaReplayEvent};
     use crate::operation::Operation;
 
     /// Helper: modify the active site's brush size and record a SetBrushSettings op.
@@ -262,5 +266,137 @@ mod tests {
             valid.is_none(),
             "Checkpoint should be invalidated after redo discard"
         );
+    }
+
+    /// Helper: configure canvas for wet media brush and do a stroke.
+    fn wet_media_stroke(canvas: &mut Canvas, layer_idx: u32, x1: f32, y1: f32, x2: f32, y2: f32) {
+        // Switch to wet media brush model
+        canvas.site_mut().brush.brush_model = crate::wet_media::BrushModel::WetMedia;
+        canvas.site_mut().brush.wet_media = crate::wet_media::WetMediaBrushSettings {
+            bristle_count: 4,
+            ..Default::default()
+        };
+        canvas.site_mut().brush.size = 10.0;
+        canvas.site_mut().brush.spacing = 0.25;
+        let bytes = canvas.site().brush.to_serializable().to_bytes();
+        canvas.apply(Operation::SetBrushSettings(bytes));
+
+        let layer_id = canvas.layers[layer_idx as usize].id;
+        canvas.apply(Operation::StrokeBegin {
+            layer: layer_id,
+            x: x1,
+            y: y1,
+            pressure: 1.0,
+        });
+        canvas.apply(Operation::StrokeMove {
+            x: x2,
+            y: y2,
+            pressure: 1.0,
+        });
+        canvas.apply(Operation::StrokeEnd);
+    }
+
+    #[test]
+    fn test_wet_media_replay_events_accumulated_on_undo() {
+        let mut canvas = Canvas::new(64, 64);
+        canvas.add_wet_media_layer();
+
+        // Do a wet media stroke
+        wet_media_stroke(&mut canvas, 0, 10.0, 10.0, 30.0, 10.0);
+
+        // Verify replay events are empty before undo (cleared during normal execution)
+        // Events accumulate during execute_op but that's fine — they'll be cleared at replay start
+        assert!(canvas.wet_media_replay_events.len() > 0,
+            "Execute should accumulate replay events (deposits)");
+
+        // Record some sim steps
+        let layer_id = canvas.layers[0].id;
+        canvas.apply(Operation::WetMediaSimStep { layer: layer_id, frames: 60 });
+
+        let event_count_before = canvas.wet_media_replay_events.len();
+
+        // Undo the stroke — this calls replay_active which clears and re-populates events
+        canvas.undo();
+
+        // After undoing the stroke, replay events should be empty (stroke is undone)
+        assert_eq!(
+            canvas.wet_media_replay_events.len(),
+            0,
+            "After undoing the only stroke, no replay events should remain"
+        );
+
+        // Redo — should re-populate replay events with the stroke deposits + sim step
+        canvas.redo();
+
+        assert!(
+            canvas.wet_media_replay_events.len() > 0,
+            "After redo, replay events should contain deposit events"
+        );
+
+        // Verify we have both deposit and sim step events
+        let has_deposit = canvas.wet_media_replay_events.iter().any(|e| matches!(e, WetMediaReplayEvent::Deposit { .. }));
+        let has_sim = canvas.wet_media_replay_events.iter().any(|e| matches!(e, WetMediaReplayEvent::SimStep { .. }));
+        assert!(has_deposit, "Should have deposit events after redo");
+        assert!(has_sim, "Should have sim step events after redo");
+
+        // Check that sim step has correct frame count
+        let sim_event = canvas.wet_media_replay_events.iter().find(|e| matches!(e, WetMediaReplayEvent::SimStep { .. }));
+        if let Some(WetMediaReplayEvent::SimStep { frames, .. }) = sim_event {
+            assert_eq!(*frames, 60, "Sim step should have 60 frames");
+        }
+    }
+
+    #[test]
+    fn test_wet_media_replay_events_cleared_before_replay() {
+        let mut canvas = Canvas::new(32, 32);
+        canvas.add_wet_media_layer();
+
+        // Do two strokes
+        wet_media_stroke(&mut canvas, 0, 5.0, 5.0, 15.0, 5.0);
+        wet_media_stroke(&mut canvas, 0, 5.0, 15.0, 15.0, 15.0);
+
+        // Undo one stroke
+        canvas.undo();
+
+        // Only the first stroke's deposits should be in replay events
+        let deposit_count = canvas.wet_media_replay_events.iter()
+            .filter(|e| matches!(e, WetMediaReplayEvent::Deposit { .. }))
+            .count();
+        assert!(deposit_count > 0, "Should have deposits from the remaining stroke");
+
+        // Redo
+        canvas.redo();
+
+        // Both strokes' deposits should now be present
+        let deposit_count_after = canvas.wet_media_replay_events.iter()
+            .filter(|e| matches!(e, WetMediaReplayEvent::Deposit { .. }))
+            .count();
+        assert!(
+            deposit_count_after > deposit_count,
+            "Redo should add more deposit events: {} vs {}",
+            deposit_count_after,
+            deposit_count
+        );
+    }
+
+    #[test]
+    fn test_round_trip_wet_media_sim_step_in_oplog() {
+        let mut canvas = Canvas::new(32, 32);
+        canvas.add_wet_media_layer();
+        let layer_id = canvas.layers[0].id;
+
+        // Record a sim step
+        canvas.apply(Operation::WetMediaSimStep {
+            layer: layer_id,
+            frames: 120,
+        });
+
+        // Verify it can be serialized/deserialized via the oplog
+        let ops_data = canvas.flush_pending_operations().unwrap_or_default();
+        assert!(!ops_data.is_empty());
+
+        let decoded = crate::operation::deserialize_operations(&ops_data).unwrap();
+        let sim_step_op = decoded.iter().find(|so| matches!(so.op, Operation::WetMediaSimStep { .. }));
+        assert!(sim_step_op.is_some(), "Should find WetMediaSimStep in serialized ops");
     }
 }
