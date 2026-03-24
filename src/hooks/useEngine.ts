@@ -141,6 +141,7 @@ export function useEngine(
         renderRunning.current = true;
         function render(time: number) {
           if (!renderRunning.current) return;
+          eng.stepWetMediaSimulation();
           composite(gpu, {
             backgroundColor: eng.getBackgroundColor(),
             canvasVisible: eng.getCanvasVisible(),

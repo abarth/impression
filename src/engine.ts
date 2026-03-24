@@ -11,6 +11,10 @@ import {
   removeLayerTexture,
   removeWetMediaLayer,
   dispatchWetMediaDeposit,
+  setWetMediaHasWetPaint,
+  stepWetMediaSimulation,
+  hasAnyWetPaint,
+  getWetMediaLayerIndices,
   uploadSelectionTexture,
   clearSelectionTexture,
 } from "./gpu";
@@ -214,6 +218,19 @@ export class Engine {
     }
 
     this.canvas.wet_media_clear_footprints();
+    setWetMediaHasWetPaint(layer, true);
+    this.needsRender = true;
+  }
+
+  /** Run per-frame simulation for all wet media layers.
+   *  Called from the render loop when wet paint exists. */
+  stepWetMediaSimulation(): void {
+    if (!hasAnyWetPaint()) return;
+    const w = this.canvas.width();
+    const h = this.canvas.height();
+    for (const idx of getWetMediaLayerIndices()) {
+      stepWetMediaSimulation(this.gpu, idx, w, h);
+    }
     this.needsRender = true;
   }
 
