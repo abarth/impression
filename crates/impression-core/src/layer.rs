@@ -12,11 +12,13 @@ pub enum AdjustmentKind {
     GradientMap { gradient_id: String },
 }
 
-/// Distinguishes raster (pixel) layers from adjustment layers.
+/// Distinguishes raster (pixel) layers from adjustment layers and wet media layers.
 #[derive(Clone, Debug, PartialEq)]
 pub enum LayerKind {
     Raster,
     Adjustment(AdjustmentKind),
+    /// Wet media layer: paint state lives on the GPU (no CPU pixel buffer).
+    WetMedia,
 }
 
 impl Default for LayerKind {
@@ -77,8 +79,30 @@ impl Layer {
         }
     }
 
+    /// Create a new wet media layer. No CPU pixel buffer is allocated because
+    /// paint state lives on the GPU.
+    pub fn new_wet_media(id: LayerId, width: u32, height: u32) -> Self {
+        Self {
+            id,
+            name: String::new(),
+            kind: LayerKind::WetMedia,
+            pixels: Vec::new(),
+            width,
+            height,
+            dirty: false,
+            dirty_bounds: None,
+            opacity: 1.0,
+            visible: true,
+            blend_mode: BlendMode::default(),
+        }
+    }
+
     pub fn is_adjustment(&self) -> bool {
         matches!(self.kind, LayerKind::Adjustment(_))
+    }
+
+    pub fn is_wet_media(&self) -> bool {
+        matches!(self.kind, LayerKind::WetMedia)
     }
 
     pub fn clear(&mut self) {
@@ -251,5 +275,14 @@ mod tests {
         layer.mark_fully_dirty();
         assert!(layer.dirty);
         assert_eq!(layer.dirty_bounds, Some((0, 0, 99, 49)));
+    }
+
+    #[test]
+    fn test_wet_media_layer() {
+        let layer = Layer::new_wet_media(42, 100, 100);
+        assert!(layer.is_wet_media());
+        assert!(!layer.is_adjustment());
+        assert!(layer.pixels.is_empty(), "wet media layers have no CPU pixel buffer");
+        assert_eq!(layer.kind, LayerKind::WetMedia);
     }
 }

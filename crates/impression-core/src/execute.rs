@@ -187,6 +187,16 @@ impl Canvas {
                     l.kind = crate::layer::LayerKind::Adjustment(kind.clone());
                 }
             }
+            Operation::AddWetMediaLayer { id } => {
+                let mut layer =
+                    crate::layer::Layer::new_wet_media(id, self.width, self.height);
+                layer.name = format!("Wet Media {}", self.layers.len() + 1);
+                self.layers.push(layer);
+                let counter = (id & 0xFFFFFFFF) as u32;
+                if counter >= self.layer_id_counter {
+                    self.layer_id_counter = counter + 1;
+                }
+            }
         }
     }
 }

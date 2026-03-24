@@ -1,8 +1,10 @@
 import type { GPUContext } from "./gpu";
+import { getWetMediaLayer } from "./gpu";
 
 /** Layer kind constants matching Rust layer_kind() return values */
 export const LAYER_KIND_RASTER = 0;
 export const LAYER_KIND_GRADIENT_MAP = 1;
+export const LAYER_KIND_WET_MEDIA = 2;
 
 export interface CompositeOptions {
   backgroundColor: [number, number, number];
@@ -61,14 +63,25 @@ export function composite(gpu: GPUContext, options: CompositeOptions): void {
     });
 
     const kind = getKind(i);
-    if (kind === LAYER_KIND_GRADIENT_MAP) {
+    if (kind === LAYER_KIND_WET_MEDIA) {
+      const wm = getWetMediaLayer(i);
+      if (wm) {
+        pass.setPipeline(gpu.wetMediaPipeline);
+        pass.setBindGroup(0, wm.bindGroup);
+        pass.setBindGroup(1, gpu.dstBindGroups[srcIdx]);
+        pass.draw(3, 1, 0, 0);
+      }
+    } else if (kind === LAYER_KIND_GRADIENT_MAP) {
       pass.setPipeline(gpu.gradientMapPipeline);
+      pass.setBindGroup(0, gpu.layerBindGroups[i]);
+      pass.setBindGroup(1, gpu.dstBindGroups[srcIdx]);
+      pass.draw(3, 1, 0, 0);
     } else {
       pass.setPipeline(gpu.compositePipeline);
+      pass.setBindGroup(0, gpu.layerBindGroups[i]);
+      pass.setBindGroup(1, gpu.dstBindGroups[srcIdx]);
+      pass.draw(3, 1, 0, 0);
     }
-    pass.setBindGroup(0, gpu.layerBindGroups[i]);
-    pass.setBindGroup(1, gpu.dstBindGroups[srcIdx]);
-    pass.draw(3, 1, 0, 0);
     pass.end();
 
     currentDst = dstIdx;

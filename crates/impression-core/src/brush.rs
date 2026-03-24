@@ -4,6 +4,7 @@ use crate::blend_mode::{porter_duff_composite, BlendMode};
 use crate::color::{blend_pixel, Color};
 use crate::dynamics::{jitter_angle_offset, Rng, ShapeDynamics, TransferDynamics};
 use crate::layer::{DirtyBounds, Layer};
+use crate::wet_media::{BrushModel, WetMediaBrushSettings};
 
 /// A custom brush tip image: grayscale alpha mask.
 #[derive(Clone, Debug)]
@@ -193,6 +194,10 @@ pub struct BrushSettings {
     pub secondary_tip_id: Option<String>,
     /// Texture pattern tip ID.
     pub texture_tip_id: Option<String>,
+    /// Which brush engine model to use.
+    pub brush_model: BrushModel,
+    /// Wet media brush settings (only used when brush_model == WetMedia).
+    pub wet_media: WetMediaBrushSettings,
 }
 
 impl Default for BrushSettings {
@@ -217,6 +222,8 @@ impl Default for BrushSettings {
             active_tip_id: None,
             secondary_tip_id: None,
             texture_tip_id: None,
+            brush_model: BrushModel::default(),
+            wet_media: WetMediaBrushSettings::default(),
         }
     }
 }
@@ -251,6 +258,12 @@ pub struct SerializableBrushSettings {
     pub active_tip_id: Option<String>,
     pub secondary_tip_id: Option<String>,
     pub texture_tip_id: Option<String>,
+    /// Which brush engine model to use. Defaults to `Stamp` for backward compatibility.
+    #[serde(default)]
+    pub brush_model: BrushModel,
+    /// Settings for the wet media brush model. Only used when `brush_model == WetMedia`.
+    #[serde(default)]
+    pub wet_media: WetMediaBrushSettings,
 }
 
 impl SerializableBrushSettings {
@@ -290,6 +303,8 @@ impl BrushSettings {
             active_tip_id: self.active_tip_id.clone(),
             secondary_tip_id: self.secondary_tip_id.clone(),
             texture_tip_id: self.texture_tip_id.clone(),
+            brush_model: self.brush_model,
+            wet_media: self.wet_media.clone(),
         }
     }
 
@@ -320,6 +335,8 @@ impl BrushSettings {
         self.active_tip_id = s.active_tip_id.clone();
         self.secondary_tip_id = s.secondary_tip_id.clone();
         self.texture_tip_id = s.texture_tip_id.clone();
+        self.brush_model = s.brush_model;
+        self.wet_media = s.wet_media.clone();
 
         let active = s
             .active_tip_id

@@ -150,6 +150,17 @@ export interface SerializableBrushSettings {
   active_tip_id: string | null;
   secondary_tip_id: string | null;
   texture_tip_id: string | null;
+  brush_model: "Stamp" | "WetMedia";
+  wet_media: {
+    paint_load: number;
+    paint_thickness: number;
+    wetness: number;
+    mixing_strength: number;
+    bristle_count: number;
+    bristle_spread: number;
+    paint_depletion_rate: number;
+    canvas_texture_strength: number;
+  };
 }
 
 /** Convert TS BrushSettings + color + blend mode into the format the Rust engine expects. */
@@ -206,6 +217,17 @@ export function buildSerializableSettings(
     active_tip_id: s.activeTipId,
     secondary_tip_id: (db.enabled && !db.useComputed && db.tipId) ? db.tipId : null,
     texture_tip_id: s.texture.tipId ?? null,
+    brush_model: "Stamp",
+    wet_media: {
+      paint_load: 0.8,
+      paint_thickness: 0.5,
+      wetness: 0.7,
+      mixing_strength: 0.5,
+      bristle_count: 64,
+      bristle_spread: 0.3,
+      paint_depletion_rate: 0.1,
+      canvas_texture_strength: 0.3,
+    },
   };
 }
 

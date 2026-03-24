@@ -1,6 +1,7 @@
 import compositeShaderSource from "../shaders/composite.wgsl?raw";
 import selectionShaderSource from "../shaders/selection.wgsl?raw";
 import gradientMapShaderSource from "../shaders/gradient_map.wgsl?raw";
+import wetMediaCompositeShaderSource from "../shaders/wet_media_composite.wgsl?raw";
 
 export interface GPUContext {
   device: GPUDevice;
@@ -34,6 +35,10 @@ export interface GPUContext {
   selectionTexture: GPUTexture | null;
   selectionBindGroup: GPUBindGroup | null;
   selectionTimeBuffer: GPUBuffer;
+
+  // Wet media layer compositing
+  wetMediaPipeline: GPURenderPipeline;
+  wetMediaBindGroupLayout: GPUBindGroupLayout;
 }
 
 export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
@@ -227,6 +232,53 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
     }),
   ] as [GPUBindGroup, GPUBindGroup];
 
+  // --- Wet media compositing pipeline ---
+  // Group 0: color texture + properties texture + sampler + uniforms
+  const wetMediaBindGroupLayout = device.createBindGroupLayout({
+    entries: [
+      {
+        binding: 0,
+        visibility: GPUShaderStage.FRAGMENT,
+        texture: { sampleType: "unfilterable-float" },
+      },
+      {
+        binding: 1,
+        visibility: GPUShaderStage.FRAGMENT,
+        texture: { sampleType: "unfilterable-float" },
+      },
+      {
+        binding: 2,
+        visibility: GPUShaderStage.FRAGMENT,
+        sampler: { type: "non-filtering" },
+      },
+      {
+        binding: 3,
+        visibility: GPUShaderStage.FRAGMENT,
+        buffer: { type: "uniform" },
+      },
+    ],
+  });
+
+  const wetMediaShaderModule = device.createShaderModule({
+    code: wetMediaCompositeShaderSource,
+  });
+
+  const wetMediaPipeline = device.createRenderPipeline({
+    layout: device.createPipelineLayout({
+      bindGroupLayouts: [wetMediaBindGroupLayout, dstBindGroupLayout],
+    }),
+    vertex: {
+      module: wetMediaShaderModule,
+      entryPoint: "vs",
+    },
+    fragment: {
+      module: wetMediaShaderModule,
+      entryPoint: "fs",
+      targets: [{ format: "rgba8unorm" }],
+    },
+    primitive: { topology: "triangle-list" },
+  });
+
   // --- Selection overlay pipeline ---
 
   const selectionBindGroupLayout = device.createBindGroupLayout({
@@ -314,6 +366,8 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
     selectionTexture: null,
     selectionBindGroup: null,
     selectionTimeBuffer,
+    wetMediaPipeline,
+    wetMediaBindGroupLayout,
   };
 }
 
@@ -506,6 +560,125 @@ export function createGradientLayerTexture(gpu: GPUContext): number {
   gpu.layerBindGroups.push(bindGroup);
   gpu.layerUniformBuffers.push(uniformBuffer);
   return index;
+}
+
+/**
+ * GPU-side textures for a wet media layer.
+ * These are stored separately from the layer texture arrays since wet media
+ * layers use a different bind group layout (color + properties textures).
+ */
+export interface WetMediaLayerGPU {
+  colorTexture: GPUTexture;
+  propsTexture: GPUTexture;
+  bindGroup: GPUBindGroup;
+}
+
+/** Per-layer wet media GPU resources, keyed by layer index. */
+const wetMediaLayers = new Map<number, WetMediaLayerGPU>();
+
+/**
+ * Create GPU textures for a wet media layer.
+ * Allocates color (rgba32float) and properties (rgba32float) textures,
+ * plus a bind group compatible with the wet media composite pipeline.
+ * Also creates a placeholder raster layer slot so layer indices stay aligned.
+ */
+export function createWetMediaLayerTexture(
+  gpu: GPUContext,
+  width: number,
+  height: number,
+): number {
+  const colorTexture = gpu.device.createTexture({
+    size: { width, height },
+    format: "rgba32float",
+    usage:
+      GPUTextureUsage.TEXTURE_BINDING |
+      GPUTextureUsage.STORAGE_BINDING |
+      GPUTextureUsage.COPY_DST |
+      GPUTextureUsage.COPY_SRC,
+  });
+
+  const propsTexture = gpu.device.createTexture({
+    size: { width, height },
+    format: "rgba32float",
+    usage:
+      GPUTextureUsage.TEXTURE_BINDING |
+      GPUTextureUsage.STORAGE_BINDING |
+      GPUTextureUsage.COPY_DST |
+      GPUTextureUsage.COPY_SRC,
+  });
+
+  // Uniform buffer: [opacity as f32 bits (u32), blendMode (u32)]
+  const uniformBuffer = gpu.device.createBuffer({
+    size: 8,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+  gpu.device.queue.writeBuffer(
+    uniformBuffer,
+    0,
+    new Uint32Array([floatToUint32(1.0), 0]),
+  );
+
+  // Non-filtering sampler for float32 textures
+  const nearestSampler = gpu.device.createSampler({
+    magFilter: "nearest",
+    minFilter: "nearest",
+  });
+
+  const bindGroup = gpu.device.createBindGroup({
+    layout: gpu.wetMediaBindGroupLayout,
+    entries: [
+      { binding: 0, resource: colorTexture.createView() },
+      { binding: 1, resource: propsTexture.createView() },
+      { binding: 2, resource: nearestSampler },
+      { binding: 3, resource: { buffer: uniformBuffer } },
+    ],
+  });
+
+  // Also create a placeholder in the regular layer arrays so that
+  // layer indices stay aligned with the Rust layer stack.
+  // We use a 1x1 transparent texture as a placeholder.
+  const placeholderTexture = gpu.device.createTexture({
+    size: { width: 1, height: 1 },
+    format: "rgba8unorm",
+    usage: GPUTextureUsage.TEXTURE_BINDING,
+  });
+  const placeholderBindGroup = gpu.device.createBindGroup({
+    layout: gpu.layerBindGroupLayout,
+    entries: [
+      { binding: 0, resource: placeholderTexture.createView() },
+      { binding: 1, resource: gpu.sampler },
+      { binding: 2, resource: { buffer: uniformBuffer } },
+    ],
+  });
+
+  const index = gpu.layerTextures.length;
+  gpu.layerTextures.push(placeholderTexture);
+  gpu.layerBindGroups.push(placeholderBindGroup);
+  gpu.layerUniformBuffers.push(uniformBuffer);
+
+  wetMediaLayers.set(index, { colorTexture, propsTexture, bindGroup });
+  return index;
+}
+
+/** Get wet media GPU resources for a layer, or undefined if not a wet media layer. */
+export function getWetMediaLayer(index: number): WetMediaLayerGPU | undefined {
+  return wetMediaLayers.get(index);
+}
+
+/** Remove wet media GPU resources for a layer. */
+export function removeWetMediaLayer(index: number): void {
+  const wm = wetMediaLayers.get(index);
+  if (wm) {
+    wm.colorTexture.destroy();
+    wm.propsTexture.destroy();
+    wetMediaLayers.delete(index);
+  }
+  // Re-key entries above this index
+  const entries = [...wetMediaLayers.entries()].filter(([k]) => k > index);
+  for (const [k, v] of entries) {
+    wetMediaLayers.delete(k);
+    wetMediaLayers.set(k - 1, v);
+  }
 }
 
 /**

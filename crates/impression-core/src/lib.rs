@@ -13,6 +13,7 @@ mod sampling;
 mod selection;
 mod site;
 pub mod stroke;
+pub mod wet_media;
 
 use wasm_bindgen::prelude::*;
 #[cfg(all(target_arch = "wasm32", not(test)))]
@@ -145,15 +146,21 @@ impl ImpressionCanvas {
             .unwrap_or(false)
     }
 
-    /// Get layer kind: 0 = Raster, 1 = GradientMap.
+    /// Get layer kind: 0 = Raster, 1 = GradientMap, 2 = WetMedia.
     pub fn layer_kind(&self, layer_idx: u32) -> u32 {
         match self.inner.layer(layer_idx) {
             Some(l) => match &l.kind {
                 layer::LayerKind::Raster => 0,
                 layer::LayerKind::Adjustment(layer::AdjustmentKind::GradientMap { .. }) => 1,
+                layer::LayerKind::WetMedia => 2,
             },
             None => 0,
         }
+    }
+
+    /// Add a wet media layer (paint state lives on GPU). Returns layer index.
+    pub fn add_wet_media_layer(&mut self) -> u32 {
+        self.inner.add_wet_media_layer()
     }
 
     /// Get the gradient ID for a gradient map adjustment layer.

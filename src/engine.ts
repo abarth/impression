@@ -4,10 +4,12 @@ import {
   uploadLayerTexture,
   createLayerTexture,
   createGradientLayerTexture,
+  createWetMediaLayerTexture,
   uploadGradientTexture,
   updateLayerOpacity,
   updateLayerBlendMode,
   removeLayerTexture,
+  removeWetMediaLayer,
   uploadSelectionTexture,
   clearSelectionTexture,
 } from "./gpu";
@@ -78,8 +80,10 @@ export class Engine {
   }
 
   removeLayer(index: number): boolean {
+    const isWet = this.isWetMediaLayer(index);
     const removed = this.canvas.remove_layer(index);
     if (removed) {
+      if (isWet) removeWetMediaLayer(index);
       removeLayerTexture(this.gpu, index);
       if (this.activeLayer >= this.canvas.layer_count()) {
         this.activeLayer = Math.max(0, this.canvas.layer_count() - 1);
@@ -102,11 +106,24 @@ export class Engine {
     return layerIndex;
   }
 
+  addWetMediaLayer(): number {
+    const layerIndex = this.canvas.add_wet_media_layer();
+    createWetMediaLayerTexture(this.gpu, this.canvas.width(), this.canvas.height());
+    this.needsRender = true;
+    this._dirty = true;
+    this.flushAll();
+    return layerIndex;
+  }
+
+  isWetMediaLayer(layer: number): boolean {
+    return this.canvas.layer_kind(layer) === 2;
+  }
+
   isAdjustmentLayer(layer: number): boolean {
     return this.canvas.is_adjustment_layer(layer);
   }
 
-  /** Layer kind: 0 = Raster, 1 = GradientMap */
+  /** Layer kind: 0 = Raster, 1 = GradientMap, 2 = WetMedia */
   getLayerKind(layer: number): number {
     return this.canvas.layer_kind(layer);
   }
@@ -150,7 +167,7 @@ export class Engine {
 
   private syncLayer(layer: number): void {
     if (!this.canvas.is_layer_dirty(layer)) return;
-    if (this.canvas.is_adjustment_layer(layer)) {
+    if (this.canvas.is_adjustment_layer(layer) || this.isWetMediaLayer(layer)) {
       this.canvas.clear_layer_dirty(layer);
       this.needsRender = true;
       return;
@@ -370,16 +387,20 @@ export class Engine {
     }
     while (this.gpu.layerTextures.length < count) {
       const idx = this.gpu.layerTextures.length;
-      if (this.canvas.is_adjustment_layer(idx)) {
+      const kind = this.canvas.layer_kind(idx);
+      if (kind === 1) {
         createGradientLayerTexture(this.gpu);
+      } else if (kind === 2) {
+        createWetMediaLayerTexture(this.gpu, width, height);
       } else {
         createLayerTexture(this.gpu, width, height);
       }
     }
 
     for (let i = 0; i < count; i++) {
-      if (this.canvas.is_adjustment_layer(i)) {
-        // Adjustment layers: sync opacity/blend, skip pixel upload
+      const kind = this.canvas.layer_kind(i);
+      if (kind === 1 /* GradientMap */ || kind === 2 /* WetMedia */) {
+        // Non-raster layers: sync opacity/blend, skip pixel upload
         updateLayerOpacity(this.gpu, i, this.canvas.layer_opacity(i));
         updateLayerBlendMode(this.gpu, i, this.canvas.layer_blend_mode(i));
         this.canvas.clear_layer_dirty(i);

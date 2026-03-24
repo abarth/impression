@@ -138,6 +138,12 @@ impl Canvas {
         (self.layers.len() - 1) as u32
     }
 
+    pub fn add_wet_media_layer(&mut self) -> u32 {
+        let id = self.next_layer_id();
+        self.apply(Operation::AddWetMediaLayer { id });
+        (self.layers.len() - 1) as u32
+    }
+
     pub fn add_adjustment_layer(&mut self, kind: AdjustmentKind) -> u32 {
         let id = self.next_layer_id();
         self.apply(Operation::AddAdjustmentLayer { id, kind });

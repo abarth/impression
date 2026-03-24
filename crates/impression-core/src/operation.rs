@@ -116,6 +116,10 @@ pub enum Operation {
         layer: LayerId,
         kind: crate::layer::AdjustmentKind,
     },
+    /// Add a wet media layer with GPU-side paint simulation.
+    AddWetMediaLayer {
+        id: LayerId,
+    },
 }
 
 impl Operation {
@@ -243,6 +247,8 @@ mod tests {
             active_tip_id: Some("tip-1".to_string()),
             secondary_tip_id: None,
             texture_tip_id: None,
+            brush_model: crate::wet_media::BrushModel::default(),
+            wet_media: crate::wet_media::WetMediaBrushSettings::default(),
         };
         round_trip(Operation::SetBrushSettings(settings.to_bytes()));
     }
@@ -277,6 +283,8 @@ mod tests {
             active_tip_id: None,
             secondary_tip_id: Some("dual-tip".to_string()),
             texture_tip_id: Some("tex-tip".to_string()),
+            brush_model: crate::wet_media::BrushModel::default(),
+            wet_media: crate::wet_media::WetMediaBrushSettings::default(),
         };
         let bytes = settings.to_bytes();
         let decoded = SerializableBrushSettings::from_bytes(&bytes).unwrap();
@@ -471,6 +479,11 @@ mod tests {
                 gradient_id: "my-gradient".to_string(),
             },
         });
+    }
+
+    #[test]
+    fn test_round_trip_add_wet_media_layer() {
+        round_trip(Operation::AddWetMediaLayer { id: 77 });
     }
 
     #[test]
