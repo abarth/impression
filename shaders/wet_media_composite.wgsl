@@ -3,16 +3,14 @@
 // Group 0: wet media layer data
 //   binding 0: color texture (rgba32float) — paint color + opacity
 //   binding 1: properties texture (rgba32float) — R=height, G=wetness, B=paint_amount
-//   binding 2: sampler
-//   binding 3: uniforms (opacity as f32 bits, blend mode)
+//   binding 2: uniforms (opacity as f32 bits, blend mode)
 //
 // Group 1: destination (accumulated result from previous layers)
 //   binding 0: dst texture
 
 @group(0) @binding(0) var colorTexture: texture_2d<f32>;
 @group(0) @binding(1) var propsTexture: texture_2d<f32>;
-@group(0) @binding(2) var wetSampler: sampler;
-@group(0) @binding(3) var<uniform> layerUniforms: vec2u;
+@group(0) @binding(2) var<uniform> layerUniforms: vec2u;
 
 @group(1) @binding(0) var dstTexture: texture_2d<f32>;
 
@@ -30,14 +28,11 @@ struct VertexOutput {
 }
 
 // Compute surface normal from height field using central differences.
-fn compute_normal(uv: vec2f) -> vec3f {
-    let dims = vec2f(textureDimensions(propsTexture));
-    let texel = 1.0 / dims;
-
-    let h_l = textureSample(propsTexture, wetSampler, uv - vec2f(texel.x, 0.0)).r;
-    let h_r = textureSample(propsTexture, wetSampler, uv + vec2f(texel.x, 0.0)).r;
-    let h_d = textureSample(propsTexture, wetSampler, uv - vec2f(0.0, texel.y)).r;
-    let h_u = textureSample(propsTexture, wetSampler, uv + vec2f(0.0, texel.y)).r;
+fn compute_normal(coord: vec2i, dims: vec2i) -> vec3f {
+    let h_l = textureLoad(propsTexture, clamp(coord + vec2i(-1, 0), vec2i(0), dims - 1), 0).r;
+    let h_r = textureLoad(propsTexture, clamp(coord + vec2i(1, 0), vec2i(0), dims - 1), 0).r;
+    let h_d = textureLoad(propsTexture, clamp(coord + vec2i(0, -1), vec2i(0), dims - 1), 0).r;
+    let h_u = textureLoad(propsTexture, clamp(coord + vec2i(0, 1), vec2i(0), dims - 1), 0).r;
 
     // Height scale factor: controls how pronounced the impasto effect is.
     let height_scale = 4.0;
@@ -48,16 +43,23 @@ fn compute_normal(uv: vec2f) -> vec3f {
 }
 
 @fragment fn fs(in: VertexOutput) -> @location(0) vec4f {
-    let src = textureSample(colorTexture, wetSampler, in.uv);
-    let props = textureSample(propsTexture, wetSampler, in.uv);
-    let dst = textureSample(dstTexture, wetSampler, in.uv);
+    let dims = vec2i(textureDimensions(colorTexture));
+    let coord = vec2i(in.uv * vec2f(dims));
+    let clamped = clamp(coord, vec2i(0), dims - 1);
+
+    let src = textureLoad(colorTexture, clamped, 0);
+    let props = textureLoad(propsTexture, clamped, 0);
+
+    let dst_dims = vec2i(textureDimensions(dstTexture));
+    let dst_coord = clamp(vec2i(in.uv * vec2f(dst_dims)), vec2i(0), dst_dims - 1);
+    let dst = textureLoad(dstTexture, dst_coord, 0);
 
     let opacity = bitcast<f32>(layerUniforms.x);
     let height = props.r;
     let wetness = props.g;
 
     // Compute impasto lighting from height field
-    let normal = compute_normal(in.uv);
+    let normal = compute_normal(clamped, dims);
 
     // Light direction: top-left, slightly toward viewer
     let light_dir = normalize(vec3f(-0.4, -0.6, 0.8));

@@ -272,11 +272,6 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
       {
         binding: 2,
         visibility: GPUShaderStage.FRAGMENT,
-        sampler: { type: "non-filtering" },
-      },
-      {
-        binding: 3,
-        visibility: GPUShaderStage.FRAGMENT,
         buffer: { type: "uniform" },
       },
     ],
@@ -731,20 +726,13 @@ export function createWetMediaLayerTexture(
     new Uint32Array([floatToUint32(1.0), 0]),
   );
 
-  // Non-filtering sampler for float32 textures
-  const nearestSampler = gpu.device.createSampler({
-    magFilter: "nearest",
-    minFilter: "nearest",
-  });
-
   const makeBindGroup = (color: GPUTexture, props: GPUTexture) =>
     gpu.device.createBindGroup({
       layout: gpu.wetMediaBindGroupLayout,
       entries: [
         { binding: 0, resource: color.createView() },
         { binding: 1, resource: props.createView() },
-        { binding: 2, resource: nearestSampler },
-        { binding: 3, resource: { buffer: uniformBuffer } },
+        { binding: 2, resource: { buffer: uniformBuffer } },
       ],
     });
 
