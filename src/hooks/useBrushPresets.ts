@@ -115,6 +115,7 @@ export function useBrushPresets({
         spacing: preset.spacing,
         roundness: preset.roundness,
         angle: preset.angle,
+        activeTipId: preset.tip.type === "image" ? preset.tip.tipId : null,
       };
       if (preset.tip.type === "computed") {
         partial.hardness = preset.tip.hardness;
@@ -150,8 +151,12 @@ export function useBrushPresets({
     };
 
     setPresets(prev => prev.map(p => p.id === updated.id ? updated : p));
+    onApplyPreset({
+      activeTipId: updated.tip.type === "image" ? updated.tip.tipId : null,
+      hardness: updated.tip.type === "computed" ? updated.tip.hardness : undefined,
+    });
     ensurePresetTipsRegistered(updated);
-  }, [activePresetId, presets, engine, ensurePresetTipsRegistered]);
+  }, [activePresetId, presets, engine, onApplyPreset, ensurePresetTipsRegistered]);
 
   /** Toggle between Computed and Sampled dual brush tip.
    *  Updates working brush state only — does NOT mutate the stored preset. */

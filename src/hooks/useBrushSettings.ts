@@ -94,6 +94,7 @@ export interface BrushSettings {
   scatterSettings: ScatterSettings;
   dualBrush: DualBrushSettings;
   texture: TextureSettings;
+  activeTipId: string | null;
 }
 
 /** Blend mode constants matching Rust BlendMode enum values. */
@@ -202,8 +203,7 @@ export function buildSerializableSettings(
       depth: s.texture.depth,
       texture_each_tip: s.texture.textureEachTip,
     },
-    // Tip IDs: resolve useComputed for dual brush
-    active_tip_id: null, // Set by caller from preset state
+    active_tip_id: s.activeTipId,
     secondary_tip_id: (db.enabled && !db.useComputed && db.tipId) ? db.tipId : null,
     texture_tip_id: s.texture.tipId ?? null,
   };
@@ -263,6 +263,7 @@ const DEFAULT_PRESET_PROPERTIES: Omit<BrushSettings, "size" | "opacity" | "flow"
   scatterSettings: DEFAULT_SCATTER,
   dualBrush: DEFAULT_DUAL_BRUSH,
   texture: DEFAULT_TEXTURE,
+  activeTipId: null,
 };
 
 const DEFAULT_BRUSH: BrushSettings = {

@@ -317,6 +317,26 @@ describe("useBrushSettings applyPreset", () => {
     expect(result.current.settings.opacity).toBe(0.8);
     expect(result.current.settings.flow).toBe(0.1);
   });
+
+  it("should update activeTipId from preset", () => {
+    const { result } = renderHook(() => useBrushSettings(null, "brush"));
+
+    act(() => {
+      result.current.applyPreset({
+        activeTipId: "some-tip-id",
+      });
+    });
+
+    expect(result.current.settings.activeTipId).toBe("some-tip-id");
+
+    act(() => {
+      result.current.applyPreset({
+        activeTipId: null,
+      });
+    });
+
+    expect(result.current.settings.activeTipId).toBeNull();
+  });
 });
 
 describe("useBrushSettings scatter", () => {
@@ -463,6 +483,20 @@ describe("buildSerializableSettings", () => {
     expect(serializable.dual_brush.scatter.both_axes).toBe(true);
     expect(serializable.dual_brush.scatter.count).toBe(3);
     expect(serializable.secondary_tip_id).toBe("my-tip");
+  });
+  it("should include active_tip_id if present", () => {
+    const { result } = renderHook(() => useBrushSettings(null, "brush"));
+
+    act(() => {
+      result.current.updateSetting("activeTipId", "sampled-tip-id");
+    });
+
+    const serializable = buildSerializableSettings(
+      result.current.settings,
+      0, 0, 0, 0,
+    );
+
+    expect(serializable.active_tip_id).toBe("sampled-tip-id");
   });
 
   it("should set secondary_tip_id to null when useComputed is true", () => {
