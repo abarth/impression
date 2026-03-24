@@ -130,6 +130,7 @@ export function useBrushPresets({
       if (preset.flipX) partial.flipX = preset.flipX;
       if (preset.flipY) partial.flipY = preset.flipY;
       if (preset.smoothing !== undefined) partial.smoothing = preset.smoothing;
+      if (preset.wetMedia) partial.wetMedia = preset.wetMedia;
 
       onApplyPreset(partial);
       ensurePresetTipsRegistered(preset);

@@ -64,6 +64,18 @@ export interface TextureSettings {
   tipId?: string;
 }
 
+export interface WetMediaSettings {
+  enabled: boolean;
+  paintLoad: number;
+  paintThickness: number;
+  wetness: number;
+  mixingStrength: number;
+  bristleCount: number;
+  bristleSpread: number;
+  paintDepletionRate: number;
+  canvasTextureStrength: number;
+}
+
 /**
  * Complete brush engine state. Combines tool options and brush preset properties.
  *
@@ -94,6 +106,7 @@ export interface BrushSettings {
   scatterSettings: ScatterSettings;
   dualBrush: DualBrushSettings;
   texture: TextureSettings;
+  wetMedia: WetMediaSettings;
   activeTipId: string | null;
 }
 
@@ -217,16 +230,16 @@ export function buildSerializableSettings(
     active_tip_id: s.activeTipId,
     secondary_tip_id: (db.enabled && !db.useComputed && db.tipId) ? db.tipId : null,
     texture_tip_id: s.texture.tipId ?? null,
-    brush_model: "Stamp",
+    brush_model: s.wetMedia.enabled ? "WetMedia" : "Stamp",
     wet_media: {
-      paint_load: 0.8,
-      paint_thickness: 0.5,
-      wetness: 0.7,
-      mixing_strength: 0.5,
-      bristle_count: 64,
-      bristle_spread: 0.3,
-      paint_depletion_rate: 0.1,
-      canvas_texture_strength: 0.3,
+      paint_load: s.wetMedia.paintLoad,
+      paint_thickness: s.wetMedia.paintThickness,
+      wetness: s.wetMedia.wetness,
+      mixing_strength: s.wetMedia.mixingStrength,
+      bristle_count: s.wetMedia.bristleCount,
+      bristle_spread: s.wetMedia.bristleSpread,
+      paint_depletion_rate: s.wetMedia.paintDepletionRate,
+      canvas_texture_strength: s.wetMedia.canvasTextureStrength,
     },
   };
 }
@@ -272,6 +285,18 @@ const DEFAULT_TEXTURE: TextureSettings = {
   textureEachTip: false,
 };
 
+export const DEFAULT_WET_MEDIA: WetMediaSettings = {
+  enabled: false,
+  paintLoad: 0.8,
+  paintThickness: 0.5,
+  wetness: 0.7,
+  mixingStrength: 0.5,
+  bristleCount: 64,
+  bristleSpread: 0.3,
+  paintDepletionRate: 0.1,
+  canvasTextureStrength: 0.3,
+};
+
 /** Default values for brush preset properties (reset on preset change). */
 const DEFAULT_PRESET_PROPERTIES: Omit<BrushSettings, "size" | "opacity" | "flow" | "smoothing"> = {
   spacing: 0.25,
@@ -285,6 +310,7 @@ const DEFAULT_PRESET_PROPERTIES: Omit<BrushSettings, "size" | "opacity" | "flow"
   scatterSettings: DEFAULT_SCATTER,
   dualBrush: DEFAULT_DUAL_BRUSH,
   texture: DEFAULT_TEXTURE,
+  wetMedia: DEFAULT_WET_MEDIA,
   activeTipId: null,
 };
 

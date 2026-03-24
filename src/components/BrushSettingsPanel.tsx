@@ -2,7 +2,7 @@ import { useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { Settings2 } from "lucide-react";
 import { SliderControl } from "./SliderControl";
-import type { BrushSettings, DynamicParam, DynamicControl, ScatterSettings, DualBrushSettings, TextureSettings } from "../hooks/useBrushSettings";
+import type { BrushSettings, DynamicParam, DynamicControl, ScatterSettings, DualBrushSettings, TextureSettings, WetMediaSettings } from "../hooks/useBrushSettings";
 import {
   DUAL_BRUSH_MODE_MULTIPLY,
   DUAL_BRUSH_MODE_DARKEN,
@@ -91,7 +91,7 @@ function DynamicParamControl({
 
 // -- Brush Settings Popover (Photoshop-style F5 panel) --
 
-type Category = "tip" | "shapeDynamics" | "transfer" | "scattering" | "dualBrush" | "texture";
+type Category = "tip" | "shapeDynamics" | "transfer" | "scattering" | "dualBrush" | "texture" | "wetMedia";
 
 const CATEGORIES: { id: Category; label: string }[] = [
   { id: "tip", label: "Brush Tip Shape" },
@@ -100,6 +100,7 @@ const CATEGORIES: { id: Category; label: string }[] = [
   { id: "scattering", label: "Scattering" },
   { id: "dualBrush", label: "Dual Brush" },
   { id: "texture", label: "Texture" },
+  { id: "wetMedia", label: "Wet Media" },
 ];
 
 function BrushTipPane({
@@ -514,6 +515,102 @@ function TexturePane({ settings, storage, onUpdate }: BrushSettingsPanelProps) {
   );
 }
 
+function WetMediaPane({ settings, onUpdate }: BrushSettingsPanelProps) {
+  const wm = settings.wetMedia;
+  const update = (partial: Partial<WetMediaSettings>) =>
+    onUpdate("wetMedia", { ...wm, ...partial });
+  return (
+    <div className="flex flex-col gap-3.5">
+      <button
+        onClick={() => update({ enabled: !wm.enabled })}
+        className={`px-2 py-1.5 text-[11px] rounded border transition-colors duration-150
+          ${wm.enabled
+            ? "bg-graphite-800 border-graphite-700 text-cream"
+            : "bg-graphite-850 border-graphite-800 text-cream-muted hover:bg-graphite-800"
+          }`}
+      >
+        {wm.enabled ? "Wet Media On" : "Wet Media Off"}
+      </button>
+      {wm.enabled && (
+        <>
+          <SliderControl
+            label="Paint Load"
+            value={wm.paintLoad}
+            min={0}
+            max={1.0}
+            step={0.01}
+            displayValue={`${Math.round(wm.paintLoad * 100)}%`}
+            onChange={(v) => update({ paintLoad: v })}
+          />
+          <SliderControl
+            label="Thickness"
+            value={wm.paintThickness}
+            min={0}
+            max={1.0}
+            step={0.01}
+            displayValue={`${Math.round(wm.paintThickness * 100)}%`}
+            onChange={(v) => update({ paintThickness: v })}
+          />
+          <SliderControl
+            label="Wetness"
+            value={wm.wetness}
+            min={0}
+            max={1.0}
+            step={0.01}
+            displayValue={`${Math.round(wm.wetness * 100)}%`}
+            onChange={(v) => update({ wetness: v })}
+          />
+          <SliderControl
+            label="Mixing"
+            value={wm.mixingStrength}
+            min={0}
+            max={1.0}
+            step={0.01}
+            displayValue={`${Math.round(wm.mixingStrength * 100)}%`}
+            onChange={(v) => update({ mixingStrength: v })}
+          />
+          <SliderControl
+            label="Bristle Count"
+            value={wm.bristleCount}
+            min={4}
+            max={256}
+            step={1}
+            displayValue={`${wm.bristleCount}`}
+            onChange={(v) => update({ bristleCount: Math.round(v) })}
+          />
+          <SliderControl
+            label="Bristle Spread"
+            value={wm.bristleSpread}
+            min={0}
+            max={1.0}
+            step={0.01}
+            displayValue={`${Math.round(wm.bristleSpread * 100)}%`}
+            onChange={(v) => update({ bristleSpread: v })}
+          />
+          <SliderControl
+            label="Depletion"
+            value={wm.paintDepletionRate}
+            min={0}
+            max={1.0}
+            step={0.01}
+            displayValue={`${Math.round(wm.paintDepletionRate * 100)}%`}
+            onChange={(v) => update({ paintDepletionRate: v })}
+          />
+          <SliderControl
+            label="Canvas Texture"
+            value={wm.canvasTextureStrength}
+            min={0}
+            max={1.0}
+            step={0.01}
+            displayValue={`${Math.round(wm.canvasTextureStrength * 100)}%`}
+            onChange={(v) => update({ canvasTextureStrength: v })}
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
 /**
  * Brush properties popover — Photoshop-style brush settings panel.
  * Left sidebar with category navigation, right pane with controls.
@@ -625,6 +722,16 @@ export function BrushSettingsPanel({
               )}
               {activeCategory === "texture" && (
                 <TexturePane
+                  settings={settings}
+                  storage={storage}
+                  activePreset={activePreset}
+                  onUpdate={onUpdate}
+                  onToggleTipType={onToggleTipType}
+                  onToggleDualBrushType={onToggleDualBrushType}
+                />
+              )}
+              {activeCategory === "wetMedia" && (
+                <WetMediaPane
                   settings={settings}
                   storage={storage}
                   activePreset={activePreset}

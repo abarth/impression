@@ -6,7 +6,7 @@ export interface StoredBrushTip {
   height: number;
 }
 
-import type { ShapeDynamics, TransferDynamics, ScatterSettings, DualBrushSettings, TextureSettings } from "./hooks/useBrushSettings";
+import type { ShapeDynamics, TransferDynamics, ScatterSettings, DualBrushSettings, TextureSettings, WetMediaSettings } from "./hooks/useBrushSettings";
 
 /** Stored in brush_presets IndexedDB store. */
 export interface BrushPreset {
@@ -30,6 +30,7 @@ export interface BrushPreset {
   flipX?: boolean;
   flipY?: boolean;
   smoothing?: number;
+  wetMedia?: WetMediaSettings;
   sort_order: number;
 }
 
@@ -56,5 +57,93 @@ export const DEFAULT_PRESETS: BrushPreset[] = [
     roundness: 1.0,
     angle: 0,
     sort_order: 1,
+  },
+  {
+    id: "wet-oil-flat",
+    name: "Oil Flat",
+    group: "Wet Media",
+    tip: { type: "computed", hardness: 0.8 },
+    size: 30,
+    spacing: 0.15,
+    roundness: 0.4,
+    angle: 0,
+    wetMedia: {
+      enabled: true,
+      paintLoad: 0.9,
+      paintThickness: 0.7,
+      wetness: 0.6,
+      mixingStrength: 0.5,
+      bristleCount: 96,
+      bristleSpread: 0.2,
+      paintDepletionRate: 0.08,
+      canvasTextureStrength: 0.3,
+    },
+    sort_order: 10,
+  },
+  {
+    id: "wet-oil-round",
+    name: "Oil Round",
+    group: "Wet Media",
+    tip: { type: "computed", hardness: 0.6 },
+    size: 24,
+    spacing: 0.12,
+    roundness: 1.0,
+    angle: 0,
+    wetMedia: {
+      enabled: true,
+      paintLoad: 0.7,
+      paintThickness: 0.5,
+      wetness: 0.8,
+      mixingStrength: 0.7,
+      bristleCount: 64,
+      bristleSpread: 0.3,
+      paintDepletionRate: 0.1,
+      canvasTextureStrength: 0.2,
+    },
+    sort_order: 11,
+  },
+  {
+    id: "wet-palette-knife",
+    name: "Palette Knife",
+    group: "Wet Media",
+    tip: { type: "computed", hardness: 1.0 },
+    size: 40,
+    spacing: 0.08,
+    roundness: 0.2,
+    angle: 30,
+    wetMedia: {
+      enabled: true,
+      paintLoad: 0.1,
+      paintThickness: 0.3,
+      wetness: 0.9,
+      mixingStrength: 0.9,
+      bristleCount: 4,
+      bristleSpread: 0.0,
+      paintDepletionRate: 0.02,
+      canvasTextureStrength: 0.1,
+    },
+    sort_order: 12,
+  },
+  {
+    id: "wet-dry-brush",
+    name: "Dry Brush",
+    group: "Wet Media",
+    tip: { type: "computed", hardness: 0.9 },
+    size: 35,
+    spacing: 0.2,
+    roundness: 0.6,
+    angle: 0,
+    wetMedia: {
+      enabled: true,
+      paintLoad: 0.3,
+      paintThickness: 0.2,
+      wetness: 0.15,
+      mixingStrength: 0.2,
+      bristleCount: 128,
+      bristleSpread: 0.6,
+      paintDepletionRate: 0.25,
+      canvasTextureStrength: 0.5,
+    },
+    sort_order: 13,
   },
 ];
