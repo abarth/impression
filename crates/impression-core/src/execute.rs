@@ -37,14 +37,18 @@ impl Canvas {
                         &brush.wet_media,
                         color,
                     );
-                    // Drain footprints into replay events for TS GPU replay
-                    let replay_layer = layer;
-                    let footprints: Vec<_> = site_state.wet_media_stroke.footprints.drain(..).collect();
-                    for fp in footprints {
-                        self.wet_media_replay_events.push(WetMediaReplayEvent::Deposit {
-                            layer: replay_layer,
-                            footprint: fp,
-                        });
+                    // During replay (undo/redo), drain footprints into replay events
+                    // so TS can re-execute them on GPU. During normal painting,
+                    // leave them in place for TS to read via wet_media_footprint_count().
+                    if self.is_replaying {
+                        let replay_layer = layer;
+                        let footprints: Vec<_> = site_state.wet_media_stroke.footprints.drain(..).collect();
+                        for fp in footprints {
+                            self.wet_media_replay_events.push(WetMediaReplayEvent::Deposit {
+                                layer: replay_layer,
+                                footprint: fp,
+                            });
+                        }
                     }
                 } else {
                     let params = stroke::StrokeParams {
@@ -76,14 +80,15 @@ impl Canvas {
                         &brush.wet_media,
                         color,
                     );
-                    // Drain footprints into replay events
-                    let replay_layer = site_state.stroke_layer;
-                    let footprints: Vec<_> = site_state.wet_media_stroke.footprints.drain(..).collect();
-                    for fp in footprints {
-                        self.wet_media_replay_events.push(WetMediaReplayEvent::Deposit {
-                            layer: replay_layer,
-                            footprint: fp,
-                        });
+                    if self.is_replaying {
+                        let replay_layer = site_state.stroke_layer;
+                        let footprints: Vec<_> = site_state.wet_media_stroke.footprints.drain(..).collect();
+                        for fp in footprints {
+                            self.wet_media_replay_events.push(WetMediaReplayEvent::Deposit {
+                                layer: replay_layer,
+                                footprint: fp,
+                            });
+                        }
                     }
                 } else {
                     let stroke_layer = site_state.stroke_layer;
@@ -246,11 +251,13 @@ impl Canvas {
             }
             Operation::WetMediaSimStep { layer, frames } => {
                 // Simulation runs on GPU — no CPU-side effect.
-                // Record in replay events so TS can re-run simulation steps.
-                self.wet_media_replay_events.push(WetMediaReplayEvent::SimStep {
-                    layer,
-                    frames,
-                });
+                // During replay, record so TS can re-run simulation steps.
+                if self.is_replaying {
+                    self.wet_media_replay_events.push(WetMediaReplayEvent::SimStep {
+                        layer,
+                        frames,
+                    });
+                }
             }
             Operation::AddWetMediaLayer { id } => {
                 let mut layer =

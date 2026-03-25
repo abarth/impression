@@ -46,6 +46,10 @@ pub struct Canvas {
     /// Accumulated wet media replay events from the most recent `replay_active`.
     /// TS reads these after undo/redo to re-execute GPU operations in order.
     pub wet_media_replay_events: Vec<WetMediaReplayEvent>,
+    /// True while `replay_active` is running. Used to gate footprint draining
+    /// in `execute_op` — during normal painting, footprints stay in `SiteState`
+    /// for TS to read; during replay, they get drained into `wet_media_replay_events`.
+    pub(crate) is_replaying: bool,
 }
 
 impl Canvas {
@@ -64,6 +68,7 @@ impl Canvas {
             checkpoints: Vec::new(),
             tip_registry: HashMap::new(),
             wet_media_replay_events: Vec::new(),
+            is_replaying: false,
         }
     }
 

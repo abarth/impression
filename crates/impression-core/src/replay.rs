@@ -76,6 +76,7 @@ impl Canvas {
     pub(crate) fn replay_active(&mut self) {
         // Clear replay events — will be populated by execute_op calls
         self.wet_media_replay_events.clear();
+        self.is_replaying = true;
 
         // Fingerprint each layer's pixels before replay
         let old_fingerprints: Vec<u64> =
@@ -104,6 +105,8 @@ impl Canvas {
                 self.execute_op(site_op);
             }
         }
+
+        self.is_replaying = false;
 
         // Compare fingerprints: only mark layers dirty if their pixels changed
         for (i, layer) in self.layers.iter_mut().enumerate() {
@@ -304,10 +307,11 @@ mod tests {
         // Do a wet media stroke
         wet_media_stroke(&mut canvas, 0, 10.0, 10.0, 30.0, 10.0);
 
-        // Verify replay events are empty before undo (cleared during normal execution)
-        // Events accumulate during execute_op but that's fine — they'll be cleared at replay start
-        assert!(canvas.wet_media_replay_events.len() > 0,
-            "Execute should accumulate replay events (deposits)");
+        // During normal execution, replay events should NOT accumulate —
+        // footprints stay in SiteState for TS to read directly.
+        // Only WetMediaSimStep (which has no CPU-side effect) accumulates always.
+        assert_eq!(canvas.wet_media_replay_events.len(), 0,
+            "Normal execution should not drain footprints into replay events");
 
         // Record some sim steps
         let layer_id = canvas.layers[0].id;
