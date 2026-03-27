@@ -3,14 +3,19 @@
 // Group 0: wet media layer data
 //   binding 0: color texture (rgba32float) — paint color + opacity
 //   binding 1: properties texture (rgba32float) — R=height, G=wetness, B=paint_amount
-//   binding 2: uniforms (opacity as f32 bits, blend mode)
+//   binding 2: uniforms (opacity, medium_type)
 //
 // Group 1: destination (accumulated result from previous layers)
 //   binding 0: dst texture
 
+struct WetMediaCompositeParams {
+    opacity_bits: u32,    // bitcast to f32
+    medium_type: u32,     // 0=Oil, 1=Acrylic, 2=Watercolor
+};
+
 @group(0) @binding(0) var colorTexture: texture_2d<f32>;
 @group(0) @binding(1) var propsTexture: texture_2d<f32>;
-@group(0) @binding(2) var<uniform> layerUniforms: vec2u;
+@group(0) @binding(2) var<uniform> params: WetMediaCompositeParams;
 
 @group(1) @binding(0) var dstTexture: texture_2d<f32>;
 
@@ -35,7 +40,14 @@ fn compute_normal(coord: vec2i, dims: vec2i) -> vec3f {
     let h_u = textureLoad(propsTexture, clamp(coord + vec2i(0, 1), vec2i(0), dims - 1), 0).r;
 
     // Height scale factor: controls how pronounced the impasto effect is.
-    let height_scale = 4.0;
+    // Oil has deeper impasto, acrylic is more moderate.
+    var height_scale = 4.0;
+    if (params.medium_type == 0u) {
+        height_scale = 5.0;  // Oil: deep impasto
+    } else if (params.medium_type == 1u) {
+        height_scale = 3.0;  // Acrylic: moderate impasto
+    }
+
     let dx = (h_r - h_l) * height_scale;
     let dy = (h_u - h_d) * height_scale;
 
@@ -54,7 +66,7 @@ fn compute_normal(coord: vec2i, dims: vec2i) -> vec3f {
     let dst_coord = clamp(vec2i(in.uv * vec2f(dst_dims)), vec2i(0), dst_dims - 1);
     let dst = textureLoad(dstTexture, dst_coord, 0);
 
-    let opacity = bitcast<f32>(layerUniforms.x);
+    let opacity = bitcast<f32>(params.opacity_bits);
     let height = props.r;
     let wetness = props.g;
 
@@ -70,12 +82,34 @@ fn compute_normal(coord: vec2i, dims: vec2i) -> vec3f {
     let diffuse = 0.4 * ndotl;
     let lighting = ambient + diffuse;
 
-    // Specular highlight (Blinn-Phong) — stronger for wet paint
+    // Fresnel-based specular (Schlick approximation)
     let view_dir = vec3f(0.0, 0.0, 1.0);
+    let n_dot_v = max(dot(normal, view_dir), 0.0);
+    let fresnel = 0.04 + 0.96 * pow(1.0 - n_dot_v, 5.0);
+
+    // Roughness: wet paint is smooth, dry paint is rough
+    let roughness = mix(0.1, 0.8, 1.0 - wetness);
+
+    // Variable specular exponent: smooth = tight highlight, rough = broad
+    let spec_exponent = mix(8.0, 64.0, 1.0 - roughness);
     let half_dir = normalize(light_dir + view_dir);
-    let spec = pow(max(dot(normal, half_dir), 0.0), 32.0);
-    // Wet paint is shinier
-    let spec_strength = 0.3 * wetness;
+    let spec = pow(max(dot(normal, half_dir), 0.0), spec_exponent);
+
+    var spec_strength = fresnel * (1.0 - roughness * roughness);
+
+    // Per-medium gloss adjustment
+    if (params.medium_type == 0u) {
+        // Oil: stays somewhat glossy even when fully dry
+        let min_gloss = 0.15;
+        spec_strength = max(spec_strength, min_gloss * fresnel);
+    } else if (params.medium_type == 1u) {
+        // Acrylic: dries to matte finish
+        let min_gloss = 0.02;
+        spec_strength = max(spec_strength, min_gloss * fresnel);
+    } else if (params.medium_type == 2u) {
+        // Watercolor: no specular
+        spec_strength = 0.0;
+    }
 
     // Apply lighting to paint color
     let lit_color = src.rgb * lighting + vec3f(spec * spec_strength);

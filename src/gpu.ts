@@ -449,6 +449,9 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
   // --- Mixbox pigment mixing LUT ---
   const mixboxResources = await initMixbox(device);
 
+  // Store device reference for module-level uniform writes (e.g. medium_type)
+  setGPUDeviceRef(device);
+
   return {
     device,
     context,
@@ -699,6 +702,8 @@ export interface WetMediaLayerGPU {
   bindGroup: GPUBindGroup;
   /** Second bind group for the other ping-pong state. */
   bindGroupB: GPUBindGroup;
+  /** Composite uniform buffer (opacity + medium_type). */
+  uniformBuffer: GPUBuffer;
   /** Canvas grain texture (r32float) generated from Perlin noise. */
   paperTexture: GPUTexture;
   /** Medium type for this layer's simulation parameters. */
@@ -807,6 +812,7 @@ export function createWetMediaLayerTexture(
     velocityTexture, velocityTextureB,
     pingPong: 0,
     bindGroup, bindGroupB,
+    uniformBuffer,
     paperTexture,
     mediumType: "Oil" as MediumType,
     hasWetPaint: false,
@@ -1089,9 +1095,25 @@ export function setWetMediaHasWetPaint(index: number, hasWet: boolean): void {
 }
 
 /** Set the medium type for a wet media layer. */
+const MEDIUM_TYPE_MAP: Record<string, number> = { Oil: 0, Acrylic: 1, Watercolor: 2 };
+
+/** Module-level GPU device reference for writing medium_type to uniform buffers. */
+let gpuDeviceRef: GPUDevice | null = null;
+
+/** Called once during initGPU to store device reference for later uniform writes. */
+export function setGPUDeviceRef(device: GPUDevice): void {
+  gpuDeviceRef = device;
+}
+
 export function setWetMediaMediumType(index: number, medium: MediumType): void {
   const wm = wetMediaLayers.get(index);
-  if (wm) wm.mediumType = medium;
+  if (!wm) return;
+  wm.mediumType = medium;
+  // Write medium_type (u32) at byte offset 4 in the composite uniform buffer
+  if (gpuDeviceRef) {
+    const mediumU32 = MEDIUM_TYPE_MAP[medium] ?? 0;
+    gpuDeviceRef.queue.writeBuffer(wm.uniformBuffer, 4, new Uint32Array([mediumU32]));
+  }
 }
 
 /** Check if any wet media layers have wet paint needing simulation. */
