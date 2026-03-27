@@ -211,6 +211,7 @@ name = "impression-core"
 version = "0.1.0"
 dependencies = [
  "js-sys",
+ "mixbox",
  "postcard",
  "rmp-serde",
  "serde",
@@ -297,6 +298,15 @@ checksum = "4869b6a491569605d66d3952bcdf03df789e5b536e5f0cf7758a7f08a55ae24d"
 dependencies = [
  "cc",
  "walkdir",
+]
+
+[[package]]
+name = "mixbox"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7dc7072c6974f853e367c55d051cdee335ca9116ccc55a1f905de0892a6560c6"
+dependencies = [
+ "libm",
 ]
 
 [[package]]

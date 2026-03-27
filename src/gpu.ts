@@ -6,7 +6,9 @@ import wetMediaDepositShaderSource from "../shaders/wet_media_deposit.wgsl?raw";
 import wetMediaAdvectShaderSource from "../shaders/wet_media_advect.wgsl?raw";
 import wetMediaDiffuseShaderSource from "../shaders/wet_media_diffuse.wgsl?raw";
 import wetMediaDryShaderSource from "../shaders/wet_media_dry.wgsl?raw";
+import mixboxShaderSource from "../shaders/mixbox.wgsl?raw";
 import { generatePaperTexture } from "./paperTexture";
+import { initMixbox } from "./mixbox";
 import type { MediumType } from "./hooks/useBrushSettings";
 import { getMediumPhysics } from "./hooks/useBrushSettings";
 
@@ -58,6 +60,10 @@ export interface GPUContext {
   wetMediaDiffuseBindGroupLayout: GPUBindGroupLayout;
   wetMediaDryPipeline: GPUComputePipeline;
   wetMediaDryBindGroupLayout: GPUBindGroupLayout;
+
+  // Mixbox pigment mixing LUT
+  mixboxLUT: GPUTexture;
+  mixboxSampler: GPUSampler;
 }
 
 export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
@@ -310,11 +316,13 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
       { binding: 4, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba32float" } },
       { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
       { binding: 6, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "read-only", format: "r32float" } },
+      { binding: 7, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
+      { binding: 8, visibility: GPUShaderStage.COMPUTE, sampler: { type: "filtering" } },
     ],
   });
 
   const wetMediaDepositModule = device.createShaderModule({
-    code: wetMediaDepositShaderSource,
+    code: mixboxShaderSource + "\n" + wetMediaDepositShaderSource,
   });
 
   const wetMediaDepositPipeline = device.createComputePipeline({
@@ -353,11 +361,13 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
       { binding: 3, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba32float" } },
       { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
       { binding: 5, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "read-only", format: "r32float" } },
+      { binding: 6, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
+      { binding: 7, visibility: GPUShaderStage.COMPUTE, sampler: { type: "filtering" } },
     ],
   });
   const wetMediaDiffusePipeline = device.createComputePipeline({
     layout: device.createPipelineLayout({ bindGroupLayouts: [wetMediaDiffuseBindGroupLayout] }),
-    compute: { module: device.createShaderModule({ code: wetMediaDiffuseShaderSource }), entryPoint: "main" },
+    compute: { module: device.createShaderModule({ code: mixboxShaderSource + "\n" + wetMediaDiffuseShaderSource }), entryPoint: "main" },
   });
 
   // --- Wet media drying pipeline ---
@@ -436,6 +446,9 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
 
+  // --- Mixbox pigment mixing LUT ---
+  const mixboxResources = await initMixbox(device);
+
   return {
     device,
     context,
@@ -470,6 +483,8 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
     wetMediaDiffuseBindGroupLayout,
     wetMediaDryPipeline,
     wetMediaDryBindGroupLayout,
+    mixboxLUT: mixboxResources.lutTexture,
+    mixboxSampler: mixboxResources.lutSampler,
   };
 }
 
@@ -889,6 +904,8 @@ export function dispatchWetMediaDeposit(
       { binding: 4, resource: wm.propsTexture.createView() },
       { binding: 5, resource: { buffer: uniformBuffer } },
       { binding: 6, resource: wm.paperTexture.createView() },
+      { binding: 7, resource: gpu.mixboxLUT.createView() },
+      { binding: 8, resource: gpu.mixboxSampler },
     ],
   });
 
@@ -999,6 +1016,8 @@ export function stepWetMediaSimulation(
       { binding: 3, resource: propsSrc.createView() },
       { binding: 4, resource: { buffer: diffuseUniform } },
       { binding: 5, resource: wm.paperTexture.createView() },
+      { binding: 6, resource: gpu.mixboxLUT.createView() },
+      { binding: 7, resource: gpu.mixboxSampler },
     ],
   });
 

@@ -545,4 +545,36 @@ mod tests {
         let acrylic = MediumType::Acrylic.physics();
         assert!(oil.drying_rate < acrylic.drying_rate);
     }
+
+    #[test]
+    fn test_mixbox_red_yellow_makes_orange() {
+        let red: [u8; 3] = [255, 0, 0];
+        let yellow: [u8; 3] = [255, 255, 0];
+        let result = mixbox::lerp(&red, &yellow, 0.5);
+        // Should be a saturated orange, not muddy brown
+        // Orange: high R, medium G, low B
+        assert!(result[0] > 200, "R should be high: {}", result[0]);
+        assert!(result[1] > 75 && result[1] < 180, "G should be medium (orange): {}", result[1]);
+        assert!(result[2] < 40, "B should be low: {}", result[2]);
+    }
+
+    #[test]
+    fn test_mixbox_identity() {
+        let color: [u8; 3] = [128, 77, 204];
+        let result = mixbox::lerp(&color, &color, 0.5);
+        for i in 0..3 {
+            assert!((result[i] as i16 - color[i] as i16).abs() < 5,
+                "Identity mix should return same color: {:?} vs {:?}", result, color);
+        }
+    }
+
+    #[test]
+    fn test_mixbox_blue_yellow_makes_green() {
+        let blue: [u8; 3] = [0, 0, 255];
+        let yellow: [u8; 3] = [255, 255, 0];
+        let result = mixbox::lerp(&blue, &yellow, 0.5);
+        // Should be greenish, not grey
+        assert!(result[1] > result[0] && result[1] > result[2],
+            "Green should dominate: R={} G={} B={}", result[0], result[1], result[2]);
+    }
 }

@@ -40,6 +40,8 @@ struct DepositParams {
 @group(0) @binding(4) var canvas_props_dst: texture_storage_2d<rgba32float, write>;
 @group(0) @binding(5) var<uniform> params: DepositParams;
 @group(0) @binding(6) var paper_texture: texture_storage_2d<r32float, read>;
+@group(0) @binding(7) var mixbox_lut: texture_2d<f32>;
+@group(0) @binding(8) var mixbox_lut_sampler: sampler;
 
 @compute @workgroup_size(8, 8)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
@@ -93,7 +95,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     // Blend color: deposit new paint, mix with existing wet paint
     let deposit_strength = footprint_pressure * load * texture_mod;
     let blend_factor = deposit_strength * (1.0 - t * 0.5);
-    let new_color = mix(existing_color.rgb, paint_color, blend_factor);
+    let new_color = mixbox_lerp(existing_color.rgb, paint_color, blend_factor, mixbox_lut, mixbox_lut_sampler);
     let new_alpha = min(1.0, existing_color.a + deposit_strength);
 
     // Accumulate height (impasto)
