@@ -26,10 +26,12 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let coord = vec2i(i32(x), i32(y));
     var p = textureLoad(props_src, coord);
 
-    // Reduce wetness
+    // Reduce wetness — thick paint dries slower
     let wetness = p.g;
     if (wetness > 0.0) {
-        p.g = max(0.0, wetness - params.drying_rate);
+        let height = p.r;
+        let effective_rate = params.drying_rate / (1.0 + height * 3.0);
+        p.g = max(0.0, wetness - effective_rate);
     }
 
     textureStore(props_dst, coord, p);

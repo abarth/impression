@@ -6,6 +6,9 @@ import wetMediaDepositShaderSource from "../shaders/wet_media_deposit.wgsl?raw";
 import wetMediaAdvectShaderSource from "../shaders/wet_media_advect.wgsl?raw";
 import wetMediaDiffuseShaderSource from "../shaders/wet_media_diffuse.wgsl?raw";
 import wetMediaDryShaderSource from "../shaders/wet_media_dry.wgsl?raw";
+import { generatePaperTexture } from "./paperTexture";
+import type { MediumType } from "./hooks/useBrushSettings";
+import { getMediumPhysics } from "./hooks/useBrushSettings";
 
 export interface GPUContext {
   device: GPUDevice;
@@ -306,6 +309,7 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
       { binding: 3, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "read-only", format: "rgba32float" } },
       { binding: 4, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba32float" } },
       { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+      { binding: 6, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "read-only", format: "r32float" } },
     ],
   });
 
@@ -348,6 +352,7 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
       { binding: 2, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "read-only", format: "rgba32float" } },
       { binding: 3, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba32float" } },
       { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+      { binding: 5, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "read-only", format: "r32float" } },
     ],
   });
   const wetMediaDiffusePipeline = device.createComputePipeline({
@@ -679,6 +684,10 @@ export interface WetMediaLayerGPU {
   bindGroup: GPUBindGroup;
   /** Second bind group for the other ping-pong state. */
   bindGroupB: GPUBindGroup;
+  /** Canvas grain texture (r32float) generated from Perlin noise. */
+  paperTexture: GPUTexture;
+  /** Medium type for this layer's simulation parameters. */
+  mediumType: MediumType;
   /** True if any pixel has wetness > 0 and simulation should run. */
   hasWetPaint: boolean;
 }
@@ -714,6 +723,24 @@ export function createWetMediaLayerTexture(
   const propsTextureB = createFloat32Texture();
   const velocityTexture = createFloat32Texture("rg32float");
   const velocityTextureB = createFloat32Texture("rg32float");
+
+  // Paper grain texture (r32float) — deterministic from layer count as seed
+  const paperSeed = gpu.layerTextures.length + 1;
+  const paperData = generatePaperTexture(width, height, paperSeed);
+  const paperTexture = gpu.device.createTexture({
+    size: { width, height },
+    format: "r32float",
+    usage:
+      GPUTextureUsage.TEXTURE_BINDING |
+      GPUTextureUsage.STORAGE_BINDING |
+      GPUTextureUsage.COPY_DST,
+  });
+  gpu.device.queue.writeTexture(
+    { texture: paperTexture },
+    paperData.buffer,
+    { bytesPerRow: width * 4 },
+    { width, height },
+  );
 
   // Uniform buffer: [opacity as f32 bits (u32), blendMode (u32)]
   const uniformBuffer = gpu.device.createBuffer({
@@ -765,6 +792,8 @@ export function createWetMediaLayerTexture(
     velocityTexture, velocityTextureB,
     pingPong: 0,
     bindGroup, bindGroupB,
+    paperTexture,
+    mediumType: "Oil" as MediumType,
     hasWetPaint: false,
   });
   return index;
@@ -791,6 +820,7 @@ export function dispatchWetMediaDeposit(
     maskHeight: number;
     canvasWidth: number;
     canvasHeight: number;
+    canvasTextureStrength: number;
   },
 ): void {
   const wm = wetMediaLayers.get(layerIndex);
@@ -806,8 +836,7 @@ export function dispatchWetMediaDeposit(
   maskBuffer.unmap();
 
   // Create uniform buffer with deposit params
-  // Must match the WGSL DepositParams struct layout (16 floats + 4 u32 = 80 bytes)
-  // Align to 16 bytes as required by WebGPU
+  // Must match the WGSL DepositParams struct layout (16 fields * 4 bytes = 64 bytes, padded to 80)
   const uniformData = new ArrayBuffer(80);
   const floatView = new Float32Array(uniformData);
   const uintView = new Uint32Array(uniformData);
@@ -826,7 +855,7 @@ export function dispatchWetMediaDeposit(
   uintView[12] = params.maskHeight;
   uintView[13] = params.canvasWidth;
   uintView[14] = params.canvasHeight;
-  // padding to 80 bytes (struct is 15 * 4 = 60 bytes, pad to 80 for alignment)
+  floatView[15] = params.canvasTextureStrength;
 
   const uniformBuffer = gpu.device.createBuffer({
     size: 80,
@@ -859,6 +888,7 @@ export function dispatchWetMediaDeposit(
       { binding: 3, resource: wm.propsTextureB.createView() },
       { binding: 4, resource: wm.propsTexture.createView() },
       { binding: 5, resource: { buffer: uniformBuffer } },
+      { binding: 6, resource: wm.paperTexture.createView() },
     ],
   });
 
@@ -891,6 +921,12 @@ export function stepWetMediaSimulation(
   const wm = wetMediaLayers.get(layerIndex);
   if (!wm || !wm.hasWetPaint) return;
 
+  // Derive simulation constants from medium type
+  const physics = getMediumPhysics(wm.mediumType);
+  const dryingRate = physics.dryingRate;
+  const diffusionRate = physics.diffusionRate;
+  const advectionDissipation = physics.advectionDissipation;
+
   const workgroupsX = Math.ceil(canvasWidth / 8);
   const workgroupsY = Math.ceil(canvasHeight / 8);
 
@@ -913,7 +949,7 @@ export function stepWetMediaSimulation(
   {
     const view = new ArrayBuffer(16);
     new Uint32Array(view, 0, 2).set([canvasWidth, canvasHeight]);
-    new Float32Array(view, 8, 2).set([1.0, 0.98]); // dt=1.0, dissipation=0.98
+    new Float32Array(view, 8, 2).set([1.0, advectionDissipation]);
     new Uint8Array(advectUniform.getMappedRange()).set(new Uint8Array(view));
     advectUniform.unmap();
   }
@@ -949,7 +985,7 @@ export function stepWetMediaSimulation(
   {
     const view = new ArrayBuffer(16);
     new Uint32Array(view, 0, 2).set([canvasWidth, canvasHeight]);
-    new Float32Array(view, 8, 2).set([0.3, 0.0]); // diffusion_rate=0.3
+    new Float32Array(view, 8, 2).set([diffusionRate, 0.0]);
     new Uint8Array(diffuseUniform.getMappedRange()).set(new Uint8Array(view));
     diffuseUniform.unmap();
   }
@@ -962,6 +998,7 @@ export function stepWetMediaSimulation(
       { binding: 2, resource: propsDst.createView() },
       { binding: 3, resource: propsSrc.createView() },
       { binding: 4, resource: { buffer: diffuseUniform } },
+      { binding: 5, resource: wm.paperTexture.createView() },
     ],
   });
 
@@ -983,7 +1020,7 @@ export function stepWetMediaSimulation(
   {
     const view = new ArrayBuffer(16);
     new Uint32Array(view, 0, 2).set([canvasWidth, canvasHeight]);
-    new Float32Array(view, 8, 2).set([0.002, 0.0]); // drying_rate=0.002
+    new Float32Array(view, 8, 2).set([dryingRate, 0.0]);
     new Uint8Array(dryUniform.getMappedRange()).set(new Uint8Array(view));
     dryUniform.unmap();
   }
@@ -1026,6 +1063,12 @@ export function stepWetMediaSimulation(
 export function setWetMediaHasWetPaint(index: number, hasWet: boolean): void {
   const wm = wetMediaLayers.get(index);
   if (wm) wm.hasWetPaint = hasWet;
+}
+
+/** Set the medium type for a wet media layer. */
+export function setWetMediaMediumType(index: number, medium: MediumType): void {
+  const wm = wetMediaLayers.get(index);
+  if (wm) wm.mediumType = medium;
 }
 
 /** Check if any wet media layers have wet paint needing simulation. */

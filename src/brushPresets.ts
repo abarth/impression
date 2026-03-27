@@ -6,7 +6,7 @@ export interface StoredBrushTip {
   height: number;
 }
 
-import type { ShapeDynamics, TransferDynamics, ScatterSettings, DualBrushSettings, TextureSettings, WetMediaSettings } from "./hooks/useBrushSettings";
+import type { ShapeDynamics, TransferDynamics, ScatterSettings, DualBrushSettings, TextureSettings, WetMediaSettings, MediumType } from "./hooks/useBrushSettings";
 
 /** Stored in brush_presets IndexedDB store. */
 export interface BrushPreset {
@@ -77,6 +77,8 @@ export const DEFAULT_PRESETS: BrushPreset[] = [
       bristleSpread: 0.2,
       paintDepletionRate: 0.08,
       canvasTextureStrength: 0.3,
+      mediumType: "Oil",
+      viscosity: 0.85,
     },
     sort_order: 10,
   },
@@ -99,6 +101,8 @@ export const DEFAULT_PRESETS: BrushPreset[] = [
       bristleSpread: 0.3,
       paintDepletionRate: 0.1,
       canvasTextureStrength: 0.2,
+      mediumType: "Oil",
+      viscosity: 0.8,
     },
     sort_order: 11,
   },
@@ -121,6 +125,8 @@ export const DEFAULT_PRESETS: BrushPreset[] = [
       bristleSpread: 0.0,
       paintDepletionRate: 0.02,
       canvasTextureStrength: 0.1,
+      mediumType: "Oil",
+      viscosity: 0.9,
     },
     sort_order: 12,
   },
@@ -143,6 +149,8 @@ export const DEFAULT_PRESETS: BrushPreset[] = [
       bristleSpread: 0.6,
       paintDepletionRate: 0.25,
       canvasTextureStrength: 0.5,
+      mediumType: "Oil",
+      viscosity: 0.7,
     },
     sort_order: 13,
   },

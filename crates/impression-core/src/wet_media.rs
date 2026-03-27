@@ -2,6 +2,55 @@ use serde::{Deserialize, Serialize};
 
 use crate::dynamics::Rng;
 
+/// Paint medium type — each has distinct physical behavior.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum MediumType {
+    Oil,
+    Acrylic,
+    Watercolor,
+}
+
+impl Default for MediumType {
+    fn default() -> Self {
+        MediumType::Oil
+    }
+}
+
+/// Physical simulation parameters derived from medium type.
+#[derive(Debug, Clone, Copy)]
+pub struct MediumPhysics {
+    pub viscosity: f32,
+    pub drying_rate: f32,
+    pub diffusion_rate: f32,
+    pub advection_dissipation: f32,
+}
+
+impl MediumType {
+    /// Returns default physics parameters for this medium.
+    pub fn physics(&self) -> MediumPhysics {
+        match self {
+            MediumType::Oil => MediumPhysics {
+                viscosity: 0.85,
+                drying_rate: 0.001,
+                diffusion_rate: 0.05,
+                advection_dissipation: 0.99,
+            },
+            MediumType::Acrylic => MediumPhysics {
+                viscosity: 0.5,
+                drying_rate: 0.005,
+                diffusion_rate: 0.15,
+                advection_dissipation: 0.97,
+            },
+            MediumType::Watercolor => MediumPhysics {
+                viscosity: 0.2,
+                drying_rate: 0.003,
+                diffusion_rate: 0.4,
+                advection_dissipation: 0.95,
+            },
+        }
+    }
+}
+
 /// Settings specific to the wet media brush model.
 /// Controls paint behavior for oil/acrylic simulation.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -22,6 +71,16 @@ pub struct WetMediaBrushSettings {
     pub paint_depletion_rate: f32,
     /// Strength of canvas texture interaction (0.0–1.0).
     pub canvas_texture_strength: f32,
+    /// Paint medium type (oil, acrylic, watercolor).
+    #[serde(default)]
+    pub medium_type: MediumType,
+    /// Paint viscosity override (0.0–1.0). Defaults to medium's default.
+    #[serde(default = "default_viscosity")]
+    pub viscosity: f32,
+}
+
+fn default_viscosity() -> f32 {
+    0.7
 }
 
 impl Default for WetMediaBrushSettings {
@@ -35,6 +94,8 @@ impl Default for WetMediaBrushSettings {
             bristle_spread: 0.3,
             paint_depletion_rate: 0.1,
             canvas_texture_strength: 0.3,
+            medium_type: MediumType::Oil,
+            viscosity: 0.7,
         }
     }
 }
@@ -75,6 +136,7 @@ pub struct BristleFootprint {
     pub mixing_strength: f32,
     pub paint_thickness: f32,
     pub wetness: f32,
+    pub canvas_texture_strength: f32,
 }
 
 /// Per-stroke state for wet media brushes.
@@ -193,6 +255,7 @@ pub fn generate_bristle_footprint(
         mixing_strength: settings.mixing_strength,
         paint_thickness: settings.paint_thickness,
         wetness: settings.wetness,
+        canvas_texture_strength: settings.canvas_texture_strength,
     }
 }
 
@@ -323,6 +386,8 @@ mod tests {
             bristle_spread: 0.5,
             paint_depletion_rate: 0.2,
             canvas_texture_strength: 0.4,
+            medium_type: MediumType::Acrylic,
+            viscosity: 0.5,
         };
         let bytes = rmp_serde::to_vec(&settings).unwrap();
         let decoded: WetMediaBrushSettings = rmp_serde::from_slice(&bytes).unwrap();
@@ -424,5 +489,60 @@ mod tests {
 
         wet_media_stroke_end(&mut state);
         assert!(state.last_point.is_none());
+    }
+
+    #[test]
+    fn test_medium_type_serialization_round_trip() {
+        for medium in [MediumType::Oil, MediumType::Acrylic, MediumType::Watercolor] {
+            let bytes = rmp_serde::to_vec(&medium).unwrap();
+            let decoded: MediumType = rmp_serde::from_slice(&bytes).unwrap();
+            assert_eq!(medium, decoded);
+        }
+    }
+
+    #[test]
+    fn test_medium_physics_valid_ranges() {
+        for medium in [MediumType::Oil, MediumType::Acrylic, MediumType::Watercolor] {
+            let p = medium.physics();
+            assert!(p.viscosity >= 0.0 && p.viscosity <= 1.0, "viscosity out of range for {:?}", medium);
+            assert!(p.drying_rate > 0.0 && p.drying_rate < 1.0, "drying_rate out of range for {:?}", medium);
+            assert!(p.diffusion_rate >= 0.0 && p.diffusion_rate <= 1.0, "diffusion_rate out of range for {:?}", medium);
+            assert!(p.advection_dissipation > 0.0 && p.advection_dissipation <= 1.0, "advection_dissipation out of range for {:?}", medium);
+        }
+    }
+
+    #[test]
+    fn test_wet_media_settings_backwards_compat() {
+        // Old format without medium_type and viscosity should deserialize with defaults
+        let old_settings = WetMediaBrushSettings {
+            paint_load: 0.8,
+            paint_thickness: 0.5,
+            wetness: 0.7,
+            mixing_strength: 0.5,
+            bristle_count: 64,
+            bristle_spread: 0.3,
+            paint_depletion_rate: 0.1,
+            canvas_texture_strength: 0.3,
+            medium_type: MediumType::Oil,
+            viscosity: 0.7,
+        };
+        // Serialize without the new fields by using JSON (simulates old format)
+        let json = r#"{"paint_load":0.8,"paint_thickness":0.5,"wetness":0.7,"mixing_strength":0.5,"bristle_count":64,"bristle_spread":0.3,"paint_depletion_rate":0.1,"canvas_texture_strength":0.3}"#;
+        let decoded: WetMediaBrushSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(decoded.medium_type, MediumType::Oil);
+        assert!((decoded.viscosity - 0.7).abs() < f32::EPSILON);
+        assert_eq!(decoded, old_settings);
+    }
+
+    #[test]
+    fn test_medium_type_default_is_oil() {
+        assert_eq!(MediumType::default(), MediumType::Oil);
+    }
+
+    #[test]
+    fn test_oil_dries_slower_than_acrylic() {
+        let oil = MediumType::Oil.physics();
+        let acrylic = MediumType::Acrylic.physics();
+        assert!(oil.drying_rate < acrylic.drying_rate);
     }
 }

@@ -29,6 +29,8 @@ struct DepositParams {
     // Canvas dimensions.
     canvas_width: u32,
     canvas_height: u32,
+    // Canvas texture interaction strength.
+    canvas_texture_strength: f32,
 };
 
 @group(0) @binding(0) var<storage, read> footprint_mask: array<f32>;
@@ -37,6 +39,7 @@ struct DepositParams {
 @group(0) @binding(3) var canvas_props_src: texture_storage_2d<rgba32float, read>;
 @group(0) @binding(4) var canvas_props_dst: texture_storage_2d<rgba32float, write>;
 @group(0) @binding(5) var<uniform> params: DepositParams;
+@group(0) @binding(6) var paper_texture: texture_storage_2d<r32float, read>;
 
 @compute @workgroup_size(8, 8)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
@@ -83,8 +86,12 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let t = params.mixing_strength * existing_wetness * footprint_pressure;
     let load = params.paint_load;
 
+    // Modulate deposit by canvas texture (paper grain)
+    let paper_h = textureLoad(paper_texture, coord).r;
+    let texture_mod = 1.0 - params.canvas_texture_strength * (1.0 - paper_h);
+
     // Blend color: deposit new paint, mix with existing wet paint
-    let deposit_strength = footprint_pressure * load;
+    let deposit_strength = footprint_pressure * load * texture_mod;
     let blend_factor = deposit_strength * (1.0 - t * 0.5);
     let new_color = mix(existing_color.rgb, paint_color, blend_factor);
     let new_alpha = min(1.0, existing_color.a + deposit_strength);

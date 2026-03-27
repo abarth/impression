@@ -2,7 +2,7 @@ import { useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { Settings2 } from "lucide-react";
 import { SliderControl } from "./SliderControl";
-import type { BrushSettings, DynamicParam, DynamicControl, ScatterSettings, DualBrushSettings, TextureSettings, WetMediaSettings } from "../hooks/useBrushSettings";
+import type { BrushSettings, DynamicParam, DynamicControl, ScatterSettings, DualBrushSettings, TextureSettings, WetMediaSettings, MediumType } from "../hooks/useBrushSettings";
 import {
   DUAL_BRUSH_MODE_MULTIPLY,
   DUAL_BRUSH_MODE_DARKEN,
@@ -533,6 +533,38 @@ function WetMediaPane({ settings, onUpdate }: BrushSettingsPanelProps) {
       </button>
       {wm.enabled && (
         <>
+          <div className="flex flex-col gap-2">
+            <label className="text-[10px] font-medium text-cream-muted uppercase tracking-wider">
+              Medium
+            </label>
+            <div className="flex gap-1 bg-graphite-850 p-1 rounded-lg border border-graphite-800">
+              {(["Oil", "Acrylic"] as MediumType[]).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => update({ mediumType: m })}
+                  className={`flex-1 py-1 text-[11px] rounded transition-all duration-150 ${wm.mediumType === m ? "bg-graphite-700 text-cream shadow-sm" : "text-cream-muted hover:text-cream-dim"}`}
+                >
+                  {m}
+                </button>
+              ))}
+              <button
+                disabled
+                className="flex-1 py-1 text-[11px] rounded text-cream-muted/40 cursor-not-allowed"
+                title="Coming soon"
+              >
+                Watercolor
+              </button>
+            </div>
+          </div>
+          <SliderControl
+            label="Viscosity"
+            value={wm.viscosity}
+            min={0}
+            max={1.0}
+            step={0.01}
+            displayValue={`${Math.round(wm.viscosity * 100)}%`}
+            onChange={(v) => update({ viscosity: v })}
+          />
           <SliderControl
             label="Paint Load"
             value={wm.paintLoad}

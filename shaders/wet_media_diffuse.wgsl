@@ -15,6 +15,7 @@ struct DiffuseParams {
 @group(0) @binding(2) var props_src: texture_storage_2d<rgba32float, read>;
 @group(0) @binding(3) var props_dst: texture_storage_2d<rgba32float, write>;
 @group(0) @binding(4) var<uniform> params: DiffuseParams;
+@group(0) @binding(5) var paper_texture: texture_storage_2d<r32float, read>;
 
 @compute @workgroup_size(8, 8)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
@@ -39,7 +40,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         return;
     }
 
-    // 3x3 Gaussian kernel weighted by neighbor wetness
+    // 3x3 Gaussian kernel weighted by neighbor wetness and paper height similarity
+    let center_paper = textureLoad(paper_texture, coord).r;
     var sum_color = vec4f(0.0);
     var sum_props = vec4f(0.0);
     var total_weight: f32 = 0.0;
@@ -54,9 +56,13 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             let n_props = textureLoad(props_src, ncoord);
             let n_wetness = n_props.g;
 
+            // Paper height similarity: paint flows more easily between similar-height texels
+            let n_paper = textureLoad(paper_texture, ncoord).r;
+            let paper_similarity = 1.0 - abs(center_paper - n_paper);
+
             // Gaussian weight: center=1.0, adjacent=0.5, diagonal=0.25
             let dist_weight = select(select(0.25, 0.5, dx == 0 || dy == 0), 1.0, dx == 0 && dy == 0);
-            let weight = dist_weight * max(wetness, n_wetness);
+            let weight = dist_weight * max(wetness, n_wetness) * paper_similarity;
 
             sum_color += n_color * weight;
             sum_props += n_props * weight;

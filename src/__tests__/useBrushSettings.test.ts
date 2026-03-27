@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { renderHook, act } from "@testing-library/react";
-import { useBrushSettings, buildSerializableSettings, TOOL_BLEND_MODES } from "../hooks/useBrushSettings";
+import { useBrushSettings, buildSerializableSettings, TOOL_BLEND_MODES, getMediumPhysics, DEFAULT_WET_MEDIA } from "../hooks/useBrushSettings";
+import type { MediumType } from "../hooks/useBrushSettings";
 import type { Tool } from "../hooks/useTool";
 
 function fireKeyDown(key: string, options: Partial<KeyboardEventInit> = {}) {
@@ -525,6 +526,86 @@ describe("buildSerializableSettings", () => {
     );
 
     expect(serializable.secondary_tip_id).toBeNull();
+  });
+});
+
+describe("wet media medium type", () => {
+  it("should include mediumType and viscosity in defaults", () => {
+    expect(DEFAULT_WET_MEDIA.mediumType).toBe("Oil");
+    expect(DEFAULT_WET_MEDIA.viscosity).toBe(0.7);
+  });
+
+  it("should update mediumType via updateSetting", () => {
+    const { result } = renderHook(() => useBrushSettings(null, "brush"));
+
+    act(() => {
+      result.current.updateSetting("wetMedia", {
+        ...result.current.settings.wetMedia,
+        mediumType: "Acrylic",
+      });
+    });
+
+    expect(result.current.settings.wetMedia.mediumType).toBe("Acrylic");
+  });
+
+  it("should update viscosity via updateSetting", () => {
+    const { result } = renderHook(() => useBrushSettings(null, "brush"));
+
+    act(() => {
+      result.current.updateSetting("wetMedia", {
+        ...result.current.settings.wetMedia,
+        viscosity: 0.9,
+      });
+    });
+
+    expect(result.current.settings.wetMedia.viscosity).toBe(0.9);
+  });
+
+  it("should include medium_type and viscosity in serializable settings", () => {
+    const { result } = renderHook(() => useBrushSettings(null, "brush"));
+
+    act(() => {
+      result.current.updateSetting("wetMedia", {
+        ...result.current.settings.wetMedia,
+        mediumType: "Acrylic",
+        viscosity: 0.55,
+      });
+    });
+
+    const serializable = buildSerializableSettings(
+      result.current.settings, 0, 0, 0, 0,
+    );
+
+    expect(serializable.wet_media.medium_type).toBe("Acrylic");
+    expect(serializable.wet_media.viscosity).toBe(0.55);
+  });
+});
+
+describe("getMediumPhysics", () => {
+  it("returns valid physics for all medium types", () => {
+    for (const medium of ["Oil", "Acrylic", "Watercolor"] as MediumType[]) {
+      const p = getMediumPhysics(medium);
+      expect(p.viscosity).toBeGreaterThanOrEqual(0);
+      expect(p.viscosity).toBeLessThanOrEqual(1);
+      expect(p.dryingRate).toBeGreaterThan(0);
+      expect(p.dryingRate).toBeLessThan(1);
+      expect(p.diffusionRate).toBeGreaterThanOrEqual(0);
+      expect(p.diffusionRate).toBeLessThanOrEqual(1);
+      expect(p.advectionDissipation).toBeGreaterThan(0);
+      expect(p.advectionDissipation).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("oil dries slower than acrylic", () => {
+    expect(getMediumPhysics("Oil").dryingRate).toBeLessThan(
+      getMediumPhysics("Acrylic").dryingRate,
+    );
+  });
+
+  it("oil has higher viscosity than acrylic", () => {
+    expect(getMediumPhysics("Oil").viscosity).toBeGreaterThan(
+      getMediumPhysics("Acrylic").viscosity,
+    );
   });
 });
 

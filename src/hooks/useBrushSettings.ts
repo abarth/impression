@@ -64,6 +64,8 @@ export interface TextureSettings {
   tipId?: string;
 }
 
+export type MediumType = "Oil" | "Acrylic" | "Watercolor";
+
 export interface WetMediaSettings {
   enabled: boolean;
   paintLoad: number;
@@ -74,6 +76,8 @@ export interface WetMediaSettings {
   bristleSpread: number;
   paintDepletionRate: number;
   canvasTextureStrength: number;
+  mediumType: MediumType;
+  viscosity: number;
 }
 
 /**
@@ -173,6 +177,8 @@ export interface SerializableBrushSettings {
     bristle_spread: number;
     paint_depletion_rate: number;
     canvas_texture_strength: number;
+    medium_type: MediumType;
+    viscosity: number;
   };
 }
 
@@ -240,6 +246,8 @@ export function buildSerializableSettings(
       bristle_spread: s.wetMedia.bristleSpread,
       paint_depletion_rate: s.wetMedia.paintDepletionRate,
       canvas_texture_strength: s.wetMedia.canvasTextureStrength,
+      medium_type: s.wetMedia.mediumType,
+      viscosity: s.wetMedia.viscosity,
     },
   };
 }
@@ -295,7 +303,27 @@ export const DEFAULT_WET_MEDIA: WetMediaSettings = {
   bristleSpread: 0.3,
   paintDepletionRate: 0.1,
   canvasTextureStrength: 0.3,
+  mediumType: "Oil",
+  viscosity: 0.7,
 };
+
+/** Per-medium physics defaults used by the GPU simulation. */
+export interface MediumPhysics {
+  viscosity: number;
+  dryingRate: number;
+  diffusionRate: number;
+  advectionDissipation: number;
+}
+
+const MEDIUM_PHYSICS: Record<MediumType, MediumPhysics> = {
+  Oil: { viscosity: 0.85, dryingRate: 0.001, diffusionRate: 0.05, advectionDissipation: 0.99 },
+  Acrylic: { viscosity: 0.5, dryingRate: 0.005, diffusionRate: 0.15, advectionDissipation: 0.97 },
+  Watercolor: { viscosity: 0.2, dryingRate: 0.003, diffusionRate: 0.4, advectionDissipation: 0.95 },
+};
+
+export function getMediumPhysics(medium: MediumType): MediumPhysics {
+  return MEDIUM_PHYSICS[medium];
+}
 
 /** Default values for brush preset properties (reset on preset change). */
 const DEFAULT_PRESET_PROPERTIES: Omit<BrushSettings, "size" | "opacity" | "flow" | "smoothing"> = {
