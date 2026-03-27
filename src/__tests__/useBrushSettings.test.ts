@@ -530,9 +530,10 @@ describe("buildSerializableSettings", () => {
 });
 
 describe("wet media medium type", () => {
-  it("should include mediumType and viscosity in defaults", () => {
+  it("should include mediumType, viscosity, and bristleStiffness in defaults", () => {
     expect(DEFAULT_WET_MEDIA.mediumType).toBe("Oil");
     expect(DEFAULT_WET_MEDIA.viscosity).toBe(0.7);
+    expect(DEFAULT_WET_MEDIA.bristleStiffness).toBe(0.5);
   });
 
   it("should update mediumType via updateSetting", () => {
@@ -561,7 +562,7 @@ describe("wet media medium type", () => {
     expect(result.current.settings.wetMedia.viscosity).toBe(0.9);
   });
 
-  it("should include medium_type and viscosity in serializable settings", () => {
+  it("should include medium_type, viscosity, and bristle_stiffness in serializable settings", () => {
     const { result } = renderHook(() => useBrushSettings(null, "brush"));
 
     act(() => {
@@ -569,6 +570,7 @@ describe("wet media medium type", () => {
         ...result.current.settings.wetMedia,
         mediumType: "Acrylic",
         viscosity: 0.55,
+        bristleStiffness: 0.7,
       });
     });
 
@@ -578,6 +580,7 @@ describe("wet media medium type", () => {
 
     expect(serializable.wet_media.medium_type).toBe("Acrylic");
     expect(serializable.wet_media.viscosity).toBe(0.55);
+    expect(serializable.wet_media.bristle_stiffness).toBe(0.7);
   });
 });
 

@@ -31,6 +31,10 @@ struct DepositParams {
     canvas_height: u32,
     // Canvas texture interaction strength.
     canvas_texture_strength: f32,
+    // Paint viscosity (0-1). High viscosity resists mixing and builds height.
+    viscosity: f32,
+    _pad1: f32,
+    _pad2: f32,
 };
 
 @group(0) @binding(0) var<storage, read> footprint_mask: array<f32>;
@@ -84,8 +88,10 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let existing_wetness = existing_props.g;
 
     // Mixing: new paint blends with existing wet paint
+    // Viscosity reduces effective mixing (high viscosity = paint resists blending)
     let paint_color = vec3f(params.paint_r, params.paint_g, params.paint_b);
-    let t = params.mixing_strength * existing_wetness * footprint_pressure;
+    let effective_mixing = params.mixing_strength * (1.0 - params.viscosity * 0.7);
+    let t = effective_mixing * existing_wetness * footprint_pressure;
     let load = params.paint_load;
 
     // Modulate deposit by canvas texture (paper grain)
@@ -98,9 +104,10 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let new_color = mixbox_lerp(existing_color.rgb, paint_color, blend_factor, mixbox_lut, mixbox_lut_sampler);
     let new_alpha = min(1.0, existing_color.a + deposit_strength);
 
-    // Accumulate height (impasto)
+    // Accumulate height (impasto) — viscosity increases buildup
     let existing_height = existing_props.r;
-    let new_height = existing_height + params.paint_thickness * footprint_pressure * load;
+    let height_factor = 0.5 + params.viscosity * 0.5;
+    let new_height = existing_height + params.paint_thickness * footprint_pressure * load * height_factor;
 
     // Update wetness (max of existing and new)
     let new_wetness = max(existing_wetness, params.wetness * footprint_pressure);

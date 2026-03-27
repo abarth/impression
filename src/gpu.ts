@@ -836,6 +836,7 @@ export function dispatchWetMediaDeposit(
     canvasWidth: number;
     canvasHeight: number;
     canvasTextureStrength: number;
+    viscosity: number;
   },
 ): void {
   const wm = wetMediaLayers.get(layerIndex);
@@ -851,7 +852,7 @@ export function dispatchWetMediaDeposit(
   maskBuffer.unmap();
 
   // Create uniform buffer with deposit params
-  // Must match the WGSL DepositParams struct layout (16 fields * 4 bytes = 64 bytes, padded to 80)
+  // Must match the WGSL DepositParams struct layout (20 fields * 4 bytes = 80 bytes)
   const uniformData = new ArrayBuffer(80);
   const floatView = new Float32Array(uniformData);
   const uintView = new Uint32Array(uniformData);
@@ -871,6 +872,9 @@ export function dispatchWetMediaDeposit(
   uintView[13] = params.canvasWidth;
   uintView[14] = params.canvasHeight;
   floatView[15] = params.canvasTextureStrength;
+  floatView[16] = params.viscosity;
+  floatView[17] = 0.0; // _pad1
+  floatView[18] = 0.0; // _pad2
 
   const uniformBuffer = gpu.device.createBuffer({
     size: 80,

@@ -205,7 +205,7 @@ export class Engine {
 
       // Read params (flat array of 13 f32s)
       const paramsArray = this.canvas.wet_media_footprint_params(i) as number[];
-      if (!paramsArray || paramsArray.length < 14) continue;
+      if (!paramsArray || paramsArray.length < 15) continue;
 
       dispatchWetMediaDeposit(this.gpu, layer, maskData, {
         originX: paramsArray[0],
@@ -224,6 +224,7 @@ export class Engine {
         canvasWidth,
         canvasHeight,
         canvasTextureStrength: paramsArray[13],
+        viscosity: paramsArray[14],
       });
     }
 
@@ -504,7 +505,7 @@ export class Engine {
 
         const maskData = new Float32Array(this.wasmMemory.buffer, maskPtr, maskLen);
         const paramsArray = this.canvas.wet_media_replay_deposit_params(i) as number[];
-        if (!paramsArray || paramsArray.length < 14) continue;
+        if (!paramsArray || paramsArray.length < 15) continue;
 
         dispatchWetMediaDeposit(this.gpu, layerIdx, maskData, {
           originX: paramsArray[0],
@@ -523,6 +524,7 @@ export class Engine {
           canvasWidth,
           canvasHeight,
           canvasTextureStrength: paramsArray[13],
+          viscosity: paramsArray[14],
         });
         setWetMediaHasWetPaint(layerIdx, true);
       } else if (eventType === 1) {

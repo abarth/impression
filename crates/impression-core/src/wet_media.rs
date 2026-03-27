@@ -77,10 +77,17 @@ pub struct WetMediaBrushSettings {
     /// Paint viscosity override (0.0–1.0). Defaults to medium's default.
     #[serde(default = "default_viscosity")]
     pub viscosity: f32,
+    /// Bristle stiffness (0.0–1.0). Higher = bristles resist bending.
+    #[serde(default = "default_bristle_stiffness")]
+    pub bristle_stiffness: f32,
 }
 
 fn default_viscosity() -> f32 {
     0.7
+}
+
+fn default_bristle_stiffness() -> f32 {
+    0.5
 }
 
 impl Default for WetMediaBrushSettings {
@@ -96,6 +103,7 @@ impl Default for WetMediaBrushSettings {
             canvas_texture_strength: 0.3,
             medium_type: MediumType::Oil,
             viscosity: 0.7,
+            bristle_stiffness: 0.5,
         }
     }
 }
@@ -137,6 +145,7 @@ pub struct BristleFootprint {
     pub paint_thickness: f32,
     pub wetness: f32,
     pub canvas_texture_strength: f32,
+    pub viscosity: f32,
 }
 
 /// Per-stroke state for wet media brushes.
@@ -154,6 +163,10 @@ pub struct WetMediaStrokeState {
     pub stroke_seed: u32,
     /// Per-stroke PRNG.
     pub rng: Rng,
+    /// Persistent bristle base offsets (unit-circle positions), initialized at stroke_begin.
+    pub bristle_offsets: Vec<(f32, f32)>,
+    /// Per-bristle color, starts as paint color, drifts over the stroke.
+    pub bristle_colors: Vec<[f32; 3]>,
 }
 
 impl Default for WetMediaStrokeState {
@@ -165,16 +178,29 @@ impl Default for WetMediaStrokeState {
             last_point: None,
             stroke_seed: 0,
             rng: Rng::from_coords(0.0, 0.0),
+            bristle_offsets: Vec::new(),
+            bristle_colors: Vec::new(),
         }
     }
+}
+
+/// Initialize persistent bristle base offsets using the PRNG.
+/// Each offset is a unit-circle position (r, theta) stored as (x, y) in [-1, 1].
+pub fn init_bristle_offsets(count: u32, rng: &mut Rng) -> Vec<(f32, f32)> {
+    (0..count)
+        .map(|_| {
+            let r = rng.next_f32().sqrt();
+            let theta = rng.next_f32() * std::f32::consts::TAU;
+            (r * theta.cos(), r * theta.sin())
+        })
+        .collect()
 }
 
 /// Generate a bristle footprint mask for the given brush position and settings.
 ///
 /// The mask is a square of side `ceil(size)` pixels, centered at (origin_x, origin_y).
-/// Each bristle is placed deterministically using the PRNG and produces a small
-/// soft dot in the mask. Pressure affects how spread the bristles are and
-/// how hard each bristle presses (higher pressure = more spread, more pressure per bristle).
+/// Uses persistent bristle offsets for consistent marks within a stroke.
+/// Pressure affects splay, velocity affects bend direction.
 pub fn generate_bristle_footprint(
     origin_x: f32,
     origin_y: f32,
@@ -186,6 +212,7 @@ pub fn generate_bristle_footprint(
     paint_color: [f32; 3],
     paint_load: f32,
     velocity: [f32; 2],
+    bristle_offsets: &[(f32, f32)],
     rng: &mut Rng,
 ) -> BristleFootprint {
     let radius = brush_size * 0.5;
@@ -200,31 +227,59 @@ pub fn generate_bristle_footprint(
 
     // Each bristle is a small soft dot placed within the brush ellipse.
     // Bristle radius scales with brush size.
-    let bristle_radius = (radius / (settings.bristle_count as f32).sqrt()).max(0.5);
+    let bristle_radius = (radius / (bristle_offsets.len() as f32).sqrt()).max(0.5);
 
-    // Spread increases with pressure
-    let spread = settings.bristle_spread * pressure;
+    // Pressure splay: bristles spread outward under pressure
+    let splay = 1.0 + pressure * settings.bristle_spread * 0.5;
 
-    for _ in 0..settings.bristle_count {
-        // Random position within unit circle, then scale by radius and spread
-        let r = rng.next_f32().sqrt() * (0.5 + 0.5 * spread);
-        let theta = rng.next_f32() * std::f32::consts::TAU;
-        let local_x = r * theta.cos() * radius;
-        let local_y = r * theta.sin() * radius * brush_roundness;
+    // Velocity bend: bristles bend in the direction of motion
+    let vel_len = (velocity[0] * velocity[0] + velocity[1] * velocity[1]).sqrt();
+    let stiffness = settings.bristle_stiffness.max(0.1);
+    let bend_amount = if vel_len > 0.01 {
+        (vel_len * 0.02 / stiffness).min(0.3)
+    } else {
+        0.0
+    };
+    let vel_dir = if vel_len > 0.01 {
+        [velocity[0] / vel_len, velocity[1] / vel_len]
+    } else {
+        [0.0, 0.0]
+    };
+
+    for &(base_x, base_y) in bristle_offsets {
+        // Apply pressure splay to base offset
+        let splayed_x = base_x * splay;
+        let splayed_y = base_y * splay;
+
+        // Apply velocity bend (shift bristle in movement direction)
+        let bent_x = splayed_x + vel_dir[0] * bend_amount;
+        let bent_y = splayed_y + vel_dir[1] * bend_amount;
+
+        // Scale to brush radius with roundness
+        let scaled_x = bent_x * (0.5 + 0.5 * settings.bristle_spread) * radius;
+        let scaled_y = bent_y * (0.5 + 0.5 * settings.bristle_spread) * radius * brush_roundness;
 
         // Rotate by brush angle
-        let bx = center + local_x * cos_a - local_y * sin_a;
-        let by = center + local_x * sin_a + local_y * cos_a;
+        let bx = center + scaled_x * cos_a - scaled_y * sin_a;
+        let by = center + scaled_x * sin_a + scaled_y * cos_a;
 
         // Per-bristle pressure variation
         let bristle_pressure = (0.5 + 0.5 * rng.next_f32()) * pressure;
 
         // Stamp a soft dot at (bx, by)
         let br = bristle_radius;
-        let x_min = ((bx - br).floor() as i32).max(0) as u32;
-        let x_max = ((bx + br).ceil() as i32).min(footprint_size as i32 - 1) as u32;
-        let y_min = ((by - br).floor() as i32).max(0) as u32;
-        let y_max = ((by + br).ceil() as i32).min(footprint_size as i32 - 1) as u32;
+        let x_min_i = ((bx - br).floor() as i32).max(0);
+        let x_max_i = ((bx + br).ceil() as i32).min(footprint_size as i32 - 1);
+        let y_min_i = ((by - br).floor() as i32).max(0);
+        let y_max_i = ((by + br).ceil() as i32).min(footprint_size as i32 - 1);
+
+        if x_max_i < x_min_i || y_max_i < y_min_i {
+            continue;
+        }
+        let x_min = x_min_i as u32;
+        let x_max = x_max_i as u32;
+        let y_min = y_min_i as u32;
+        let y_max = y_max_i as u32;
 
         for py in y_min..=y_max {
             for px in x_min..=x_max {
@@ -256,6 +311,7 @@ pub fn generate_bristle_footprint(
         paint_thickness: settings.paint_thickness,
         wetness: settings.wetness,
         canvas_texture_strength: settings.canvas_texture_strength,
+        viscosity: settings.viscosity,
     }
 }
 
@@ -278,6 +334,10 @@ pub fn wet_media_stroke_begin(
     state.paint_load_remaining = settings.paint_load;
     state.footprints.clear();
 
+    // Initialize persistent bristle offsets and colors for this stroke
+    state.bristle_offsets = init_bristle_offsets(settings.bristle_count, &mut state.rng);
+    state.bristle_colors = vec![paint_color; settings.bristle_count as usize];
+
     let footprint = generate_bristle_footprint(
         x, y, pressure,
         brush_size, brush_angle, brush_roundness,
@@ -285,6 +345,7 @@ pub fn wet_media_stroke_begin(
         paint_color,
         state.paint_load_remaining,
         [0.0, 0.0], // no velocity on first stamp
+        &state.bristle_offsets,
         &mut state.rng,
     );
     state.footprints.push(footprint);
@@ -335,13 +396,26 @@ pub fn wet_media_stroke_move(
             (state.paint_load_remaining - settings.paint_depletion_rate * step / brush_size)
                 .max(0.0);
 
+        // Per-bristle color drift: blend each bristle's color toward the paint color
+        // weighted by mixing_strength (simulates dirty brush picking up canvas color)
+        let drift = settings.mixing_strength * 0.02;
+        for color in state.bristle_colors.iter_mut() {
+            for c in 0..3 {
+                color[c] += (paint_color[c] - color[c]) * drift;
+            }
+        }
+
+        // Average bristle colors for the footprint's paint color
+        let avg_color = average_bristle_colors(&state.bristle_colors);
+
         let footprint = generate_bristle_footprint(
             px, py, pp,
             brush_size, brush_angle, brush_roundness,
             settings,
-            paint_color,
+            avg_color,
             state.paint_load_remaining,
             velocity,
+            &state.bristle_offsets,
             &mut state.rng,
         );
         state.footprints.push(footprint);
@@ -351,6 +425,21 @@ pub fn wet_media_stroke_move(
 
     state.residual_distance = dist - seg_len;
     state.last_point = Some((x, y, pressure));
+}
+
+/// Average per-bristle colors into a single paint color.
+fn average_bristle_colors(colors: &[[f32; 3]]) -> [f32; 3] {
+    if colors.is_empty() {
+        return [0.0; 3];
+    }
+    let n = colors.len() as f32;
+    let mut sum = [0.0f32; 3];
+    for c in colors {
+        sum[0] += c[0];
+        sum[1] += c[1];
+        sum[2] += c[2];
+    }
+    [sum[0] / n, sum[1] / n, sum[2] / n]
 }
 
 /// End a wet media stroke.
@@ -388,6 +477,7 @@ mod tests {
             canvas_texture_strength: 0.4,
             medium_type: MediumType::Acrylic,
             viscosity: 0.5,
+            bristle_stiffness: 0.6,
         };
         let bytes = rmp_serde::to_vec(&settings).unwrap();
         let decoded: WetMediaBrushSettings = rmp_serde::from_slice(&bytes).unwrap();
@@ -409,13 +499,18 @@ mod tests {
         let mut rng1 = Rng::from_coords(10.0, 20.0);
         let mut rng2 = Rng::from_coords(10.0, 20.0);
 
+        // Generate identical bristle offsets from identical RNGs
+        let offsets1 = init_bristle_offsets(settings.bristle_count, &mut rng1);
+        let mut rng1b = Rng::from_coords(10.0, 20.0);
+        let offsets2 = init_bristle_offsets(settings.bristle_count, &mut rng1b);
+
         let fp1 = generate_bristle_footprint(
             50.0, 50.0, 0.8, 20.0, 0.0, 1.0,
-            &settings, [1.0, 0.0, 0.0], 0.8, [1.0, 0.0], &mut rng1,
+            &settings, [1.0, 0.0, 0.0], 0.8, [1.0, 0.0], &offsets1, &mut rng1,
         );
         let fp2 = generate_bristle_footprint(
             50.0, 50.0, 0.8, 20.0, 0.0, 1.0,
-            &settings, [1.0, 0.0, 0.0], 0.8, [1.0, 0.0], &mut rng2,
+            &settings, [1.0, 0.0, 0.0], 0.8, [1.0, 0.0], &offsets2, &mut rng1b,
         );
 
         assert_eq!(fp1.mask.len(), fp2.mask.len());
@@ -432,9 +527,10 @@ mod tests {
             ..Default::default()
         };
         let mut rng = Rng::from_coords(5.0, 5.0);
+        let offsets = init_bristle_offsets(32, &mut rng);
         let fp = generate_bristle_footprint(
             25.0, 25.0, 1.0, 30.0, 0.0, 1.0,
-            &settings, [0.0, 0.0, 1.0], 1.0, [0.0, 0.0], &mut rng,
+            &settings, [0.0, 0.0, 1.0], 1.0, [0.0, 0.0], &offsets, &mut rng,
         );
         let nonzero = fp.mask.iter().filter(|&&v| v > 0.0).count();
         assert!(nonzero > 0, "Footprint should have some nonzero pixels");
@@ -513,7 +609,7 @@ mod tests {
 
     #[test]
     fn test_wet_media_settings_backwards_compat() {
-        // Old format without medium_type and viscosity should deserialize with defaults
+        // Old format without medium_type, viscosity, bristle_stiffness should deserialize with defaults
         let old_settings = WetMediaBrushSettings {
             paint_load: 0.8,
             paint_thickness: 0.5,
@@ -525,12 +621,14 @@ mod tests {
             canvas_texture_strength: 0.3,
             medium_type: MediumType::Oil,
             viscosity: 0.7,
+            bristle_stiffness: 0.5,
         };
         // Serialize without the new fields by using JSON (simulates old format)
         let json = r#"{"paint_load":0.8,"paint_thickness":0.5,"wetness":0.7,"mixing_strength":0.5,"bristle_count":64,"bristle_spread":0.3,"paint_depletion_rate":0.1,"canvas_texture_strength":0.3}"#;
         let decoded: WetMediaBrushSettings = serde_json::from_str(json).unwrap();
         assert_eq!(decoded.medium_type, MediumType::Oil);
         assert!((decoded.viscosity - 0.7).abs() < f32::EPSILON);
+        assert!((decoded.bristle_stiffness - 0.5).abs() < f32::EPSILON);
         assert_eq!(decoded, old_settings);
     }
 
@@ -576,5 +674,141 @@ mod tests {
         // Should be greenish, not grey
         assert!(result[1] > result[0] && result[1] > result[2],
             "Green should dominate: R={} G={} B={}", result[0], result[1], result[2]);
+    }
+
+    #[test]
+    fn test_bristle_offsets_persist_across_stroke() {
+        let settings = WetMediaBrushSettings::default();
+        let mut state = WetMediaStrokeState::default();
+        let color = [1.0, 0.0, 0.0];
+
+        wet_media_stroke_begin(
+            &mut state, 10.0, 10.0, 1.0, 20.0, 0.0, 1.0, 0.25, &settings, color,
+        );
+        let offsets_after_begin = state.bristle_offsets.clone();
+        assert_eq!(offsets_after_begin.len(), settings.bristle_count as usize);
+
+        // Move far enough to generate multiple footprints
+        wet_media_stroke_move(
+            &mut state, 80.0, 10.0, 0.8, 20.0, 0.0, 1.0, 0.25, &settings, color,
+        );
+
+        // Bristle offsets should be identical after stroke_move
+        assert_eq!(state.bristle_offsets, offsets_after_begin,
+            "Bristle offsets must persist across the stroke");
+        assert!(state.footprints.len() > 2, "Should have multiple footprints");
+    }
+
+    #[test]
+    fn test_high_pressure_spreads_bristles() {
+        let settings = WetMediaBrushSettings {
+            bristle_spread: 0.8,
+            bristle_count: 32,
+            ..Default::default()
+        };
+        let mut rng = Rng::from_coords(1.0, 1.0);
+        let offsets = init_bristle_offsets(32, &mut rng);
+
+        // Generate footprints at different pressures using same offsets
+        // Use a large brush to avoid edge clipping
+        let mut rng_low = Rng::from_coords(99.0, 99.0);
+        let fp_low = generate_bristle_footprint(
+            50.0, 50.0, 0.2, 60.0, 0.0, 1.0,
+            &settings, [1.0, 0.0, 0.0], 1.0, [0.0, 0.0], &offsets, &mut rng_low,
+        );
+        let mut rng_high = Rng::from_coords(99.0, 99.0);
+        let fp_high = generate_bristle_footprint(
+            50.0, 50.0, 1.0, 60.0, 0.0, 1.0,
+            &settings, [1.0, 0.0, 0.0], 1.0, [0.0, 0.0], &offsets, &mut rng_high,
+        );
+
+        // Measure spatial spread: variance of active pixel positions from center
+        fn spatial_variance(mask: &[f32], size: u32) -> f32 {
+            let center = size as f32 * 0.5;
+            let mut sum_dist2 = 0.0f32;
+            let mut total_weight = 0.0f32;
+            for y in 0..size {
+                for x in 0..size {
+                    let v = mask[(y * size + x) as usize];
+                    if v > 0.0 {
+                        let dx = x as f32 + 0.5 - center;
+                        let dy = y as f32 + 0.5 - center;
+                        sum_dist2 += (dx * dx + dy * dy) * v;
+                        total_weight += v;
+                    }
+                }
+            }
+            if total_weight > 0.0 { sum_dist2 / total_weight } else { 0.0 }
+        }
+
+        let var_low = spatial_variance(&fp_low.mask, fp_low.width);
+        let var_high = spatial_variance(&fp_high.mask, fp_high.width);
+        assert!(var_high > var_low,
+            "High pressure should spread bristles wider: var_high={}, var_low={}",
+            var_high, var_low);
+    }
+
+    #[test]
+    fn test_velocity_bends_bristles() {
+        let settings = WetMediaBrushSettings {
+            bristle_count: 16,
+            bristle_stiffness: 0.2, // low stiffness = more bend
+            ..Default::default()
+        };
+        let mut rng = Rng::from_coords(3.0, 3.0);
+        let offsets = init_bristle_offsets(16, &mut rng);
+
+        // No velocity
+        let fp_still = generate_bristle_footprint(
+            50.0, 50.0, 0.5, 30.0, 0.0, 1.0,
+            &settings, [1.0, 0.0, 0.0], 1.0, [0.0, 0.0], &offsets, &mut rng,
+        );
+
+        // Strong rightward velocity
+        let mut rng2 = Rng::from_coords(3.0, 3.0);
+        let _ = init_bristle_offsets(16, &mut rng2);
+        let fp_moving = generate_bristle_footprint(
+            50.0, 50.0, 0.5, 30.0, 0.0, 1.0,
+            &settings, [1.0, 0.0, 0.0], 1.0, [50.0, 0.0], &offsets, &mut rng2,
+        );
+
+        // The masks should differ due to velocity bending
+        let diff: f32 = fp_still.mask.iter().zip(fp_moving.mask.iter())
+            .map(|(a, b)| (a - b).abs())
+            .sum();
+        assert!(diff > 0.01, "Velocity should cause bristle bending, diff={}", diff);
+    }
+
+    #[test]
+    fn test_per_bristle_color_pickup() {
+        let settings = WetMediaBrushSettings {
+            mixing_strength: 0.8,
+            bristle_count: 16,
+            paint_depletion_rate: 0.01,
+            ..Default::default()
+        };
+        let mut state = WetMediaStrokeState::default();
+        let red = [1.0, 0.0, 0.0];
+
+        wet_media_stroke_begin(
+            &mut state, 10.0, 10.0, 1.0, 20.0, 0.0, 1.0, 0.25, &settings, red,
+        );
+
+        // All bristle colors should start as paint color
+        for c in &state.bristle_colors {
+            assert_eq!(*c, red, "Initial bristle color should match paint color");
+        }
+
+        // Move with a different paint color to trigger drift
+        let blue = [0.0, 0.0, 1.0];
+        wet_media_stroke_move(
+            &mut state, 100.0, 10.0, 1.0, 20.0, 0.0, 1.0, 0.25, &settings, blue,
+        );
+
+        // Bristle colors should have drifted toward blue
+        for c in &state.bristle_colors {
+            assert!(c[2] > 0.0, "Bristle blue channel should increase: {:?}", c);
+            assert!(c[0] < 1.0, "Bristle red channel should decrease: {:?}", c);
+        }
     }
 }

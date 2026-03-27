@@ -620,6 +620,15 @@ function WetMediaPane({ settings, onUpdate }: BrushSettingsPanelProps) {
             onChange={(v) => update({ bristleSpread: v })}
           />
           <SliderControl
+            label="Bristle Stiffness"
+            value={wm.bristleStiffness}
+            min={0.01}
+            max={1.0}
+            step={0.01}
+            displayValue={`${Math.round(wm.bristleStiffness * 100)}%`}
+            onChange={(v) => update({ bristleStiffness: v })}
+          />
+          <SliderControl
             label="Depletion"
             value={wm.paintDepletionRate}
             min={0}

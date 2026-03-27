@@ -78,6 +78,7 @@ export interface WetMediaSettings {
   canvasTextureStrength: number;
   mediumType: MediumType;
   viscosity: number;
+  bristleStiffness: number;
 }
 
 /**
@@ -179,6 +180,7 @@ export interface SerializableBrushSettings {
     canvas_texture_strength: number;
     medium_type: MediumType;
     viscosity: number;
+    bristle_stiffness: number;
   };
 }
 
@@ -248,6 +250,7 @@ export function buildSerializableSettings(
       canvas_texture_strength: s.wetMedia.canvasTextureStrength,
       medium_type: s.wetMedia.mediumType,
       viscosity: s.wetMedia.viscosity,
+      bristle_stiffness: s.wetMedia.bristleStiffness,
     },
   };
 }
@@ -305,6 +308,7 @@ export const DEFAULT_WET_MEDIA: WetMediaSettings = {
   canvasTextureStrength: 0.3,
   mediumType: "Oil",
   viscosity: 0.7,
+  bristleStiffness: 0.5,
 };
 
 /** Per-medium physics defaults used by the GPU simulation. */

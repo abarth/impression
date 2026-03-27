@@ -233,8 +233,8 @@ impl ImpressionCanvas {
                 // Return as a flat array: [origin_x, origin_y, r, g, b, paint_load,
                 //                          velocity_x, velocity_y, mixing_strength,
                 //                          paint_thickness, wetness, width, height,
-                //                          canvas_texture_strength]
-                let params: [f32; 14] = [
+                //                          canvas_texture_strength, viscosity]
+                let params: [f32; 15] = [
                     fp.origin_x,
                     fp.origin_y,
                     fp.paint_color[0],
@@ -249,6 +249,7 @@ impl ImpressionCanvas {
                     fp.width as f32,
                     fp.height as f32,
                     fp.canvas_texture_strength,
+                    fp.viscosity,
                 ];
                 serde_wasm_bindgen::to_value(&params).unwrap_or(JsValue::NULL)
             }
@@ -302,12 +303,12 @@ impl ImpressionCanvas {
         }
     }
 
-    /// For a Deposit replay event, get params as [originX, originY, r, g, b, load, vx, vy, mixing, thickness, wetness, maskW, maskH, canvasTextureStrength].
+    /// For a Deposit replay event, get params as [originX, originY, r, g, b, load, vx, vy, mixing, thickness, wetness, maskW, maskH, canvasTextureStrength, viscosity].
     pub fn wet_media_replay_deposit_params(&self, index: u32) -> JsValue {
         match self.inner.wet_media_replay_events.get(index as usize) {
             Some(canvas::WetMediaReplayEvent::Deposit { footprint, .. }) => {
                 let fp = footprint;
-                let arr: js_sys::Float32Array = js_sys::Float32Array::new_with_length(14);
+                let arr: js_sys::Float32Array = js_sys::Float32Array::new_with_length(15);
                 arr.set_index(0, fp.origin_x);
                 arr.set_index(1, fp.origin_y);
                 arr.set_index(2, fp.paint_color[0]);
@@ -322,6 +323,7 @@ impl ImpressionCanvas {
                 arr.set_index(11, fp.width as f32);
                 arr.set_index(12, fp.height as f32);
                 arr.set_index(13, fp.canvas_texture_strength);
+                arr.set_index(14, fp.viscosity);
                 arr.into()
             }
             _ => JsValue::NULL,
