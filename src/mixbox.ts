@@ -12,9 +12,11 @@ export interface MixboxResources {
 
 /** Load the Mixbox LUT PNG from the public directory and create GPU resources. */
 export async function initMixbox(device: GPUDevice): Promise<MixboxResources> {
-  const response = await fetch("/mixbox_lut.png");
+  const base = import.meta.env.BASE_URL ?? "/";
+  const url = `${base}mixbox_lut.png`;
+  const response = await fetch(url);
   if (!response.ok) {
-    throw new Error(`Failed to load Mixbox LUT: ${response.statusText}`);
+    throw new Error(`Failed to load Mixbox LUT: ${response.status} ${response.statusText} (${url})`);
   }
 
   const blob = await response.blob();
