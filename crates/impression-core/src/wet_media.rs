@@ -315,7 +315,10 @@ fn compute_bristle_canvas_positions(
             let mut bp = (0.5 + 0.5 * rng.next_f32()) * pressure;
 
             // Brush form: at low pressure, only central bristles contact canvas.
-            let dist_from_center = (base_x * base_x + base_y * base_y).sqrt();
+            // Use elliptical distance so flat brushes (roundness < 1) deactivate
+            // bristles along the narrow axis first, matching real brush behavior.
+            let ry = if brush_roundness > 0.01 { 1.0 / brush_roundness } else { 100.0 };
+            let dist_from_center = (base_x * base_x + (base_y * ry) * (base_y * ry)).sqrt();
             let activation_threshold = 1.0 - settings.brush_form * (1.0 - pressure);
             if dist_from_center > activation_threshold {
                 bp = 0.0;
@@ -1629,6 +1632,44 @@ mod tests {
         assert_eq!(
             inactive_count, 0,
             "With brush_form=0, all bristles should always be active"
+        );
+    }
+
+    #[test]
+    fn test_brush_form_elliptical_deactivates_narrow_axis_first() {
+        // With low roundness (flat brush), bristles along the narrow (y) axis
+        // should deactivate before those along the wide (x) axis.
+        let settings = WetMediaBrushSettings {
+            bristle_count: 64,
+            brush_form: 0.6,
+            bristle_spread: 0.3,
+            ..Default::default()
+        };
+        let mut rng = Rng::from_coords(7.0, 7.0);
+        let offsets = init_bristle_offsets(settings.bristle_count, &mut rng);
+
+        // Low roundness = flat brush, moderate pressure
+        let positions = compute_bristle_canvas_positions(
+            50.0, 50.0, 0.3, 20.0, 0.0, 0.3,
+            &settings, [0.0, 0.0], &offsets, &mut vec![(0.0, 0.0); 64], &mut rng,
+        );
+        // Same test with round brush (roundness=1.0)
+        let mut rng2 = Rng::from_coords(7.0, 7.0);
+        let offsets2 = init_bristle_offsets(settings.bristle_count, &mut rng2);
+        let positions_round = compute_bristle_canvas_positions(
+            50.0, 50.0, 0.3, 20.0, 0.0, 1.0,
+            &settings, [0.0, 0.0], &offsets2, &mut vec![(0.0, 0.0); 64], &mut rng2,
+        );
+
+        let inactive_flat = positions.iter().filter(|p| p.pressure == 0.0).count();
+        let inactive_round = positions_round.iter().filter(|p| p.pressure == 0.0).count();
+
+        // Flat brush should deactivate more bristles than round at same pressure,
+        // because the elliptical distance stretches the narrow axis.
+        assert!(
+            inactive_flat > inactive_round,
+            "Flat brush should deactivate more bristles than round: flat={}, round={}",
+            inactive_flat, inactive_round
         );
     }
 
