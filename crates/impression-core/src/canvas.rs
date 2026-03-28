@@ -424,6 +424,9 @@ impl Canvas {
 
     pub fn load_chunk(&mut self, data: &[u8]) -> Result<(), postcard::Error> {
         let ops = crate::operation::deserialize_operations(data)?;
+        // Set is_replaying so wet media footprints are drained into
+        // wet_media_replay_events for the JS side to dispatch to the GPU.
+        self.is_replaying = true;
         for site_op in ops {
             if site_op.op.starts_undo_group() {
                 self.oplog.begin_undo_group(site_op.site);
@@ -431,6 +434,7 @@ impl Canvas {
             self.oplog.push(site_op.clone());
             self.execute_op(site_op);
         }
+        self.is_replaying = false;
         // Mark loaded operations as already persisted so they are not
         // re-flushed into new chunks (which would cause duplicate ops on reload).
         self.oplog.mark_flushed();
@@ -1729,5 +1733,33 @@ mod tests {
                 "kind mismatch at {i}"
             );
         }
+    }
+
+    #[test]
+    fn test_load_chunk_generates_wet_media_replay_events() {
+        use crate::wet_media::{BrushModel, WetMediaBrushSettings};
+
+        let mut canvas = Canvas::new(100, 100);
+        canvas.add_wet_media_layer();
+
+        // Configure wet media brush
+        canvas.site_mut().brush.brush_model = BrushModel::WetMedia;
+        canvas.site_mut().brush.wet_media = WetMediaBrushSettings::default();
+
+        // Record brush settings + stroke
+        canvas.stroke_begin(0, 50.0, 50.0, 1.0);
+        canvas.stroke_end();
+
+        // Flush all operations to bytes
+        let data = canvas.flush_pending_operations().expect("should have ops");
+
+        // Load chunk into a fresh canvas — replay events should be generated
+        let mut canvas2 = Canvas::new(100, 100);
+        canvas2.load_chunk(&data).expect("load_chunk should succeed");
+
+        assert!(
+            !canvas2.wet_media_replay_events.is_empty(),
+            "load_chunk should generate wet media replay events for GPU dispatch"
+        );
     }
 }

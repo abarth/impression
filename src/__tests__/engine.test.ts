@@ -110,6 +110,14 @@ function createMockCanvas() {
     add_adjustment_layer: vi.fn().mockReturnValue(0),
     gradient_map_gradient_id: vi.fn().mockReturnValue(undefined),
     set_gradient_map_gradient: vi.fn(),
+    wet_media_replay_event_count: vi.fn().mockReturnValue(0),
+    wet_media_replay_event_type: vi.fn().mockReturnValue(0),
+    wet_media_replay_deposit_layer: vi.fn().mockReturnValue(0),
+    wet_media_replay_deposit_mask_ptr: vi.fn().mockReturnValue(0),
+    wet_media_replay_deposit_mask_len: vi.fn().mockReturnValue(0),
+    wet_media_replay_deposit_params: vi.fn().mockReturnValue(null),
+    wet_media_replay_sim_step_params: vi.fn().mockReturnValue(null),
+    wet_media_clear_replay_events: vi.fn(),
   };
 }
 
@@ -507,6 +515,28 @@ describe("Engine", () => {
       await engine.embedResource("brush-tip", "tip-1", { id: "tip-1" });
 
       expect(mockStorage.saveDocumentResource).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("loadChunk wet media replay", () => {
+    it("should call replayWetMediaEvents after loading chunk", () => {
+      // loadChunk should check for wet media replay events after loading
+      mockCanvas.load_chunk.mockReturnValue(true);
+      mockCanvas.wet_media_replay_event_count.mockReturnValue(0);
+
+      engine.loadChunk(new Uint8Array([1, 2, 3]));
+
+      expect(mockCanvas.load_chunk).toHaveBeenCalled();
+      // replayWetMediaEvents checks event count — verify it was called
+      expect(mockCanvas.wet_media_replay_event_count).toHaveBeenCalled();
+    });
+
+    it("should not replay when loadChunk fails", () => {
+      mockCanvas.load_chunk.mockReturnValue(false);
+
+      engine.loadChunk(new Uint8Array([1, 2, 3]));
+
+      expect(mockCanvas.wet_media_replay_event_count).not.toHaveBeenCalled();
     });
   });
 });

@@ -649,6 +649,8 @@ export class Engine {
     const result = this.canvas.load_chunk(data);
     if (result) {
       this.syncAllLayers();
+      // Replay wet media GPU deposits accumulated during load_chunk
+      this.replayWetMediaEvents();
     }
     return result;
   }
