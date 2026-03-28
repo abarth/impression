@@ -225,9 +225,11 @@ pub fn generate_bristle_footprint(
     let cos_a = angle_rad.cos();
     let sin_a = angle_rad.sin();
 
-    // Each bristle is a small soft dot placed within the brush ellipse.
-    // Bristle radius scales with brush size.
-    let bristle_radius = (radius / (bristle_offsets.len() as f32).sqrt()).max(0.5);
+    // Each bristle is a soft dot placed within the brush ellipse.
+    // Size the dots so neighboring bristles overlap, producing a continuous
+    // coverage field rather than isolated circles.  The 2.5× multiplier
+    // ensures good overlap for typical bristle counts (32–128).
+    let bristle_radius = (radius * 2.5 / (bristle_offsets.len() as f32).sqrt()).max(0.5);
 
     // Pressure splay: bristles spread outward under pressure
     let splay = 1.0 + pressure * settings.bristle_spread * 0.5;
