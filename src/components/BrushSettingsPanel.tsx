@@ -636,6 +636,16 @@ function WetMediaPane({ settings, onUpdate }: BrushSettingsPanelProps) {
             title="Brush flexibility — low bends with motion"
           />
           <SliderControl
+            label="Brush Form"
+            value={wm.brushForm}
+            min={0}
+            max={1.0}
+            step={0.01}
+            displayValue={`${Math.round(wm.brushForm * 100)}%`}
+            onChange={(v) => update({ brushForm: v })}
+            title="How many bristles contact the canvas at low pressure"
+          />
+          <SliderControl
             label={isOil ? "Depletion Rate" : "Drying Speed"}
             value={wm.paintDepletionRate}
             min={0}

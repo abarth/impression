@@ -6,7 +6,7 @@ export interface StoredBrushTip {
   height: number;
 }
 
-import type { ShapeDynamics, TransferDynamics, ScatterSettings, DualBrushSettings, TextureSettings, WetMediaSettings, MediumType } from "./hooks/useBrushSettings";
+import type { ShapeDynamics, TransferDynamics, ScatterSettings, DualBrushSettings, TextureSettings, WetMediaSettings } from "./hooks/useBrushSettings";
 
 /** Pen-pressure size dynamics shared by all wet media presets. */
 const WET_MEDIA_SHAPE_DYNAMICS: ShapeDynamics = {
@@ -88,6 +88,7 @@ export const DEFAULT_PRESETS: BrushPreset[] = [
       mediumType: "Oil",
       viscosity: 0.8,
       bristleStiffness: 0.6,
+      brushForm: 0.5,
     },
     shapeDynamics: WET_MEDIA_SHAPE_DYNAMICS,
     sort_order: 10,
@@ -114,6 +115,7 @@ export const DEFAULT_PRESETS: BrushPreset[] = [
       mediumType: "Oil",
       viscosity: 0.7,
       bristleStiffness: 0.5,
+      brushForm: 0.5,
     },
     shapeDynamics: WET_MEDIA_SHAPE_DYNAMICS,
     sort_order: 11,
@@ -140,6 +142,7 @@ export const DEFAULT_PRESETS: BrushPreset[] = [
       mediumType: "Oil",
       viscosity: 0.3,
       bristleStiffness: 0.9,
+      brushForm: 0.0,
     },
     shapeDynamics: WET_MEDIA_SHAPE_DYNAMICS,
     sort_order: 12,
@@ -166,6 +169,7 @@ export const DEFAULT_PRESETS: BrushPreset[] = [
       mediumType: "Oil",
       viscosity: 0.75,
       bristleStiffness: 0.5,
+      brushForm: 0.5,
     },
     shapeDynamics: WET_MEDIA_SHAPE_DYNAMICS,
     sort_order: 13,
@@ -192,6 +196,7 @@ export const DEFAULT_PRESETS: BrushPreset[] = [
       mediumType: "Oil",
       viscosity: 0.9,
       bristleStiffness: 0.7,
+      brushForm: 0.5,
     },
     shapeDynamics: WET_MEDIA_SHAPE_DYNAMICS,
     sort_order: 14,
@@ -218,6 +223,7 @@ export const DEFAULT_PRESETS: BrushPreset[] = [
       mediumType: "Oil",
       viscosity: 0.6,
       bristleStiffness: 0.4,
+      brushForm: 0.5,
     },
     shapeDynamics: WET_MEDIA_SHAPE_DYNAMICS,
     sort_order: 15,
@@ -244,6 +250,7 @@ export const DEFAULT_PRESETS: BrushPreset[] = [
       mediumType: "Oil",
       viscosity: 0.8,
       bristleStiffness: 0.3,
+      brushForm: 0.7,
     },
     shapeDynamics: WET_MEDIA_SHAPE_DYNAMICS,
     sort_order: 16,
@@ -271,6 +278,7 @@ export const DEFAULT_PRESETS: BrushPreset[] = [
       mediumType: "Acrylic",
       viscosity: 0.5,
       bristleStiffness: 0.5,
+      brushForm: 0.5,
     },
     shapeDynamics: WET_MEDIA_SHAPE_DYNAMICS,
     sort_order: 20,
@@ -297,6 +305,7 @@ export const DEFAULT_PRESETS: BrushPreset[] = [
       mediumType: "Acrylic",
       viscosity: 0.2,
       bristleStiffness: 0.3,
+      brushForm: 0.5,
     },
     shapeDynamics: WET_MEDIA_SHAPE_DYNAMICS,
     sort_order: 21,
@@ -323,6 +332,7 @@ export const DEFAULT_PRESETS: BrushPreset[] = [
       mediumType: "Acrylic",
       viscosity: 0.8,
       bristleStiffness: 0.6,
+      brushForm: 0.5,
     },
     shapeDynamics: WET_MEDIA_SHAPE_DYNAMICS,
     sort_order: 22,

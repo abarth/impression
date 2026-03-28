@@ -80,6 +80,12 @@ pub struct WetMediaBrushSettings {
     /// Bristle stiffness (0.0–1.0). Higher = bristles resist bending.
     #[serde(default = "default_bristle_stiffness")]
     pub bristle_stiffness: f32,
+    /// Brush form (0.0–1.0). Controls how many bristles contact the canvas at
+    /// low pressure. At 0.0 all bristles always touch; at 1.0 only central
+    /// bristles touch at light pressure and outer bristles activate as pressure
+    /// increases.
+    #[serde(default = "default_brush_form")]
+    pub brush_form: f32,
 }
 
 fn default_viscosity() -> f32 {
@@ -87,6 +93,10 @@ fn default_viscosity() -> f32 {
 }
 
 fn default_bristle_stiffness() -> f32 {
+    0.5
+}
+
+fn default_brush_form() -> f32 {
     0.5
 }
 
@@ -104,6 +114,7 @@ impl Default for WetMediaBrushSettings {
             medium_type: MediumType::Oil,
             viscosity: 0.7,
             bristle_stiffness: 0.5,
+            brush_form: 0.5,
         }
     }
 }
@@ -267,7 +278,15 @@ fn compute_bristle_canvas_positions(
             let cy = origin_y + scaled_x * sin_a + scaled_y * cos_a;
 
             // Per-bristle pressure variation
-            let bp = (0.5 + 0.5 * rng.next_f32()) * pressure;
+            let mut bp = (0.5 + 0.5 * rng.next_f32()) * pressure;
+
+            // Brush form: at low pressure, only central bristles contact canvas.
+            // dist_from_center is the normalized distance from the brush center (0–1).
+            let dist_from_center = (base_x * base_x + base_y * base_y).sqrt();
+            let activation_threshold = 1.0 - settings.brush_form * (1.0 - pressure);
+            if dist_from_center > activation_threshold {
+                bp = 0.0; // bristle doesn't touch canvas
+            }
 
             BristlePosition {
                 canvas_x: cx,
@@ -788,6 +807,7 @@ mod tests {
             medium_type: MediumType::Acrylic,
             viscosity: 0.5,
             bristle_stiffness: 0.6,
+            brush_form: 0.5,
         };
         let bytes = rmp_serde::to_vec(&settings).unwrap();
         let decoded: WetMediaBrushSettings = rmp_serde::from_slice(&bytes).unwrap();
@@ -919,7 +939,7 @@ mod tests {
 
     #[test]
     fn test_wet_media_settings_backwards_compat() {
-        // Old format without medium_type, viscosity, bristle_stiffness should deserialize with defaults
+        // Old format without medium_type, viscosity, bristle_stiffness, brush_form should deserialize with defaults
         let old_settings = WetMediaBrushSettings {
             paint_load: 0.8,
             paint_thickness: 0.5,
@@ -932,6 +952,7 @@ mod tests {
             medium_type: MediumType::Oil,
             viscosity: 0.7,
             bristle_stiffness: 0.5,
+            brush_form: 0.5,
         };
         // Serialize without the new fields by using JSON (simulates old format)
         let json = r#"{"paint_load":0.8,"paint_thickness":0.5,"wetness":0.7,"mixing_strength":0.5,"bristle_count":64,"bristle_spread":0.3,"paint_depletion_rate":0.1,"canvas_texture_strength":0.3}"#;
@@ -939,6 +960,7 @@ mod tests {
         assert_eq!(decoded.medium_type, MediumType::Oil);
         assert!((decoded.viscosity - 0.7).abs() < f32::EPSILON);
         assert!((decoded.bristle_stiffness - 0.5).abs() < f32::EPSILON);
+        assert!((decoded.brush_form - 0.5).abs() < f32::EPSILON);
         assert_eq!(decoded, old_settings);
     }
 
@@ -1476,6 +1498,76 @@ mod tests {
             max_diff > 0.001,
             "Bristle colors should diverge after depletion, max_diff={}",
             max_diff
+        );
+    }
+
+    #[test]
+    fn test_brush_form_low_pressure_deactivates_outer_bristles() {
+        let settings = WetMediaBrushSettings {
+            bristle_count: 32,
+            brush_form: 0.8,
+            bristle_spread: 0.1,
+            ..Default::default()
+        };
+        let mut rng = Rng::from_coords(5.0, 5.0);
+        let offsets = init_bristle_offsets(settings.bristle_count, &mut rng);
+
+        // Low pressure: many outer bristles should be deactivated
+        let positions = compute_bristle_canvas_positions(
+            50.0, 50.0, 0.1, 20.0, 0.0, 1.0,
+            &settings, [0.0, 0.0], &offsets, &mut rng,
+        );
+        let inactive_count = positions.iter().filter(|p| p.pressure == 0.0).count();
+        assert!(
+            inactive_count > positions.len() / 2,
+            "At low pressure with high brush_form, >50% bristles should be inactive: {}/{}",
+            inactive_count, positions.len()
+        );
+    }
+
+    #[test]
+    fn test_brush_form_full_pressure_all_active() {
+        let settings = WetMediaBrushSettings {
+            bristle_count: 32,
+            brush_form: 0.8,
+            bristle_spread: 0.1,
+            ..Default::default()
+        };
+        let mut rng = Rng::from_coords(5.0, 5.0);
+        let offsets = init_bristle_offsets(settings.bristle_count, &mut rng);
+
+        // Full pressure: all bristles should be active
+        let positions = compute_bristle_canvas_positions(
+            50.0, 50.0, 1.0, 20.0, 0.0, 1.0,
+            &settings, [0.0, 0.0], &offsets, &mut rng,
+        );
+        let inactive_count = positions.iter().filter(|p| p.pressure == 0.0).count();
+        assert_eq!(
+            inactive_count, 0,
+            "At full pressure, all bristles should be active"
+        );
+    }
+
+    #[test]
+    fn test_brush_form_zero_always_all_active() {
+        let settings = WetMediaBrushSettings {
+            bristle_count: 32,
+            brush_form: 0.0, // no brush form effect
+            bristle_spread: 0.1,
+            ..Default::default()
+        };
+        let mut rng = Rng::from_coords(5.0, 5.0);
+        let offsets = init_bristle_offsets(settings.bristle_count, &mut rng);
+
+        // Even at very low pressure, brush_form=0 means all bristles active
+        let positions = compute_bristle_canvas_positions(
+            50.0, 50.0, 0.1, 20.0, 0.0, 1.0,
+            &settings, [0.0, 0.0], &offsets, &mut rng,
+        );
+        let inactive_count = positions.iter().filter(|p| p.pressure == 0.0).count();
+        assert_eq!(
+            inactive_count, 0,
+            "With brush_form=0, all bristles should always be active"
         );
     }
 }

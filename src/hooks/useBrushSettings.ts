@@ -79,6 +79,7 @@ export interface WetMediaSettings {
   mediumType: MediumType;
   viscosity: number;
   bristleStiffness: number;
+  brushForm: number;
 }
 
 /**
@@ -181,6 +182,7 @@ export interface SerializableBrushSettings {
     medium_type: MediumType;
     viscosity: number;
     bristle_stiffness: number;
+    brush_form: number;
   };
 }
 
@@ -251,6 +253,7 @@ export function buildSerializableSettings(
       medium_type: s.wetMedia.mediumType,
       viscosity: s.wetMedia.viscosity,
       bristle_stiffness: s.wetMedia.bristleStiffness,
+      brush_form: s.wetMedia.brushForm,
     },
   };
 }
@@ -309,6 +312,7 @@ export const DEFAULT_WET_MEDIA: WetMediaSettings = {
   mediumType: "Oil",
   viscosity: 0.7,
   bristleStiffness: 0.5,
+  brushForm: 0.5,
 };
 
 /** Per-medium physics defaults used by the GPU simulation. */
