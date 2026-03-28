@@ -8,6 +8,7 @@ interface SliderControlProps {
   step: number;
   displayValue?: string;
   onChange: (value: number) => void;
+  title?: string;
 }
 
 export function SliderControl({
@@ -18,9 +19,10 @@ export function SliderControl({
   step,
   displayValue,
   onChange,
+  title,
 }: SliderControlProps) {
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-1.5" title={title}>
       <div className="flex justify-between items-baseline">
         <span className="text-[12px] text-cream-dim">{label}</span>
         <span className="text-[11px] text-cream-muted tabular-nums">

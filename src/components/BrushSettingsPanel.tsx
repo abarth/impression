@@ -517,6 +517,7 @@ function TexturePane({ settings, storage, onUpdate }: BrushSettingsPanelProps) {
 
 function WetMediaPane({ settings, onUpdate }: BrushSettingsPanelProps) {
   const wm = settings.wetMedia;
+  const isOil = wm.mediumType === "Oil";
   const update = (partial: Partial<WetMediaSettings>) =>
     onUpdate("wetMedia", { ...wm, ...partial });
   return (
@@ -557,15 +558,6 @@ function WetMediaPane({ settings, onUpdate }: BrushSettingsPanelProps) {
             </div>
           </div>
           <SliderControl
-            label="Viscosity"
-            value={wm.viscosity}
-            min={0}
-            max={1.0}
-            step={0.01}
-            displayValue={`${Math.round(wm.viscosity * 100)}%`}
-            onChange={(v) => update({ viscosity: v })}
-          />
-          <SliderControl
             label="Paint Load"
             value={wm.paintLoad}
             min={0}
@@ -573,15 +565,17 @@ function WetMediaPane({ settings, onUpdate }: BrushSettingsPanelProps) {
             step={0.01}
             displayValue={`${Math.round(wm.paintLoad * 100)}%`}
             onChange={(v) => update({ paintLoad: v })}
+            title="Amount of paint on the brush"
           />
           <SliderControl
-            label="Thickness"
+            label={isOil ? "Paint Thickness" : "Thickness"}
             value={wm.paintThickness}
             min={0}
             max={1.0}
             step={0.01}
             displayValue={`${Math.round(wm.paintThickness * 100)}%`}
             onChange={(v) => update({ paintThickness: v })}
+            title="Height of impasto buildup"
           />
           <SliderControl
             label="Wetness"
@@ -591,6 +585,7 @@ function WetMediaPane({ settings, onUpdate }: BrushSettingsPanelProps) {
             step={0.01}
             displayValue={`${Math.round(wm.wetness * 100)}%`}
             onChange={(v) => update({ wetness: v })}
+            title="How fluid the paint is for mixing"
           />
           <SliderControl
             label="Mixing"
@@ -600,6 +595,17 @@ function WetMediaPane({ settings, onUpdate }: BrushSettingsPanelProps) {
             step={0.01}
             displayValue={`${Math.round(wm.mixingStrength * 100)}%`}
             onChange={(v) => update({ mixingStrength: v })}
+            title="How much new paint blends with existing"
+          />
+          <SliderControl
+            label="Viscosity"
+            value={wm.viscosity}
+            min={0}
+            max={1.0}
+            step={0.01}
+            displayValue={`${Math.round(wm.viscosity * 100)}%`}
+            onChange={(v) => update({ viscosity: v })}
+            title="Paint resistance to flow and mixing"
           />
           <SliderControl
             label="Bristle Count"
@@ -627,15 +633,17 @@ function WetMediaPane({ settings, onUpdate }: BrushSettingsPanelProps) {
             step={0.01}
             displayValue={`${Math.round(wm.bristleStiffness * 100)}%`}
             onChange={(v) => update({ bristleStiffness: v })}
+            title="Brush flexibility — low bends with motion"
           />
           <SliderControl
-            label="Depletion"
+            label={isOil ? "Depletion Rate" : "Drying Speed"}
             value={wm.paintDepletionRate}
             min={0}
             max={1.0}
             step={0.01}
             displayValue={`${Math.round(wm.paintDepletionRate * 100)}%`}
             onChange={(v) => update({ paintDepletionRate: v })}
+            title="How quickly paint runs out"
           />
           <SliderControl
             label="Canvas Texture"
@@ -645,6 +653,7 @@ function WetMediaPane({ settings, onUpdate }: BrushSettingsPanelProps) {
             step={0.01}
             displayValue={`${Math.round(wm.canvasTextureStrength * 100)}%`}
             onChange={(v) => update({ canvasTextureStrength: v })}
+            title="How much paper grain affects paint"
           />
         </>
       )}
