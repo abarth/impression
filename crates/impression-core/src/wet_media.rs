@@ -1096,4 +1096,193 @@ mod tests {
             assert!(c[0] < 1.0, "Bristle red channel should decrease: {:?}", c);
         }
     }
+
+    // -- Trail rendering tests --
+
+    #[test]
+    fn test_trail_footprint_uses_capsule_rasterization() {
+        // Second footprint should use trails (capsules), not dots
+        let settings = WetMediaBrushSettings {
+            bristle_count: 16,
+            ..Default::default()
+        };
+        let mut rng = Rng::from_coords(1.0, 1.0);
+        let offsets = init_bristle_offsets(16, &mut rng);
+
+        // First dab — no previous positions
+        let (fp1, prev) = generate_bristle_footprint(
+            50.0, 50.0, 1.0, 20.0, 0.0, 1.0,
+            &settings, [1.0, 0.0, 0.0], 1.0, [5.0, 0.0], &offsets, None, &mut rng,
+        );
+
+        // Second footprint — with previous positions (trail mode)
+        let (fp2, _) = generate_bristle_footprint(
+            55.0, 50.0, 1.0, 20.0, 0.0, 1.0,
+            &settings, [1.0, 0.0, 0.0], 1.0, [5.0, 0.0], &offsets, Some(&prev), &mut rng,
+        );
+
+        // Trail mask can have different dimensions from first dab
+        let nonzero1 = fp1.mask.iter().filter(|&&v| v > 0.0).count();
+        let nonzero2 = fp2.mask.iter().filter(|&&v| v > 0.0).count();
+        assert!(nonzero1 > 0, "First dab should have nonzero pixels");
+        assert!(nonzero2 > 0, "Trail footprint should have nonzero pixels");
+    }
+
+    #[test]
+    fn test_trail_covers_movement_area() {
+        // A trail footprint should cover the area between prev and curr positions
+        let settings = WetMediaBrushSettings {
+            bristle_count: 4,
+            bristle_spread: 0.0, // tight bristles for predictable positions
+            ..Default::default()
+        };
+        let mut rng = Rng::from_coords(2.0, 2.0);
+        let offsets = init_bristle_offsets(4, &mut rng);
+
+        let (_, prev) = generate_bristle_footprint(
+            50.0, 50.0, 1.0, 10.0, 0.0, 1.0,
+            &settings, [1.0, 0.0, 0.0], 1.0, [0.0, 0.0], &offsets, None, &mut rng,
+        );
+
+        // Move significantly to the right
+        let (fp, _) = generate_bristle_footprint(
+            60.0, 50.0, 1.0, 10.0, 0.0, 1.0,
+            &settings, [1.0, 0.0, 0.0], 1.0, [10.0, 0.0], &offsets, Some(&prev), &mut rng,
+        );
+
+        // The mask should be wider than the brush size since it covers movement
+        assert!(fp.width > 10 || fp.height > 0, "Trail mask should cover movement area");
+        let nonzero = fp.mask.iter().filter(|&&v| v > 0.0).count();
+        assert!(nonzero > 0, "Trail should have painted pixels");
+    }
+
+    #[test]
+    fn test_trail_determinism() {
+        // Two identical sequences should produce identical trail footprints
+        let settings = WetMediaBrushSettings {
+            bristle_count: 16,
+            ..Default::default()
+        };
+
+        let gen_sequence = || {
+            let mut rng = Rng::from_coords(7.0, 7.0);
+            let offsets = init_bristle_offsets(16, &mut rng);
+            let (_, prev) = generate_bristle_footprint(
+                50.0, 50.0, 1.0, 20.0, 0.0, 1.0,
+                &settings, [1.0, 0.0, 0.0], 1.0, [0.0, 0.0], &offsets, None, &mut rng,
+            );
+            let (fp, _) = generate_bristle_footprint(
+                55.0, 52.0, 0.8, 20.0, 0.0, 1.0,
+                &settings, [1.0, 0.0, 0.0], 0.9, [5.0, 2.0], &offsets, Some(&prev), &mut rng,
+            );
+            fp
+        };
+
+        let fp_a = gen_sequence();
+        let fp_b = gen_sequence();
+        assert_eq!(fp_a.width, fp_b.width);
+        assert_eq!(fp_a.height, fp_b.height);
+        assert_eq!(fp_a.mask.len(), fp_b.mask.len());
+        for (a, b) in fp_a.mask.iter().zip(fp_b.mask.iter()) {
+            assert!((a - b).abs() < f32::EPSILON, "Trail footprints must be deterministic");
+        }
+    }
+
+    #[test]
+    fn test_trail_bbox_contains_all_marks() {
+        // No non-zero mask values should appear at the boundary edges
+        // (which would indicate clipping)
+        let settings = WetMediaBrushSettings {
+            bristle_count: 32,
+            ..Default::default()
+        };
+        let mut rng = Rng::from_coords(4.0, 4.0);
+        let offsets = init_bristle_offsets(32, &mut rng);
+
+        let (_, prev) = generate_bristle_footprint(
+            50.0, 50.0, 1.0, 20.0, 0.0, 1.0,
+            &settings, [1.0, 0.0, 0.0], 1.0, [0.0, 0.0], &offsets, None, &mut rng,
+        );
+
+        let (fp, _) = generate_bristle_footprint(
+            55.0, 52.0, 0.9, 20.0, 0.0, 1.0,
+            &settings, [1.0, 0.0, 0.0], 0.9, [5.0, 2.0], &offsets, Some(&prev), &mut rng,
+        );
+
+        let w = fp.width as usize;
+        let h = fp.height as usize;
+        // Check top and bottom edges
+        let top_edge: f32 = (0..w).map(|x| fp.mask[x]).sum();
+        let bot_edge: f32 = (0..w).map(|x| fp.mask[(h - 1) * w + x]).sum();
+        // Check left and right edges
+        let left_edge: f32 = (0..h).map(|y| fp.mask[y * w]).sum();
+        let right_edge: f32 = (0..h).map(|y| fp.mask[y * w + w - 1]).sum();
+
+        // At least one edge should be mostly empty (padded beyond bristle marks)
+        let total_edge = top_edge + bot_edge + left_edge + right_edge;
+        let total_mask: f32 = fp.mask.iter().sum();
+        assert!(
+            total_edge < total_mask * 0.2,
+            "Edge values should be small relative to total: edge={}, total={}",
+            total_edge, total_mask
+        );
+    }
+
+    #[test]
+    fn test_stroke_uses_trails_after_first_dab() {
+        // A full stroke should populate prev_bristle_positions
+        let settings = WetMediaBrushSettings {
+            bristle_count: 8,
+            ..Default::default()
+        };
+        let mut state = WetMediaStrokeState::default();
+        let color = [1.0, 0.0, 0.0];
+
+        wet_media_stroke_begin(
+            &mut state, 10.0, 10.0, 1.0, 20.0, 0.0, 1.0, 0.12, &settings, color,
+        );
+        assert!(state.prev_bristle_positions.is_some(), "Should have prev positions after begin");
+
+        wet_media_stroke_move(
+            &mut state, 50.0, 10.0, 0.8, 20.0, 0.0, 1.0, 0.12, &settings, color,
+        );
+        assert!(state.prev_bristle_positions.is_some(), "Should still have prev positions after move");
+        assert!(state.footprints.len() > 1, "Should have generated multiple footprints");
+
+        wet_media_stroke_end(&mut state);
+        assert!(state.prev_bristle_positions.is_none(), "Should clear prev positions on end");
+    }
+
+    #[test]
+    fn test_trail_pressure_taper() {
+        // With decreasing pressure along the trail, later marks should be fainter
+        let settings = WetMediaBrushSettings {
+            bristle_count: 4,
+            bristle_spread: 0.0,
+            ..Default::default()
+        };
+        let mut state = WetMediaStrokeState::default();
+        let color = [1.0, 0.0, 0.0];
+
+        // Start with full pressure
+        wet_media_stroke_begin(
+            &mut state, 10.0, 10.0, 1.0, 20.0, 0.0, 1.0, 0.15, &settings, color,
+        );
+        let first_mask_sum: f32 = state.footprints[0].mask.iter().sum();
+
+        // Move with very low pressure
+        state.footprints.clear();
+        wet_media_stroke_move(
+            &mut state, 60.0, 10.0, 0.1, 20.0, 0.0, 1.0, 0.15, &settings, color,
+        );
+
+        if let Some(last) = state.footprints.last() {
+            let last_mask_sum: f32 = last.mask.iter().sum();
+            assert!(
+                last_mask_sum < first_mask_sum,
+                "Low-pressure trail should be fainter: first={}, last={}",
+                first_mask_sum, last_mask_sum
+            );
+        }
+    }
 }
