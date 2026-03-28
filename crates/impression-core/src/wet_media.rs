@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use crate::color::{rgb_to_hsl, hsl_to_rgb};
 use crate::dynamics::Rng;
 
 /// Paint medium type — each has distinct physical behavior.
@@ -86,6 +87,11 @@ pub struct WetMediaBrushSettings {
     /// increases.
     #[serde(default = "default_brush_form")]
     pub brush_form: f32,
+    /// Per-bristle color noise (0.0–1.0). At stroke start, each bristle gets
+    /// a subtle HSL jitter from the paint color. Higher values produce more
+    /// visible color variation across the brush.
+    #[serde(default)]
+    pub color_noise: f32,
 }
 
 fn default_viscosity() -> f32 {
@@ -115,6 +121,7 @@ impl Default for WetMediaBrushSettings {
             viscosity: 0.7,
             bristle_stiffness: 0.5,
             brush_form: 0.5,
+            color_noise: 0.0,
         }
     }
 }
@@ -549,6 +556,18 @@ pub fn wet_media_stroke_begin(
     state.bristle_offsets = init_bristle_offsets(settings.bristle_count, &mut state.rng);
     state.bristle_colors = vec![paint_color; settings.bristle_count as usize];
 
+    // Apply per-bristle color noise via HSL jitter (after init_bristle_offsets
+    // so existing RNG sequences are preserved for strokes with zero noise)
+    if settings.color_noise > 0.0 {
+        let (h, s, l) = rgb_to_hsl(paint_color[0], paint_color[1], paint_color[2]);
+        for color in state.bristle_colors.iter_mut() {
+            let h2 = h + (state.rng.next_f32() - 0.5) * settings.color_noise * 30.0;
+            let s2 = (s + (state.rng.next_f32() - 0.5) * settings.color_noise * 0.15).clamp(0.0, 1.0);
+            let l2 = (l + (state.rng.next_f32() - 0.5) * settings.color_noise * 0.1).clamp(0.0, 1.0);
+            *color = hsl_to_rgb(h2, s2, l2);
+        }
+    }
+
     let (footprint, curr_positions) = generate_bristle_footprint(
         x, y, pressure,
         brush_size, brush_angle, brush_roundness,
@@ -808,6 +827,7 @@ mod tests {
             viscosity: 0.5,
             bristle_stiffness: 0.6,
             brush_form: 0.5,
+            color_noise: 0.0,
         };
         let bytes = rmp_serde::to_vec(&settings).unwrap();
         let decoded: WetMediaBrushSettings = rmp_serde::from_slice(&bytes).unwrap();
@@ -953,6 +973,7 @@ mod tests {
             viscosity: 0.7,
             bristle_stiffness: 0.5,
             brush_form: 0.5,
+            color_noise: 0.0,
         };
         // Serialize without the new fields by using JSON (simulates old format)
         let json = r#"{"paint_load":0.8,"paint_thickness":0.5,"wetness":0.7,"mixing_strength":0.5,"bristle_count":64,"bristle_spread":0.3,"paint_depletion_rate":0.1,"canvas_texture_strength":0.3}"#;
@@ -961,6 +982,7 @@ mod tests {
         assert!((decoded.viscosity - 0.7).abs() < f32::EPSILON);
         assert!((decoded.bristle_stiffness - 0.5).abs() < f32::EPSILON);
         assert!((decoded.brush_form - 0.5).abs() < f32::EPSILON);
+        assert!((decoded.color_noise - 0.0).abs() < f32::EPSILON);
         assert_eq!(decoded, old_settings);
     }
 
@@ -1569,5 +1591,82 @@ mod tests {
             inactive_count, 0,
             "With brush_form=0, all bristles should always be active"
         );
+    }
+
+    #[test]
+    fn test_color_noise_produces_variation() {
+        let settings = WetMediaBrushSettings {
+            bristle_count: 16,
+            color_noise: 0.5,
+            ..Default::default()
+        };
+        let mut state = WetMediaStrokeState::default();
+        let color = [0.5, 0.3, 0.7];
+
+        wet_media_stroke_begin(
+            &mut state, 10.0, 10.0, 1.0,
+            20.0, 0.0, 1.0, 0.12,
+            &settings, color,
+        );
+
+        // Bristle colors should diverge from each other
+        let mut max_diff = 0.0f32;
+        for i in 0..state.bristle_colors.len() {
+            for j in (i + 1)..state.bristle_colors.len() {
+                for c in 0..3 {
+                    let diff = (state.bristle_colors[i][c] - state.bristle_colors[j][c]).abs();
+                    max_diff = max_diff.max(diff);
+                }
+            }
+        }
+        assert!(max_diff > 0.01, "Color noise should produce variation: max_diff={}", max_diff);
+    }
+
+    #[test]
+    fn test_color_noise_zero_no_variation() {
+        let settings = WetMediaBrushSettings {
+            bristle_count: 16,
+            color_noise: 0.0,
+            ..Default::default()
+        };
+        let mut state = WetMediaStrokeState::default();
+        let color = [0.5, 0.3, 0.7];
+
+        wet_media_stroke_begin(
+            &mut state, 10.0, 10.0, 1.0,
+            20.0, 0.0, 1.0, 0.12,
+            &settings, color,
+        );
+
+        // All bristle colors should equal the paint color
+        for c in &state.bristle_colors {
+            assert_eq!(*c, color, "With noise=0, all bristles should match paint color");
+        }
+    }
+
+    #[test]
+    fn test_color_noise_deterministic() {
+        let settings = WetMediaBrushSettings {
+            bristle_count: 16,
+            color_noise: 0.5,
+            ..Default::default()
+        };
+        let color = [0.5, 0.3, 0.7];
+
+        let mut state1 = WetMediaStrokeState::default();
+        wet_media_stroke_begin(
+            &mut state1, 10.0, 10.0, 1.0,
+            20.0, 0.0, 1.0, 0.12,
+            &settings, color,
+        );
+
+        let mut state2 = WetMediaStrokeState::default();
+        wet_media_stroke_begin(
+            &mut state2, 10.0, 10.0, 1.0,
+            20.0, 0.0, 1.0, 0.12,
+            &settings, color,
+        );
+
+        assert_eq!(state1.bristle_colors, state2.bristle_colors, "Same seed should produce same colors");
     }
 }

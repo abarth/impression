@@ -636,6 +636,16 @@ function WetMediaPane({ settings, onUpdate }: BrushSettingsPanelProps) {
             title="Brush flexibility — low bends with motion"
           />
           <SliderControl
+            label="Color Noise"
+            value={wm.colorNoise}
+            min={0}
+            max={1.0}
+            step={0.01}
+            displayValue={`${Math.round(wm.colorNoise * 100)}%`}
+            onChange={(v) => update({ colorNoise: v })}
+            title="Per-bristle color variation at stroke start"
+          />
+          <SliderControl
             label="Brush Form"
             value={wm.brushForm}
             min={0}

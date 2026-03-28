@@ -176,6 +176,67 @@ pub fn apply_blend(
     )
 }
 
+/// Convert RGB (0.0–1.0 each) to HSL. Returns (h, s, l) where h is in degrees [0, 360).
+pub fn rgb_to_hsl(r: f32, g: f32, b: f32) -> (f32, f32, f32) {
+    let max = r.max(g).max(b);
+    let min = r.min(g).min(b);
+    let l = (max + min) * 0.5;
+    if (max - min).abs() < 1e-7 {
+        return (0.0, 0.0, l);
+    }
+    let d = max - min;
+    let s = if l > 0.5 {
+        d / (2.0 - max - min)
+    } else {
+        d / (max + min)
+    };
+    let h = if (max - r).abs() < 1e-7 {
+        let mut h = (g - b) / d;
+        if g < b {
+            h += 6.0;
+        }
+        h
+    } else if (max - g).abs() < 1e-7 {
+        (b - r) / d + 2.0
+    } else {
+        (r - g) / d + 4.0
+    };
+    (h * 60.0, s, l)
+}
+
+/// Convert HSL to RGB (0.0–1.0 each). `h` is in degrees, `s` and `l` in [0, 1].
+pub fn hsl_to_rgb(h: f32, s: f32, l: f32) -> [f32; 3] {
+    if s.abs() < 1e-7 {
+        return [l, l, l];
+    }
+    let q = if l < 0.5 {
+        l * (1.0 + s)
+    } else {
+        l + s - l * s
+    };
+    let p = 2.0 * l - q;
+    let h_norm = ((h % 360.0) + 360.0) % 360.0 / 360.0;
+    [
+        hue_to_rgb(p, q, h_norm + 1.0 / 3.0),
+        hue_to_rgb(p, q, h_norm),
+        hue_to_rgb(p, q, h_norm - 1.0 / 3.0),
+    ]
+}
+
+fn hue_to_rgb(p: f32, q: f32, mut t: f32) -> f32 {
+    if t < 0.0 { t += 1.0; }
+    if t > 1.0 { t -= 1.0; }
+    if t < 1.0 / 6.0 {
+        p + (q - p) * 6.0 * t
+    } else if t < 0.5 {
+        q
+    } else if t < 2.0 / 3.0 {
+        p + (q - p) * (2.0 / 3.0 - t) * 6.0
+    } else {
+        p
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -271,5 +332,40 @@ mod tests {
         let original = dst;
         blend_pixel(&mut dst, Color::new(255, 0, 0), 0.0);
         assert_eq!(dst, original);
+    }
+
+    #[test]
+    fn test_hsl_round_trip() {
+        let colors: &[(f32, f32, f32)] = &[
+            (1.0, 0.0, 0.0), // red
+            (0.0, 1.0, 0.0), // green
+            (0.0, 0.0, 1.0), // blue
+            (0.5, 0.5, 0.5), // gray
+            (1.0, 1.0, 1.0), // white
+            (0.0, 0.0, 0.0), // black
+            (0.8, 0.3, 0.6), // arbitrary
+        ];
+        for &(r, g, b) in colors {
+            let (h, s, l) = rgb_to_hsl(r, g, b);
+            let [r2, g2, b2] = hsl_to_rgb(h, s, l);
+            assert!((r - r2).abs() < 0.01, "R mismatch: {} vs {} for ({},{},{})", r, r2, r, g, b);
+            assert!((g - g2).abs() < 0.01, "G mismatch: {} vs {} for ({},{},{})", g, g2, r, g, b);
+            assert!((b - b2).abs() < 0.01, "B mismatch: {} vs {} for ({},{},{})", b, b2, r, g, b);
+        }
+    }
+
+    #[test]
+    fn test_hsl_pure_red() {
+        let (h, s, l) = rgb_to_hsl(1.0, 0.0, 0.0);
+        assert!((h - 0.0).abs() < 0.01, "Red hue should be 0: {}", h);
+        assert!((s - 1.0).abs() < 0.01, "Red saturation should be 1: {}", s);
+        assert!((l - 0.5).abs() < 0.01, "Red lightness should be 0.5: {}", l);
+    }
+
+    #[test]
+    fn test_hsl_gray() {
+        let (_, s, l) = rgb_to_hsl(0.5, 0.5, 0.5);
+        assert!(s.abs() < 0.01, "Gray saturation should be 0: {}", s);
+        assert!((l - 0.5).abs() < 0.01, "Gray lightness should be 0.5: {}", l);
     }
 }

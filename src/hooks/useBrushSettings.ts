@@ -80,6 +80,7 @@ export interface WetMediaSettings {
   viscosity: number;
   bristleStiffness: number;
   brushForm: number;
+  colorNoise: number;
 }
 
 /**
@@ -183,6 +184,7 @@ export interface SerializableBrushSettings {
     viscosity: number;
     bristle_stiffness: number;
     brush_form: number;
+    color_noise: number;
   };
 }
 
@@ -254,6 +256,7 @@ export function buildSerializableSettings(
       viscosity: s.wetMedia.viscosity,
       bristle_stiffness: s.wetMedia.bristleStiffness,
       brush_form: s.wetMedia.brushForm,
+      color_noise: s.wetMedia.colorNoise,
     },
   };
 }
@@ -313,6 +316,7 @@ export const DEFAULT_WET_MEDIA: WetMediaSettings = {
   viscosity: 0.7,
   bristleStiffness: 0.5,
   brushForm: 0.5,
+  colorNoise: 0.0,
 };
 
 /** Per-medium physics defaults used by the GPU simulation. */
