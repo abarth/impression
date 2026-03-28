@@ -884,7 +884,7 @@ mod tests {
     fn test_bristle_footprint_deterministic() {
         let settings = WetMediaBrushSettings::default();
         let mut rng1 = Rng::from_coords(10.0, 20.0);
-        let mut rng2 = Rng::from_coords(10.0, 20.0);
+        let _rng2 = Rng::from_coords(10.0, 20.0);
 
         // Generate identical bristle offsets from identical RNGs
         let offsets1 = init_bristle_offsets(settings.bristle_count, &mut rng1);

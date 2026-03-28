@@ -1892,7 +1892,7 @@ mod tests {
             ..Default::default()
         };
 
-        let mut interp = DualBrushInterpolator::new(&brush);
+        let interp = DualBrushInterpolator::new(&brush);
         // Even with advance, disabled dual brush shouldn't place stamps (radius=0 → step clamped to 1)
         // But overlapping should return empty since no instances are added
         let overlap = interp.overlapping(50.0, 50.0, 10.0);

@@ -317,7 +317,7 @@ mod tests {
         let layer_id = canvas.layers[0].id;
         canvas.apply(Operation::WetMediaSimStep { layer: layer_id, frames: 60 });
 
-        let event_count_before = canvas.wet_media_replay_events.len();
+        let _event_count_before = canvas.wet_media_replay_events.len();
 
         // Undo the stroke — this calls replay_active which clears and re-populates events
         canvas.undo();
