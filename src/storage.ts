@@ -4,7 +4,7 @@ import type { Gradient } from "./gradient";
 import { DEFAULT_GRADIENTS } from "./gradient";
 
 const DB_NAME = "impression";
-const DB_VERSION = 6;
+const DB_VERSION = 7;
 
 export interface DocumentMeta {
   id: string;
@@ -80,8 +80,8 @@ export class Storage {
           }
         }
 
-        // v4 → v6: Upsert default presets (adds new Oil/Acrylic presets, updates groups and spacing)
-        if (oldVersion >= 4 && oldVersion < 6) {
+        // v4 → v7: Upsert default presets (adds new Oil/Acrylic presets, updates groups and spacing)
+        if (oldVersion >= 4 && oldVersion < 7) {
           const tx = (event.target as IDBOpenDBRequest).transaction!;
           const presets = tx.objectStore("brush_presets");
           for (const preset of DEFAULT_PRESETS) {
