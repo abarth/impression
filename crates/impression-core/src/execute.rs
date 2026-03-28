@@ -23,6 +23,7 @@ impl Canvas {
                 pressure,
             } => {
                 let site_state = self.sites.entry(site).or_default();
+                let pressure = dynamics::remap_pressure(pressure, site_state.brush.pressure_curve);
                 site_state.stroke_layer = layer;
                 if site_state.brush.brush_model == BrushModel::WetMedia {
                     let brush = &site_state.brush;
@@ -89,6 +90,7 @@ impl Canvas {
             }
             Operation::StrokeMove { x, y, pressure } => {
                 let site_state = self.sites.entry(site).or_default();
+                let pressure = dynamics::remap_pressure(pressure, site_state.brush.pressure_curve);
                 let is_wet_media = site_state.brush.brush_model == BrushModel::WetMedia;
                 if is_wet_media {
                     let brush = &site_state.brush;

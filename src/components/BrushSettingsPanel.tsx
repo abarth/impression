@@ -187,6 +187,16 @@ function BrushTipPane({
         displayValue={`${Math.round(settings.smoothing * 100)}%`}
         onChange={(v) => onUpdate("smoothing", v)}
       />
+      <SliderControl
+        label="Pressure Curve"
+        value={settings.pressureCurve ?? 1.0}
+        min={0.3}
+        max={3.0}
+        step={0.1}
+        displayValue={(settings.pressureCurve ?? 1.0) <= 0.6 ? "Soft" : (settings.pressureCurve ?? 1.0) >= 1.8 ? "Hard" : (settings.pressureCurve ?? 1.0) === 1.0 ? "Linear" : `γ${(settings.pressureCurve ?? 1.0).toFixed(1)}`}
+        onChange={(v) => onUpdate("pressureCurve", v)}
+        title="Pressure response: Soft (< 1) = easy full pressure, Hard (> 1) = requires more force"
+      />
       <div className="flex gap-2">
         <button
           onClick={() => onUpdate("flipX", !settings.flipX)}

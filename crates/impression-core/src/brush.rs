@@ -198,6 +198,10 @@ pub struct BrushSettings {
     pub brush_model: BrushModel,
     /// Wet media brush settings (only used when brush_model == WetMedia).
     pub wet_media: WetMediaBrushSettings,
+    /// Pressure curve gamma (default 1.0). Values < 1.0 are "soft" (easier to
+    /// reach full pressure), values > 1.0 are "hard" (require more force).
+    /// Applies to all brush models.
+    pub pressure_curve: f32,
 }
 
 impl Default for BrushSettings {
@@ -224,6 +228,7 @@ impl Default for BrushSettings {
             texture_tip_id: None,
             brush_model: BrushModel::default(),
             wet_media: WetMediaBrushSettings::default(),
+            pressure_curve: 1.0,
         }
     }
 }
@@ -264,6 +269,13 @@ pub struct SerializableBrushSettings {
     /// Settings for the wet media brush model. Only used when `brush_model == WetMedia`.
     #[serde(default)]
     pub wet_media: WetMediaBrushSettings,
+    /// Pressure curve gamma. Default 1.0 (linear).
+    #[serde(default = "default_pressure_curve")]
+    pub pressure_curve: f32,
+}
+
+fn default_pressure_curve() -> f32 {
+    1.0
 }
 
 impl SerializableBrushSettings {
@@ -305,6 +317,7 @@ impl BrushSettings {
             texture_tip_id: self.texture_tip_id.clone(),
             brush_model: self.brush_model,
             wet_media: self.wet_media.clone(),
+            pressure_curve: self.pressure_curve,
         }
     }
 
@@ -337,6 +350,7 @@ impl BrushSettings {
         self.texture_tip_id = s.texture_tip_id.clone();
         self.brush_model = s.brush_model;
         self.wet_media = s.wet_media.clone();
+        self.pressure_curve = s.pressure_curve;
 
         let active = s
             .active_tip_id

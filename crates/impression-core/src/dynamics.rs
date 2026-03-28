@@ -207,9 +207,42 @@ pub fn apply_angle_dynamic(
     base + control_offset + jitter_offset
 }
 
+/// Remap raw pen pressure through a gamma curve.
+/// gamma < 1.0 = "soft" (easier to reach full pressure).
+/// gamma > 1.0 = "hard" (requires more force).
+/// gamma == 1.0 = identity (no change).
+pub fn remap_pressure(raw: f32, gamma: f32) -> f32 {
+    raw.powf(gamma).clamp(0.0, 1.0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_remap_pressure_identity() {
+        assert!((remap_pressure(0.5, 1.0) - 0.5).abs() < 0.001);
+        assert!((remap_pressure(0.0, 1.0) - 0.0).abs() < 0.001);
+        assert!((remap_pressure(1.0, 1.0) - 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_remap_pressure_soft() {
+        // gamma=0.5: 0.25^0.5 = 0.5
+        assert!((remap_pressure(0.25, 0.5) - 0.5).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_remap_pressure_hard() {
+        // gamma=2.0: 0.5^2.0 = 0.25
+        assert!((remap_pressure(0.5, 2.0) - 0.25).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_remap_pressure_clamps() {
+        assert!(remap_pressure(-0.1, 1.0) >= 0.0);
+        assert!(remap_pressure(1.5, 1.0) <= 1.0);
+    }
 
     #[test]
     fn test_rng_deterministic() {

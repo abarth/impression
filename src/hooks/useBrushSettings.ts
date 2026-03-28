@@ -116,6 +116,7 @@ export interface BrushSettings {
   texture: TextureSettings;
   wetMedia: WetMediaSettings;
   activeTipId: string | null;
+  pressureCurve: number;
 }
 
 /** Blend mode constants matching Rust BlendMode enum values. */
@@ -172,6 +173,7 @@ export interface SerializableBrushSettings {
   secondary_tip_id: string | null;
   texture_tip_id: string | null;
   brush_model: "Stamp" | "WetMedia";
+  pressure_curve: number;
   wet_media: {
     paint_load: number;
     paint_thickness: number;
@@ -245,6 +247,7 @@ export function buildSerializableSettings(
     secondary_tip_id: (db.enabled && !db.useComputed && db.tipId) ? db.tipId : null,
     texture_tip_id: s.texture.tipId ?? null,
     brush_model: s.wetMedia.enabled ? "WetMedia" : "Stamp",
+    pressure_curve: s.pressureCurve ?? 1.0,
     wet_media: {
       paint_load: s.wetMedia.paintLoad,
       paint_thickness: s.wetMedia.paintThickness,
@@ -356,6 +359,7 @@ const DEFAULT_PRESET_PROPERTIES: Omit<BrushSettings, "size" | "opacity" | "flow"
   texture: DEFAULT_TEXTURE,
   wetMedia: DEFAULT_WET_MEDIA,
   activeTipId: null,
+  pressureCurve: 1.0,
 };
 
 const DEFAULT_BRUSH: BrushSettings = {

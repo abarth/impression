@@ -257,6 +257,7 @@ mod tests {
             texture_tip_id: None,
             brush_model: crate::wet_media::BrushModel::default(),
             wet_media: crate::wet_media::WetMediaBrushSettings::default(),
+            pressure_curve: 1.0,
         };
         round_trip(Operation::SetBrushSettings(settings.to_bytes()));
     }
@@ -293,6 +294,7 @@ mod tests {
             texture_tip_id: Some("tex-tip".to_string()),
             brush_model: crate::wet_media::BrushModel::default(),
             wet_media: crate::wet_media::WetMediaBrushSettings::default(),
+            pressure_curve: 1.0,
         };
         let bytes = settings.to_bytes();
         let decoded = SerializableBrushSettings::from_bytes(&bytes).unwrap();
