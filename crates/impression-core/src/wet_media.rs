@@ -17,6 +17,41 @@ impl Default for MediumType {
     }
 }
 
+/// Brush shape determines bristle distribution geometry and stiffness profiles.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum BrushShape {
+    /// Circular bristle distribution, stiffer at center.
+    Round,
+    /// Rectangular bristle grid with uniform stiffness and distinct edge bristles.
+    Flat,
+    /// Elliptical with rounded ends, graduated stiffness from center to edge.
+    Filbert,
+    /// Wide arc distribution with sparse, soft bristles.
+    Fan,
+}
+
+impl Default for BrushShape {
+    fn default() -> Self {
+        BrushShape::Round
+    }
+}
+
+/// Per-bristle persistent state that evolves across a stroke.
+/// Each bristle independently tracks its paint load, wetness, and physical properties.
+#[derive(Clone, Debug)]
+pub struct BristleState {
+    /// Remaining paint on this individual bristle (0.0–1.0).
+    pub paint_load: f32,
+    /// Individual bristle stiffness derived from brush shape profile.
+    pub stiffness: f32,
+    /// Wetness level of this bristle's paint.
+    pub wetness: f32,
+    /// Relative thickness factor for this bristle (affects dot radius).
+    pub thickness: f32,
+    /// Radial distance from brush center (0.0=center, 1.0=edge), used for depletion rate.
+    pub radial_distance: f32,
+}
+
 /// Physical simulation parameters derived from medium type.
 #[derive(Debug, Clone, Copy)]
 pub struct MediumPhysics {
@@ -96,9 +131,19 @@ pub struct WetMediaBrushSettings {
     /// strength, causing more paint smearing. Default 0.3.
     #[serde(default = "default_speed_smudging")]
     pub speed_smudging: f32,
+    /// Brush shape (round, flat, filbert, fan). Controls bristle distribution.
+    #[serde(default)]
+    pub brush_shape: BrushShape,
+    /// Paint load threshold below which bristles begin splitting/gapping (0.0–1.0).
+    #[serde(default = "default_splitting_threshold")]
+    pub splitting_threshold: f32,
 }
 
 fn default_speed_smudging() -> f32 {
+    0.3
+}
+
+fn default_splitting_threshold() -> f32 {
     0.3
 }
 
@@ -121,7 +166,7 @@ impl Default for WetMediaBrushSettings {
             paint_thickness: 0.5,
             wetness: 0.7,
             mixing_strength: 0.5,
-            bristle_count: 64,
+            bristle_count: 256,
             bristle_spread: 0.3,
             paint_depletion_rate: 0.1,
             canvas_texture_strength: 0.3,
@@ -131,6 +176,8 @@ impl Default for WetMediaBrushSettings {
             brush_form: 0.5,
             color_noise: 0.0,
             speed_smudging: 0.3,
+            brush_shape: BrushShape::Round,
+            splitting_threshold: 0.3,
         }
     }
 }
@@ -202,6 +249,8 @@ pub struct WetMediaStrokeState {
     /// Per-bristle deformation offsets for elastic recovery.
     /// Spring-based: deformations ease toward target rather than snapping instantly.
     pub bristle_deformations: Vec<(f32, f32)>,
+    /// Per-bristle persistent state (paint load, stiffness, wetness).
+    pub bristle_states: Vec<BristleState>,
 }
 
 impl Default for WetMediaStrokeState {
@@ -217,6 +266,7 @@ impl Default for WetMediaStrokeState {
             bristle_colors: Vec::new(),
             prev_bristle_positions: None,
             bristle_deformations: Vec::new(),
+            bristle_states: Vec::new(),
         }
     }
 }
@@ -231,6 +281,124 @@ pub fn init_bristle_offsets(count: u32, rng: &mut Rng) -> Vec<(f32, f32)> {
             (r * theta.cos(), r * theta.sin())
         })
         .collect()
+}
+
+/// Initialize bristle positions and per-bristle states based on brush shape.
+/// Returns (offsets, states) where offsets are unit-space positions and states
+/// contain shape-derived stiffness profiles.
+pub fn init_bristle_layout(
+    count: u32,
+    shape: BrushShape,
+    base_stiffness: f32,
+    paint_load: f32,
+    wetness: f32,
+    rng: &mut Rng,
+) -> (Vec<(f32, f32)>, Vec<BristleState>) {
+    let mut offsets = Vec::with_capacity(count as usize);
+    let mut states = Vec::with_capacity(count as usize);
+
+    match shape {
+        BrushShape::Round => {
+            // Disk distribution: denser at center via sqrt(r) sampling
+            for _ in 0..count {
+                let r = rng.next_f32().sqrt();
+                let theta = rng.next_f32() * std::f32::consts::TAU;
+                let x = r * theta.cos();
+                let y = r * theta.sin();
+                // Stiffer at center, softer at edges
+                let stiffness = base_stiffness * (1.0 - 0.4 * r);
+                // Outer bristles are slightly thinner
+                let thickness = 1.0 - 0.3 * r;
+                offsets.push((x, y));
+                states.push(BristleState {
+                    paint_load,
+                    stiffness,
+                    wetness,
+                    thickness,
+                    radial_distance: r,
+                });
+            }
+        }
+        BrushShape::Flat => {
+            // Rectangular grid: rows × cols arranged in a flat band
+            let cols = (count as f32).sqrt().ceil() as u32;
+            let rows = ((count as f32) / cols as f32).ceil() as u32;
+            let mut generated = 0u32;
+            for row in 0..rows {
+                for col in 0..cols {
+                    if generated >= count { break; }
+                    // Map to [-1, 1] range
+                    let x = if cols > 1 { (col as f32 / (cols - 1).max(1) as f32) * 2.0 - 1.0 } else { 0.0 };
+                    let y = if rows > 1 { (row as f32 / (rows - 1).max(1) as f32) * 2.0 - 1.0 } else { 0.0 };
+                    // Flatten the y axis (narrow band)
+                    let y = y * 0.25;
+                    // Add small random jitter
+                    let jx = x + (rng.next_f32() - 0.5) * 0.05;
+                    let jy = y + (rng.next_f32() - 0.5) * 0.03;
+                    let r = (jx * jx + jy * jy).sqrt().min(1.0);
+                    // Edge bristles are stiffer
+                    let is_edge = col == 0 || col == cols - 1;
+                    let stiffness = if is_edge {
+                        base_stiffness * 1.2
+                    } else {
+                        base_stiffness
+                    };
+                    offsets.push((jx.clamp(-1.0, 1.0), jy.clamp(-1.0, 1.0)));
+                    states.push(BristleState {
+                        paint_load,
+                        stiffness: stiffness.min(1.0),
+                        wetness,
+                        thickness: 1.0,
+                        radial_distance: r,
+                    });
+                    generated += 1;
+                }
+            }
+        }
+        BrushShape::Filbert => {
+            // Elliptical distribution with rounded ends
+            for _ in 0..count {
+                let r = rng.next_f32().sqrt();
+                let theta = rng.next_f32() * std::f32::consts::TAU;
+                let x = r * theta.cos();
+                // Compress Y for elliptical shape
+                let y = r * theta.sin() * 0.5;
+                // Graduated stiffness: center stiff, edges soft
+                let stiffness = base_stiffness * (1.0 - 0.5 * r);
+                let thickness = 1.0 - 0.2 * r;
+                offsets.push((x, y));
+                states.push(BristleState {
+                    paint_load,
+                    stiffness,
+                    wetness,
+                    thickness,
+                    radial_distance: r,
+                });
+            }
+        }
+        BrushShape::Fan => {
+            // Wide arc with sparse, soft bristles
+            for i in 0..count {
+                let t = if count > 1 { i as f32 / (count - 1) as f32 } else { 0.5 };
+                // Fan arc from -120° to +120°
+                let angle = (t - 0.5) * std::f32::consts::TAU * 0.67;
+                let r = 0.6 + rng.next_f32() * 0.4; // outer ring
+                let x = r * angle.cos();
+                let y = r * angle.sin();
+                // Fan bristles are uniformly soft
+                let stiffness = base_stiffness * 0.5;
+                offsets.push((x, y));
+                states.push(BristleState {
+                    paint_load,
+                    stiffness,
+                    wetness,
+                    thickness: 0.8,
+                    radial_distance: r.min(1.0),
+                });
+            }
+        }
+    }
+    (offsets, states)
 }
 
 /// A single bristle's computed canvas position and pressure.
@@ -256,6 +424,8 @@ fn compute_bristle_canvas_positions(
     velocity: [f32; 2],
     bristle_offsets: &[(f32, f32)],
     deformations: &mut [(f32, f32)],
+    bristle_states: &[BristleState],
+    splitting_threshold: f32,
     rng: &mut Rng,
 ) -> Vec<BristlePosition> {
     let radius = brush_size * 0.5;
@@ -268,12 +438,7 @@ fn compute_bristle_canvas_positions(
 
     // Velocity bend: bristles bend in the direction of motion
     let vel_len = (velocity[0] * velocity[0] + velocity[1] * velocity[1]).sqrt();
-    let stiffness = settings.bristle_stiffness.max(0.1);
-    let bend_amount = if vel_len > 0.01 {
-        (vel_len * 0.02 / stiffness).min(0.3)
-    } else {
-        0.0
-    };
+    let base_stiffness = settings.bristle_stiffness.max(0.1);
     let vel_dir = if vel_len > 0.01 {
         [velocity[0] / vel_len, velocity[1] / vel_len]
     } else {
@@ -287,6 +452,19 @@ fn compute_bristle_canvas_positions(
         .iter()
         .enumerate()
         .map(|(i, &(base_x, base_y))| {
+            // Use per-bristle stiffness instead of uniform
+            let stiffness = if let Some(bs) = bristle_states.get(i) {
+                bs.stiffness.max(0.1)
+            } else {
+                base_stiffness
+            };
+
+            let bend_amount = if vel_len > 0.01 {
+                (vel_len * 0.02 / stiffness).min(0.3)
+            } else {
+                0.0
+            };
+
             // Target deformation from splay + velocity bend
             let target_x = base_x * splay + vel_dir[0] * bend_amount;
             let target_y = base_y * splay + vel_dir[1] * bend_amount;
@@ -322,6 +500,20 @@ fn compute_bristle_canvas_positions(
             let activation_threshold = 1.0 - settings.brush_form * (1.0 - pressure);
             if dist_from_center > activation_threshold {
                 bp = 0.0;
+            }
+
+            // Bristle splitting: at low paint load, bristles gap out
+            if let Some(bs) = bristle_states.get(i) {
+                if bs.paint_load < splitting_threshold {
+                    let split_factor = bs.paint_load / splitting_threshold.max(0.01);
+                    bp *= split_factor;
+                    // At very low paint load, odd-indexed outer bristles deactivate (no RNG needed)
+                    if bs.paint_load < splitting_threshold * 0.3 && bs.radial_distance > 0.5 && i % 2 == 0 {
+                        bp = 0.0;
+                    }
+                }
+                // Modulate by bristle thickness
+                bp *= bs.thickness;
             }
 
             BristlePosition {
@@ -469,6 +661,8 @@ pub fn generate_bristle_footprint(
     bristle_offsets: &[(f32, f32)],
     prev_positions: Option<&[BristlePosition]>,
     deformations: &mut [(f32, f32)],
+    bristle_states: &[BristleState],
+    splitting_threshold: f32,
     rng: &mut Rng,
 ) -> (BristleFootprint, Vec<BristlePosition>) {
     let br = bristle_dot_radius(brush_size, bristle_offsets.len());
@@ -476,7 +670,7 @@ pub fn generate_bristle_footprint(
     // Compute current canvas positions for all bristles
     let positions = compute_bristle_canvas_positions(
         origin_x, origin_y, pressure, brush_size, brush_angle, brush_roundness,
-        settings, velocity, bristle_offsets, deformations, rng,
+        settings, velocity, bristle_offsets, deformations, bristle_states, splitting_threshold, rng,
     );
 
     let (mask, mask_w, mask_h, mask_origin_x, mask_origin_y) = match prev_positions {
@@ -584,11 +778,20 @@ pub fn wet_media_stroke_begin(
     state.footprints.clear();
 
     // Initialize persistent bristle offsets, colors, and deformations for this stroke
-    state.bristle_offsets = init_bristle_offsets(settings.bristle_count, &mut state.rng);
+    let (offsets, bristle_st) = init_bristle_layout(
+        settings.bristle_count,
+        settings.brush_shape,
+        settings.bristle_stiffness,
+        settings.paint_load,
+        settings.wetness,
+        &mut state.rng,
+    );
+    state.bristle_offsets = offsets;
+    state.bristle_states = bristle_st;
     state.bristle_colors = vec![paint_color; settings.bristle_count as usize];
     state.bristle_deformations = vec![(0.0, 0.0); settings.bristle_count as usize];
 
-    // Apply per-bristle color noise via HSL jitter (after init_bristle_offsets
+    // Apply per-bristle color noise via HSL jitter (after init_bristle_layout
     // so existing RNG sequences are preserved for strokes with zero noise)
     if settings.color_noise > 0.0 {
         let (h, s, l) = rgb_to_hsl(paint_color[0], paint_color[1], paint_color[2]);
@@ -610,6 +813,8 @@ pub fn wet_media_stroke_begin(
         &state.bristle_offsets,
         None, // first dab — no previous positions
         &mut state.bristle_deformations,
+        &state.bristle_states,
+        settings.splitting_threshold,
         &mut state.rng,
     );
     state.footprints.push(footprint);
@@ -656,10 +861,22 @@ pub fn wet_media_stroke_move(
         let py = ly + dy * t;
         let pp = lp + (pressure - lp) * t;
 
-        // Deplete paint
-        state.paint_load_remaining =
+        // Per-bristle paint depletion: outer bristles deplete faster
+        for bs in state.bristle_states.iter_mut() {
+            let depletion_mult = 1.0 + 0.4 * bs.radial_distance; // outer = 1.4x faster
+            bs.paint_load = (bs.paint_load - settings.paint_depletion_rate * step / brush_size * depletion_mult).max(0.0);
+            // Wetness decreases as paint depletes
+            let load_ratio = (bs.paint_load / settings.paint_load.max(0.01)).clamp(0.0, 1.0);
+            bs.wetness = settings.wetness * load_ratio.max(0.1);
+        }
+
+        // Global paint load = average of per-bristle loads (for footprint params)
+        state.paint_load_remaining = if state.bristle_states.is_empty() {
             (state.paint_load_remaining - settings.paint_depletion_rate * step / brush_size)
-                .max(0.0);
+                .max(0.0)
+        } else {
+            state.bristle_states.iter().map(|bs| bs.paint_load).sum::<f32>() / state.bristle_states.len() as f32
+        };
 
         // Paint-to-blend transition: as paint depletes, brush becomes a blender
         let load_ratio = (state.paint_load_remaining / settings.paint_load.max(0.01)).clamp(0.0, 1.0);
@@ -709,6 +926,8 @@ pub fn wet_media_stroke_move(
             &state.bristle_offsets,
             state.prev_bristle_positions.as_deref(),
             &mut state.bristle_deformations,
+            &state.bristle_states,
+            settings.splitting_threshold,
             &mut state.rng,
         );
         // Apply paint-to-blend effective values
@@ -744,6 +963,7 @@ pub fn wet_media_stroke_end(state: &mut WetMediaStrokeState) {
     state.last_point = None;
     state.prev_bristle_positions = None;
     state.bristle_deformations.clear();
+    state.bristle_states.clear();
 }
 
 #[cfg(test)]
@@ -843,7 +1063,7 @@ mod tests {
         let settings = WetMediaBrushSettings::default();
         assert!((settings.paint_load - 0.8).abs() < f32::EPSILON);
         assert!((settings.wetness - 0.7).abs() < f32::EPSILON);
-        assert_eq!(settings.bristle_count, 64);
+        assert_eq!(settings.bristle_count, 256);
     }
 
     #[test]
@@ -868,6 +1088,8 @@ mod tests {
             brush_form: 0.5,
             color_noise: 0.0,
             speed_smudging: 0.3,
+            brush_shape: BrushShape::Round,
+            splitting_threshold: 0.3,
         };
         let bytes = rmp_serde::to_vec(&settings).unwrap();
         let decoded: WetMediaBrushSettings = rmp_serde::from_slice(&bytes).unwrap();
@@ -896,11 +1118,11 @@ mod tests {
 
         let (fp1, _) = generate_bristle_footprint(
             50.0, 50.0, 0.8, 20.0, 0.0, 1.0,
-            &settings, [1.0, 0.0, 0.0], 0.8, [1.0, 0.0], &offsets1, None, &mut vec![(0.0, 0.0); 128], &mut rng1,
+            &settings, [1.0, 0.0, 0.0], 0.8, [1.0, 0.0], &offsets1, None, &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng1,
         );
         let (fp2, _) = generate_bristle_footprint(
             50.0, 50.0, 0.8, 20.0, 0.0, 1.0,
-            &settings, [1.0, 0.0, 0.0], 0.8, [1.0, 0.0], &offsets2, None, &mut vec![(0.0, 0.0); 128], &mut rng1b,
+            &settings, [1.0, 0.0, 0.0], 0.8, [1.0, 0.0], &offsets2, None, &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng1b,
         );
 
         assert_eq!(fp1.mask.len(), fp2.mask.len());
@@ -920,7 +1142,7 @@ mod tests {
         let offsets = init_bristle_offsets(32, &mut rng);
         let (fp, _) = generate_bristle_footprint(
             25.0, 25.0, 1.0, 30.0, 0.0, 1.0,
-            &settings, [0.0, 0.0, 1.0], 1.0, [0.0, 0.0], &offsets, None, &mut vec![(0.0, 0.0); 128], &mut rng,
+            &settings, [0.0, 0.0, 1.0], 1.0, [0.0, 0.0], &offsets, None, &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng,
         );
         let nonzero = fp.mask.iter().filter(|&&v| v > 0.0).count();
         assert!(nonzero > 0, "Footprint should have some nonzero pixels");
@@ -1015,6 +1237,8 @@ mod tests {
             brush_form: 0.5,
             color_noise: 0.0,
             speed_smudging: 0.3,
+            brush_shape: BrushShape::Round,
+            splitting_threshold: 0.3,
         };
         // Serialize without the new fields by using JSON (simulates old format)
         let json = r#"{"paint_load":0.8,"paint_thickness":0.5,"wetness":0.7,"mixing_strength":0.5,"bristle_count":64,"bristle_spread":0.3,"paint_depletion_rate":0.1,"canvas_texture_strength":0.3}"#;
@@ -1025,6 +1249,8 @@ mod tests {
         assert!((decoded.brush_form - 0.5).abs() < f32::EPSILON);
         assert!((decoded.color_noise - 0.0).abs() < f32::EPSILON);
         assert!((decoded.speed_smudging - 0.3).abs() < f32::EPSILON);
+        assert_eq!(decoded.brush_shape, BrushShape::Round);
+        assert!((decoded.splitting_threshold - 0.3).abs() < f32::EPSILON);
         assert_eq!(decoded, old_settings);
     }
 
@@ -1110,12 +1336,12 @@ mod tests {
         let mut rng_low = Rng::from_coords(99.0, 99.0);
         let (fp_low, _) = generate_bristle_footprint(
             50.0, 50.0, 0.2, 60.0, 0.0, 1.0,
-            &settings, [1.0, 0.0, 0.0], 1.0, [0.0, 0.0], &offsets, None, &mut vec![(0.0, 0.0); 128], &mut rng_low,
+            &settings, [1.0, 0.0, 0.0], 1.0, [0.0, 0.0], &offsets, None, &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng_low,
         );
         let mut rng_high = Rng::from_coords(99.0, 99.0);
         let (fp_high, _) = generate_bristle_footprint(
             50.0, 50.0, 1.0, 60.0, 0.0, 1.0,
-            &settings, [1.0, 0.0, 0.0], 1.0, [0.0, 0.0], &offsets, None, &mut vec![(0.0, 0.0); 128], &mut rng_high,
+            &settings, [1.0, 0.0, 0.0], 1.0, [0.0, 0.0], &offsets, None, &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng_high,
         );
 
         // Measure spatial spread: variance of active pixel positions from center
@@ -1157,7 +1383,7 @@ mod tests {
         // No velocity
         let (fp_still, _) = generate_bristle_footprint(
             50.0, 50.0, 0.5, 30.0, 0.0, 1.0,
-            &settings, [1.0, 0.0, 0.0], 1.0, [0.0, 0.0], &offsets, None, &mut vec![(0.0, 0.0); 128], &mut rng,
+            &settings, [1.0, 0.0, 0.0], 1.0, [0.0, 0.0], &offsets, None, &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng,
         );
 
         // Strong rightward velocity
@@ -1165,7 +1391,7 @@ mod tests {
         let _ = init_bristle_offsets(16, &mut rng2);
         let (fp_moving, _) = generate_bristle_footprint(
             50.0, 50.0, 0.5, 30.0, 0.0, 1.0,
-            &settings, [1.0, 0.0, 0.0], 1.0, [50.0, 0.0], &offsets, None, &mut vec![(0.0, 0.0); 128], &mut rng2,
+            &settings, [1.0, 0.0, 0.0], 1.0, [50.0, 0.0], &offsets, None, &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng2,
         );
 
         // The masks should differ due to velocity bending
@@ -1223,13 +1449,13 @@ mod tests {
         // First dab — no previous positions
         let (fp1, prev) = generate_bristle_footprint(
             50.0, 50.0, 1.0, 20.0, 0.0, 1.0,
-            &settings, [1.0, 0.0, 0.0], 1.0, [5.0, 0.0], &offsets, None, &mut vec![(0.0, 0.0); 128], &mut rng,
+            &settings, [1.0, 0.0, 0.0], 1.0, [5.0, 0.0], &offsets, None, &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng,
         );
 
         // Second footprint — with previous positions (trail mode)
         let (fp2, _) = generate_bristle_footprint(
             55.0, 50.0, 1.0, 20.0, 0.0, 1.0,
-            &settings, [1.0, 0.0, 0.0], 1.0, [5.0, 0.0], &offsets, Some(&prev), &mut vec![(0.0, 0.0); 128], &mut rng,
+            &settings, [1.0, 0.0, 0.0], 1.0, [5.0, 0.0], &offsets, Some(&prev), &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng,
         );
 
         // Trail mask can have different dimensions from first dab
@@ -1252,13 +1478,13 @@ mod tests {
 
         let (_, prev) = generate_bristle_footprint(
             50.0, 50.0, 1.0, 10.0, 0.0, 1.0,
-            &settings, [1.0, 0.0, 0.0], 1.0, [0.0, 0.0], &offsets, None, &mut vec![(0.0, 0.0); 128], &mut rng,
+            &settings, [1.0, 0.0, 0.0], 1.0, [0.0, 0.0], &offsets, None, &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng,
         );
 
         // Move significantly to the right
         let (fp, _) = generate_bristle_footprint(
             60.0, 50.0, 1.0, 10.0, 0.0, 1.0,
-            &settings, [1.0, 0.0, 0.0], 1.0, [10.0, 0.0], &offsets, Some(&prev), &mut vec![(0.0, 0.0); 128], &mut rng,
+            &settings, [1.0, 0.0, 0.0], 1.0, [10.0, 0.0], &offsets, Some(&prev), &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng,
         );
 
         // The mask should be wider than the brush size since it covers movement
@@ -1280,11 +1506,11 @@ mod tests {
             let offsets = init_bristle_offsets(16, &mut rng);
             let (_, prev) = generate_bristle_footprint(
                 50.0, 50.0, 1.0, 20.0, 0.0, 1.0,
-                &settings, [1.0, 0.0, 0.0], 1.0, [0.0, 0.0], &offsets, None, &mut vec![(0.0, 0.0); 128], &mut rng,
+                &settings, [1.0, 0.0, 0.0], 1.0, [0.0, 0.0], &offsets, None, &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng,
             );
             let (fp, _) = generate_bristle_footprint(
                 55.0, 52.0, 0.8, 20.0, 0.0, 1.0,
-                &settings, [1.0, 0.0, 0.0], 0.9, [5.0, 2.0], &offsets, Some(&prev), &mut vec![(0.0, 0.0); 128], &mut rng,
+                &settings, [1.0, 0.0, 0.0], 0.9, [5.0, 2.0], &offsets, Some(&prev), &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng,
             );
             fp
         };
@@ -1312,12 +1538,12 @@ mod tests {
 
         let (_, prev) = generate_bristle_footprint(
             50.0, 50.0, 1.0, 20.0, 0.0, 1.0,
-            &settings, [1.0, 0.0, 0.0], 1.0, [0.0, 0.0], &offsets, None, &mut vec![(0.0, 0.0); 128], &mut rng,
+            &settings, [1.0, 0.0, 0.0], 1.0, [0.0, 0.0], &offsets, None, &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng,
         );
 
         let (fp, _) = generate_bristle_footprint(
             55.0, 52.0, 0.9, 20.0, 0.0, 1.0,
-            &settings, [1.0, 0.0, 0.0], 0.9, [5.0, 2.0], &offsets, Some(&prev), &mut vec![(0.0, 0.0); 128], &mut rng,
+            &settings, [1.0, 0.0, 0.0], 0.9, [5.0, 2.0], &offsets, Some(&prev), &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng,
         );
 
         let w = fp.width as usize;
@@ -1495,13 +1721,13 @@ mod tests {
         // Full pressure → full thickness
         let (fp_full, _) = generate_bristle_footprint(
             50.0, 50.0, 1.0, 20.0, 0.0, 1.0,
-            &settings, color, 0.8, [0.0, 0.0], &offsets, None, &mut vec![(0.0, 0.0); 128], &mut rng,
+            &settings, color, 0.8, [0.0, 0.0], &offsets, None, &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng,
         );
 
         // Half pressure → half thickness
         let (fp_half, _) = generate_bristle_footprint(
             50.0, 50.0, 0.5, 20.0, 0.0, 1.0,
-            &settings, color, 0.8, [0.0, 0.0], &offsets, None, &mut vec![(0.0, 0.0); 128], &mut rng,
+            &settings, color, 0.8, [0.0, 0.0], &offsets, None, &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng,
         );
 
         assert!(
@@ -1579,7 +1805,7 @@ mod tests {
         // Low pressure: many outer bristles should be deactivated
         let positions = compute_bristle_canvas_positions(
             50.0, 50.0, 0.1, 20.0, 0.0, 1.0,
-            &settings, [0.0, 0.0], &offsets, &mut vec![(0.0, 0.0); 32], &mut rng,
+            &settings, [0.0, 0.0], &offsets, &mut vec![(0.0, 0.0); 32], &[], 0.3, &mut rng,
         );
         let inactive_count = positions.iter().filter(|p| p.pressure == 0.0).count();
         assert!(
@@ -1603,7 +1829,7 @@ mod tests {
         // Full pressure: all bristles should be active
         let positions = compute_bristle_canvas_positions(
             50.0, 50.0, 1.0, 20.0, 0.0, 1.0,
-            &settings, [0.0, 0.0], &offsets, &mut vec![(0.0, 0.0); 32], &mut rng,
+            &settings, [0.0, 0.0], &offsets, &mut vec![(0.0, 0.0); 32], &[], 0.3, &mut rng,
         );
         let inactive_count = positions.iter().filter(|p| p.pressure == 0.0).count();
         assert_eq!(
@@ -1626,7 +1852,7 @@ mod tests {
         // Even at very low pressure, brush_form=0 means all bristles active
         let positions = compute_bristle_canvas_positions(
             50.0, 50.0, 0.1, 20.0, 0.0, 1.0,
-            &settings, [0.0, 0.0], &offsets, &mut vec![(0.0, 0.0); 32], &mut rng,
+            &settings, [0.0, 0.0], &offsets, &mut vec![(0.0, 0.0); 32], &[], 0.3, &mut rng,
         );
         let inactive_count = positions.iter().filter(|p| p.pressure == 0.0).count();
         assert_eq!(
@@ -1651,14 +1877,14 @@ mod tests {
         // Low roundness = flat brush, moderate pressure
         let positions = compute_bristle_canvas_positions(
             50.0, 50.0, 0.3, 20.0, 0.0, 0.3,
-            &settings, [0.0, 0.0], &offsets, &mut vec![(0.0, 0.0); 64], &mut rng,
+            &settings, [0.0, 0.0], &offsets, &mut vec![(0.0, 0.0); 64], &[], 0.3, &mut rng,
         );
         // Same test with round brush (roundness=1.0)
         let mut rng2 = Rng::from_coords(7.0, 7.0);
         let offsets2 = init_bristle_offsets(settings.bristle_count, &mut rng2);
         let positions_round = compute_bristle_canvas_positions(
             50.0, 50.0, 0.3, 20.0, 0.0, 1.0,
-            &settings, [0.0, 0.0], &offsets2, &mut vec![(0.0, 0.0); 64], &mut rng2,
+            &settings, [0.0, 0.0], &offsets2, &mut vec![(0.0, 0.0); 64], &[], 0.3, &mut rng2,
         );
 
         let inactive_flat = positions.iter().filter(|p| p.pressure == 0.0).count();
@@ -1847,7 +2073,7 @@ mod tests {
         for _ in 0..10 {
             compute_bristle_canvas_positions(
                 50.0, 50.0, 1.0, 20.0, 0.0, 1.0,
-                &settings, [20.0, 0.0], &offsets, &mut deformations, &mut rng,
+                &settings, [20.0, 0.0], &offsets, &mut deformations, &[], 0.3, &mut rng,
             );
         }
 
@@ -1861,7 +2087,7 @@ mod tests {
         // Now apply zero velocity — deformations should gradually recover (not snap)
         compute_bristle_canvas_positions(
             50.0, 50.0, 0.5, 20.0, 0.0, 1.0,
-            &settings, [0.0, 0.0], &offsets, &mut deformations, &mut rng,
+            &settings, [0.0, 0.0], &offsets, &mut deformations, &[], 0.3, &mut rng,
         );
 
         // After ONE step at zero velocity, deformations should decrease but NOT be zero
@@ -1891,7 +2117,7 @@ mod tests {
         for _ in 0..10 {
             compute_bristle_canvas_positions(
                 50.0, 50.0, 1.0, 20.0, 0.0, 1.0,
-                &settings, [20.0, 0.0], &offsets, &mut deformations, &mut rng,
+                &settings, [20.0, 0.0], &offsets, &mut deformations, &[], 0.3, &mut rng,
             );
         }
 
@@ -1900,7 +2126,7 @@ mod tests {
         for _ in 0..50 {
             compute_bristle_canvas_positions(
                 50.0, 50.0, 0.0, 20.0, 0.0, 1.0,
-                &settings, [0.0, 0.0], &offsets, &mut deformations, &mut rng,
+                &settings, [0.0, 0.0], &offsets, &mut deformations, &[], 0.3, &mut rng,
             );
         }
 

@@ -1,5 +1,5 @@
 import type { GPUContext } from "./gpu";
-import { getWetMediaLayer } from "./gpu";
+import { getWetMediaLayer, dispatchShadowPass } from "./gpu";
 
 /** Layer kind constants matching Rust layer_kind() return values */
 export const LAYER_KIND_RASTER = 0;
@@ -51,6 +51,15 @@ export function composite(gpu: GPUContext, options: CompositeOptions): void {
     const srcIdx = currentDst; // read from current result
     const dstIdx = 1 - srcIdx; // write to the other
 
+    // Run HBAO shadow compute pass before the composite render pass
+    const kind = getKind(i);
+    if (kind === LAYER_KIND_WET_MEDIA) {
+      const wm = getWetMediaLayer(i);
+      if (wm && wm.hasWetPaint) {
+        dispatchShadowPass(gpu, encoder, wm);
+      }
+    }
+
     const pass = encoder.beginRenderPass({
       colorAttachments: [
         {
@@ -62,7 +71,6 @@ export function composite(gpu: GPUContext, options: CompositeOptions): void {
       ],
     });
 
-    const kind = getKind(i);
     if (kind === LAYER_KIND_WET_MEDIA) {
       const wm = getWetMediaLayer(i);
       if (wm) {

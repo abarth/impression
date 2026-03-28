@@ -8,6 +8,7 @@ import wetMediaDiffuseShaderSource from "../shaders/wet_media_diffuse.wgsl?raw";
 import wetMediaDryShaderSource from "../shaders/wet_media_dry.wgsl?raw";
 import wetMediaPressureShaderSource from "../shaders/wet_media_pressure.wgsl?raw";
 import wetMediaSurfaceTensionShaderSource from "../shaders/wet_media_surface_tension.wgsl?raw";
+import wetMediaShadowShaderSource from "../shaders/wet_media_shadow.wgsl?raw";
 import mixboxShaderSource from "../shaders/mixbox.wgsl?raw";
 import { generatePaperTexture } from "./paperTexture";
 import { initMixbox } from "./mixbox";
@@ -72,6 +73,10 @@ export interface GPUContext {
   // Surface tension pipeline
   wetMediaSurfaceTensionPipeline: GPUComputePipeline;
   wetMediaSurfaceTensionBindGroupLayout: GPUBindGroupLayout;
+
+  // HBAO self-shadow compute pipeline
+  wetMediaShadowPipeline: GPUComputePipeline;
+  wetMediaShadowBindGroupLayout: GPUBindGroupLayout;
 
   // Mixbox pigment mixing LUT
   mixboxLUT: GPUTexture;
@@ -295,6 +300,16 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
         visibility: GPUShaderStage.FRAGMENT,
         buffer: { type: "uniform" },
       },
+      {
+        binding: 3,
+        visibility: GPUShaderStage.FRAGMENT,
+        texture: { sampleType: "unfilterable-float" },
+      },
+      {
+        binding: 4,
+        visibility: GPUShaderStage.FRAGMENT,
+        texture: { sampleType: "unfilterable-float" },
+      },
     ],
   });
 
@@ -438,6 +453,19 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
     compute: { module: device.createShaderModule({ code: wetMediaSurfaceTensionShaderSource }), entryPoint: "main" },
   });
 
+  // --- HBAO self-shadow compute pipeline ---
+  const wetMediaShadowBindGroupLayout = device.createBindGroupLayout({
+    entries: [
+      { binding: 0, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "read-only", format: "rgba32float" } },
+      { binding: 1, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "r32float" } },
+      { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+    ],
+  });
+  const wetMediaShadowPipeline = device.createComputePipeline({
+    layout: device.createPipelineLayout({ bindGroupLayouts: [wetMediaShadowBindGroupLayout] }),
+    compute: { module: device.createShaderModule({ code: wetMediaShadowShaderSource }), entryPoint: "main" },
+  });
+
   // --- Selection overlay pipeline ---
 
   const selectionBindGroupLayout = device.createBindGroupLayout({
@@ -547,6 +575,8 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
     wetMediaPressureBindGroupLayout,
     wetMediaSurfaceTensionPipeline,
     wetMediaSurfaceTensionBindGroupLayout,
+    wetMediaShadowPipeline,
+    wetMediaShadowBindGroupLayout,
     mixboxLUT: mixboxResources.lutTexture,
     mixboxSampler: mixboxResources.lutSampler,
   };
@@ -762,6 +792,8 @@ export interface WetMediaLayerGPU {
   pressureTextureB: GPUTexture;
   /** Divergence field (R32Float) — computed once per pressure solve. */
   divergenceTexture: GPUTexture;
+  /** HBAO shadow/AO texture (R32Float) — self-shadowing for impasto. */
+  shadowTexture: GPUTexture;
   /** Which buffer is current (0 = A, 1 = B). Toggled each sim step. */
   pingPong: number;
   /** Composite bind group (references current color + props textures). */
@@ -812,6 +844,7 @@ export function createWetMediaLayerTexture(
   const pressureTexture = createFloat32Texture("r32float");
   const pressureTextureB = createFloat32Texture("r32float");
   const divergenceTexture = createFloat32Texture("r32float");
+  const shadowTexture = createFloat32Texture("r32float");
 
   // Paper grain texture (r32float) — deterministic from layer count as seed
   const paperSeed = gpu.layerTextures.length + 1;
@@ -831,29 +864,37 @@ export function createWetMediaLayerTexture(
     { width, height },
   );
 
-  // Uniform buffer: [opacity as f32 bits (u32), blendMode (u32)]
+  // Uniform buffer: WetMediaCompositeParams (8 fields × 4 bytes = 32 bytes)
   const uniformBuffer = gpu.device.createBuffer({
-    size: 8,
+    size: 32,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
-  gpu.device.queue.writeBuffer(
-    uniformBuffer,
-    0,
-    new Uint32Array([floatToUint32(1.0), 0]),
-  );
+  const initialParams = new ArrayBuffer(32);
+  const initView = new DataView(initialParams);
+  initView.setUint32(0, floatToUint32(1.0), true); // opacity
+  initView.setUint32(4, 0, true); // medium_type = Oil
+  initView.setFloat32(8, 0.0, true); // env_rotation
+  initView.setFloat32(12, 1.0, true); // env_intensity
+  initView.setFloat32(16, 1.0, true); // impasto_depth
+  initView.setFloat32(20, 0.7, true); // shadow_strength
+  initView.setFloat32(24, 1.0, true); // specular_intensity
+  initView.setUint32(28, 0, true); // _pad
+  gpu.device.queue.writeBuffer(uniformBuffer, 0, initialParams);
 
-  const makeBindGroup = (color: GPUTexture, props: GPUTexture) =>
+  const makeBindGroup = (color: GPUTexture, props: GPUTexture, velocity: GPUTexture) =>
     gpu.device.createBindGroup({
       layout: gpu.wetMediaBindGroupLayout,
       entries: [
         { binding: 0, resource: color.createView() },
         { binding: 1, resource: props.createView() },
         { binding: 2, resource: { buffer: uniformBuffer } },
+        { binding: 3, resource: shadowTexture.createView() },
+        { binding: 4, resource: velocity.createView() },
       ],
     });
 
-  const bindGroup = makeBindGroup(colorTexture, propsTexture);
-  const bindGroupB = makeBindGroup(colorTextureB, propsTextureB);
+  const bindGroup = makeBindGroup(colorTexture, propsTexture, velocityTexture);
+  const bindGroupB = makeBindGroup(colorTextureB, propsTextureB, velocityTextureB);
 
   // Placeholder in regular layer arrays for index alignment
   const placeholderTexture = gpu.device.createTexture({
@@ -881,6 +922,7 @@ export function createWetMediaLayerTexture(
     velocityTexture, velocityTextureB,
     pressureTexture, pressureTextureB,
     divergenceTexture,
+    shadowTexture,
     pingPong: 0,
     bindGroup, bindGroupB,
     uniformBuffer,
@@ -1276,6 +1318,54 @@ export function stepWetMediaSimulation(
   // Note: ping-pong state stays the same because diffusion writes back to src
 }
 
+/** Dispatch the HBAO self-shadow compute pass for a wet media layer. */
+export function dispatchShadowPass(
+  gpu: GPUContext,
+  encoder: GPUCommandEncoder,
+  wm: WetMediaLayerGPU,
+): void {
+  const propsTexture = wm.pingPong === 0 ? wm.propsTexture : wm.propsTextureB;
+  const width = propsTexture.width;
+  const height = propsTexture.height;
+
+  const shadowParams = new ArrayBuffer(32);
+  const view = new DataView(shadowParams);
+  view.setUint32(0, width, true);
+  view.setUint32(4, height, true);
+  view.setFloat32(8, 1.0, true); // light_elevation (radians, ~57°)
+  view.setFloat32(12, -0.6, true); // light_azimuth (from upper-left)
+  view.setFloat32(16, 0.7, true); // shadow_intensity
+  view.setFloat32(20, 5.0, true); // height_scale
+  view.setFloat32(24, 16.0, true); // max_distance (pixels)
+  view.setUint32(28, wm.mediumType === "Oil" ? 0 : wm.mediumType === "Acrylic" ? 1 : 2, true);
+
+  const paramBuffer = gpu.device.createBuffer({
+    size: 32,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    mappedAtCreation: true,
+  });
+  new Uint8Array(paramBuffer.getMappedRange()).set(new Uint8Array(shadowParams));
+  paramBuffer.unmap();
+
+  const bindGroup = gpu.device.createBindGroup({
+    layout: gpu.wetMediaShadowBindGroupLayout,
+    entries: [
+      { binding: 0, resource: propsTexture.createView() },
+      { binding: 1, resource: wm.shadowTexture.createView() },
+      { binding: 2, resource: { buffer: paramBuffer } },
+    ],
+  });
+
+  const pass = encoder.beginComputePass();
+  pass.setPipeline(gpu.wetMediaShadowPipeline);
+  pass.setBindGroup(0, bindGroup);
+  pass.dispatchWorkgroups(
+    Math.ceil(width / 8),
+    Math.ceil(height / 8),
+  );
+  pass.end();
+}
+
 /** Mark a wet media layer as having wet paint (enables simulation). */
 export function setWetMediaHasWetPaint(index: number, hasWet: boolean): void {
   const wm = wetMediaLayers.get(index);
@@ -1356,8 +1446,8 @@ export function clearWetMediaTextures(gpu: GPUContext, index: number): void {
       { width, height },
     );
   }
-  // r32float pressure/divergence textures = 4 bytes per pixel
-  for (const tex of [wm.pressureTexture, wm.pressureTextureB, wm.divergenceTexture]) {
+  // r32float pressure/divergence/shadow textures = 4 bytes per pixel
+  for (const tex of [wm.pressureTexture, wm.pressureTextureB, wm.divergenceTexture, wm.shadowTexture]) {
     const { width, height } = tex;
     const bytesPerPixel = 4;
     const buf = new ArrayBuffer(width * height * bytesPerPixel);
@@ -1386,6 +1476,7 @@ export function removeWetMediaLayer(index: number): void {
     wm.pressureTexture.destroy();
     wm.pressureTextureB.destroy();
     wm.divergenceTexture.destroy();
+    wm.shadowTexture.destroy();
     wetMediaLayers.delete(index);
   }
   // Re-key entries above this index
