@@ -8,6 +8,13 @@ export interface StoredBrushTip {
 
 import type { ShapeDynamics, TransferDynamics, ScatterSettings, DualBrushSettings, TextureSettings, WetMediaSettings, MediumType } from "./hooks/useBrushSettings";
 
+/** Pen-pressure size dynamics shared by all wet media presets. */
+const WET_MEDIA_SHAPE_DYNAMICS: ShapeDynamics = {
+  size: { jitter: 0, control: 1, minimum: 0.2 },
+  angle: { jitter: 0, control: 0, minimum: 0 },
+  roundness: { jitter: 0, control: 0, minimum: 0 },
+};
+
 /** Stored in brush_presets IndexedDB store. */
 export interface BrushPreset {
   id: string;
@@ -82,6 +89,7 @@ export const DEFAULT_PRESETS: BrushPreset[] = [
       viscosity: 0.8,
       bristleStiffness: 0.6,
     },
+    shapeDynamics: WET_MEDIA_SHAPE_DYNAMICS,
     sort_order: 10,
   },
   {
@@ -107,6 +115,7 @@ export const DEFAULT_PRESETS: BrushPreset[] = [
       viscosity: 0.7,
       bristleStiffness: 0.5,
     },
+    shapeDynamics: WET_MEDIA_SHAPE_DYNAMICS,
     sort_order: 11,
   },
   {
@@ -132,6 +141,7 @@ export const DEFAULT_PRESETS: BrushPreset[] = [
       viscosity: 0.3,
       bristleStiffness: 0.9,
     },
+    shapeDynamics: WET_MEDIA_SHAPE_DYNAMICS,
     sort_order: 12,
   },
   {
@@ -157,6 +167,7 @@ export const DEFAULT_PRESETS: BrushPreset[] = [
       viscosity: 0.75,
       bristleStiffness: 0.5,
     },
+    shapeDynamics: WET_MEDIA_SHAPE_DYNAMICS,
     sort_order: 13,
   },
   {
@@ -182,6 +193,7 @@ export const DEFAULT_PRESETS: BrushPreset[] = [
       viscosity: 0.9,
       bristleStiffness: 0.7,
     },
+    shapeDynamics: WET_MEDIA_SHAPE_DYNAMICS,
     sort_order: 14,
   },
   {
@@ -207,6 +219,7 @@ export const DEFAULT_PRESETS: BrushPreset[] = [
       viscosity: 0.6,
       bristleStiffness: 0.4,
     },
+    shapeDynamics: WET_MEDIA_SHAPE_DYNAMICS,
     sort_order: 15,
   },
   {
@@ -232,6 +245,7 @@ export const DEFAULT_PRESETS: BrushPreset[] = [
       viscosity: 0.8,
       bristleStiffness: 0.3,
     },
+    shapeDynamics: WET_MEDIA_SHAPE_DYNAMICS,
     sort_order: 16,
   },
   // -- Acrylic presets --
@@ -258,6 +272,7 @@ export const DEFAULT_PRESETS: BrushPreset[] = [
       viscosity: 0.5,
       bristleStiffness: 0.5,
     },
+    shapeDynamics: WET_MEDIA_SHAPE_DYNAMICS,
     sort_order: 20,
   },
   {
@@ -283,6 +298,7 @@ export const DEFAULT_PRESETS: BrushPreset[] = [
       viscosity: 0.2,
       bristleStiffness: 0.3,
     },
+    shapeDynamics: WET_MEDIA_SHAPE_DYNAMICS,
     sort_order: 21,
   },
   {
@@ -308,6 +324,7 @@ export const DEFAULT_PRESETS: BrushPreset[] = [
       viscosity: 0.8,
       bristleStiffness: 0.6,
     },
+    shapeDynamics: WET_MEDIA_SHAPE_DYNAMICS,
     sort_order: 22,
   },
 ];

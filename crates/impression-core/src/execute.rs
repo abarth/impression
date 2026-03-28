@@ -1,6 +1,7 @@
 use crate::brush::SerializableBrushSettings;
 use crate::canvas::{Canvas, WetMediaReplayEvent};
 use crate::color::Color;
+use crate::dynamics;
 use crate::operation::{Operation, SiteOperation};
 use crate::selection::{CombineMode, SelectionMask};
 use crate::stroke;
@@ -30,10 +31,18 @@ impl Canvas {
                         brush.color.g as f32 / 255.0,
                         brush.color.b as f32 / 255.0,
                     ];
+                    // Apply size dynamics (pen pressure → brush size scaling)
+                    let effective_size = dynamics::apply_dynamic(
+                        &brush.shape_dynamics.size,
+                        brush.size,
+                        pressure,
+                        &mut site_state.wet_media_stroke.rng,
+                        0.0,
+                    );
                     wet_media::wet_media_stroke_begin(
                         &mut site_state.wet_media_stroke,
                         x, y, pressure,
-                        brush.size, brush.angle, brush.roundness, brush.spacing,
+                        effective_size, brush.angle, brush.roundness, brush.spacing,
                         &brush.wet_media,
                         color,
                     );
@@ -73,10 +82,18 @@ impl Canvas {
                         brush.color.g as f32 / 255.0,
                         brush.color.b as f32 / 255.0,
                     ];
+                    // Apply size dynamics (pen pressure → brush size scaling)
+                    let effective_size = dynamics::apply_dynamic(
+                        &brush.shape_dynamics.size,
+                        brush.size,
+                        pressure,
+                        &mut site_state.wet_media_stroke.rng,
+                        0.0,
+                    );
                     wet_media::wet_media_stroke_move(
                         &mut site_state.wet_media_stroke,
                         x, y, pressure,
-                        brush.size, brush.angle, brush.roundness, brush.spacing,
+                        effective_size, brush.angle, brush.roundness, brush.spacing,
                         &brush.wet_media,
                         color,
                     );
