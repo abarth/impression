@@ -843,6 +843,7 @@ export function dispatchWetMediaDeposit(
     canvasHeight: number;
     canvasTextureStrength: number;
     viscosity: number;
+    opacityMultiplier: number;
   },
 ): void {
   const wm = wetMediaLayers.get(layerIndex);
@@ -879,7 +880,7 @@ export function dispatchWetMediaDeposit(
   uintView[14] = params.canvasHeight;
   floatView[15] = params.canvasTextureStrength;
   floatView[16] = params.viscosity;
-  floatView[17] = 0.0; // _pad1
+  floatView[17] = params.opacityMultiplier;
   floatView[18] = 0.0; // _pad2
 
   const uniformBuffer = gpu.device.createBuffer({

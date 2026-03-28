@@ -173,6 +173,8 @@ pub struct BristleFootprint {
     pub wetness: f32,
     pub canvas_texture_strength: f32,
     pub viscosity: f32,
+    /// Opacity multiplier from transfer dynamics (0.0–1.0, default 1.0).
+    pub opacity_multiplier: f32,
 }
 
 /// Per-stroke state for wet media brushes.
@@ -537,6 +539,7 @@ pub fn generate_bristle_footprint(
         wetness: settings.wetness,
         canvas_texture_strength: settings.canvas_texture_strength,
         viscosity: settings.viscosity,
+        opacity_multiplier: 1.0,
     };
 
     (footprint, positions)

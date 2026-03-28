@@ -233,8 +233,9 @@ impl ImpressionCanvas {
                 // Return as a flat array: [origin_x, origin_y, r, g, b, paint_load,
                 //                          velocity_x, velocity_y, mixing_strength,
                 //                          paint_thickness, wetness, width, height,
-                //                          canvas_texture_strength, viscosity]
-                let params: [f32; 15] = [
+                //                          canvas_texture_strength, viscosity,
+                //                          opacity_multiplier]
+                let params: [f32; 16] = [
                     fp.origin_x,
                     fp.origin_y,
                     fp.paint_color[0],
@@ -250,6 +251,7 @@ impl ImpressionCanvas {
                     fp.height as f32,
                     fp.canvas_texture_strength,
                     fp.viscosity,
+                    fp.opacity_multiplier,
                 ];
                 serde_wasm_bindgen::to_value(&params).unwrap_or(JsValue::NULL)
             }
@@ -308,7 +310,7 @@ impl ImpressionCanvas {
         match self.inner.wet_media_replay_events.get(index as usize) {
             Some(canvas::WetMediaReplayEvent::Deposit { footprint, .. }) => {
                 let fp = footprint;
-                let arr: js_sys::Float32Array = js_sys::Float32Array::new_with_length(15);
+                let arr: js_sys::Float32Array = js_sys::Float32Array::new_with_length(16);
                 arr.set_index(0, fp.origin_x);
                 arr.set_index(1, fp.origin_y);
                 arr.set_index(2, fp.paint_color[0]);
@@ -324,6 +326,7 @@ impl ImpressionCanvas {
                 arr.set_index(12, fp.height as f32);
                 arr.set_index(13, fp.canvas_texture_strength);
                 arr.set_index(14, fp.viscosity);
+                arr.set_index(15, fp.opacity_multiplier);
                 arr.into()
             }
             _ => JsValue::NULL,

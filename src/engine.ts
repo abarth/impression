@@ -225,6 +225,7 @@ export class Engine {
         canvasHeight,
         canvasTextureStrength: paramsArray[13],
         viscosity: paramsArray[14],
+        opacityMultiplier: paramsArray[15] ?? 1.0,
       });
     }
 
@@ -525,6 +526,7 @@ export class Engine {
           canvasHeight,
           canvasTextureStrength: paramsArray[13],
           viscosity: paramsArray[14],
+          opacityMultiplier: paramsArray[15] ?? 1.0,
         });
         setWetMediaHasWetPaint(layerIdx, true);
       } else if (eventType === 1) {

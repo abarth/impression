@@ -33,7 +33,8 @@ struct DepositParams {
     canvas_texture_strength: f32,
     // Paint viscosity (0-1). High viscosity resists mixing and builds height.
     viscosity: f32,
-    _pad1: f32,
+    // Opacity multiplier from transfer dynamics (0-1, default 1.0).
+    opacity_multiplier: f32,
     _pad2: f32,
 };
 
@@ -99,7 +100,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let texture_mod = 1.0 - params.canvas_texture_strength * (1.0 - paper_h);
 
     // Blend color: deposit new paint, mix with existing wet paint
-    let deposit_strength = footprint_pressure * load * texture_mod;
+    let deposit_strength = footprint_pressure * load * texture_mod * params.opacity_multiplier;
     let blend_factor = deposit_strength * (1.0 - t * 0.5);
     let new_color = mixbox_lerp(existing_color.rgb, paint_color, blend_factor, mixbox_lut, mixbox_lut_sampler);
     let new_alpha = min(1.0, existing_color.a + deposit_strength);

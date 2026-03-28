@@ -31,21 +31,36 @@ impl Canvas {
                         brush.color.g as f32 / 255.0,
                         brush.color.b as f32 / 255.0,
                     ];
-                    // Apply size dynamics (pen pressure → brush size scaling)
+                    let rng = &mut site_state.wet_media_stroke.rng;
+                    // Apply shape dynamics
                     let effective_size = dynamics::apply_dynamic(
-                        &brush.shape_dynamics.size,
-                        brush.size,
-                        pressure,
-                        &mut site_state.wet_media_stroke.rng,
-                        0.0,
+                        &brush.shape_dynamics.size, brush.size, pressure, rng, 0.0,
+                    );
+                    let effective_angle = dynamics::apply_angle_dynamic(
+                        &brush.shape_dynamics.angle, brush.angle, pressure, rng, 0.0,
+                    );
+                    let effective_roundness = dynamics::apply_dynamic(
+                        &brush.shape_dynamics.roundness, brush.roundness, pressure, rng, 0.0,
+                    );
+                    // Apply transfer dynamics (flow → paint_load scaling, opacity → multiplier)
+                    let flow_factor = dynamics::apply_dynamic(
+                        &brush.transfer_dynamics.flow, 1.0, pressure, rng, 0.0,
+                    );
+                    let opacity_multiplier = dynamics::apply_dynamic(
+                        &brush.transfer_dynamics.opacity, 1.0, pressure, rng, 0.0,
                     );
                     wet_media::wet_media_stroke_begin(
                         &mut site_state.wet_media_stroke,
                         x, y, pressure,
-                        effective_size, brush.angle, brush.roundness, brush.spacing,
+                        effective_size, effective_angle, effective_roundness, brush.spacing,
                         &brush.wet_media,
                         color,
                     );
+                    // Apply transfer dynamics to footprints
+                    for fp in site_state.wet_media_stroke.footprints.iter_mut() {
+                        fp.paint_load *= flow_factor;
+                        fp.opacity_multiplier = opacity_multiplier;
+                    }
                     // During replay (undo/redo), drain footprints into replay events
                     // so TS can re-execute them on GPU. During normal painting,
                     // leave them in place for TS to read via wet_media_footprint_count().
@@ -82,21 +97,44 @@ impl Canvas {
                         brush.color.g as f32 / 255.0,
                         brush.color.b as f32 / 255.0,
                     ];
-                    // Apply size dynamics (pen pressure → brush size scaling)
+                    // Compute stroke direction from previous point
+                    let (lx, ly) = site_state.wet_media_stroke.last_point
+                        .map(|(px, py, _)| (px, py))
+                        .unwrap_or((x, y));
+                    let dx = x - lx;
+                    let dy = y - ly;
+                    let direction_angle = dy.atan2(dx).to_degrees();
+                    let rng = &mut site_state.wet_media_stroke.rng;
+                    // Apply shape dynamics
                     let effective_size = dynamics::apply_dynamic(
-                        &brush.shape_dynamics.size,
-                        brush.size,
-                        pressure,
-                        &mut site_state.wet_media_stroke.rng,
-                        0.0,
+                        &brush.shape_dynamics.size, brush.size, pressure, rng, direction_angle,
                     );
+                    let effective_angle = dynamics::apply_angle_dynamic(
+                        &brush.shape_dynamics.angle, brush.angle, pressure, rng, direction_angle,
+                    );
+                    let effective_roundness = dynamics::apply_dynamic(
+                        &brush.shape_dynamics.roundness, brush.roundness, pressure, rng, direction_angle,
+                    );
+                    // Apply transfer dynamics
+                    let flow_factor = dynamics::apply_dynamic(
+                        &brush.transfer_dynamics.flow, 1.0, pressure, rng, direction_angle,
+                    );
+                    let opacity_multiplier = dynamics::apply_dynamic(
+                        &brush.transfer_dynamics.opacity, 1.0, pressure, rng, direction_angle,
+                    );
+                    let footprint_start = site_state.wet_media_stroke.footprints.len();
                     wet_media::wet_media_stroke_move(
                         &mut site_state.wet_media_stroke,
                         x, y, pressure,
-                        effective_size, brush.angle, brush.roundness, brush.spacing,
+                        effective_size, effective_angle, effective_roundness, brush.spacing,
                         &brush.wet_media,
                         color,
                     );
+                    // Apply transfer dynamics to newly generated footprints
+                    for fp in site_state.wet_media_stroke.footprints[footprint_start..].iter_mut() {
+                        fp.paint_load *= flow_factor;
+                        fp.opacity_multiplier = opacity_multiplier;
+                    }
                     if self.is_replaying {
                         let replay_layer = site_state.stroke_layer;
                         let footprints: Vec<_> = site_state.wet_media_stroke.footprints.drain(..).collect();
