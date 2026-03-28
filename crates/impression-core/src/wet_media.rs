@@ -196,6 +196,131 @@ pub fn init_bristle_offsets(count: u32, rng: &mut Rng) -> Vec<(f32, f32)> {
         .collect()
 }
 
+/// A single bristle's computed canvas position and pressure.
+#[derive(Clone, Debug)]
+struct BristlePosition {
+    canvas_x: f32,
+    canvas_y: f32,
+    pressure: f32,
+}
+
+/// Compute absolute canvas positions for all bristles given brush parameters.
+///
+/// Returns one `BristlePosition` per bristle offset, with canvas-space coordinates
+/// (not mask-space). The RNG is advanced once per bristle for per-bristle pressure variation.
+fn compute_bristle_canvas_positions(
+    origin_x: f32,
+    origin_y: f32,
+    pressure: f32,
+    brush_size: f32,
+    brush_angle: f32,
+    brush_roundness: f32,
+    settings: &WetMediaBrushSettings,
+    velocity: [f32; 2],
+    bristle_offsets: &[(f32, f32)],
+    rng: &mut Rng,
+) -> Vec<BristlePosition> {
+    let radius = brush_size * 0.5;
+    let angle_rad = brush_angle.to_radians();
+    let cos_a = angle_rad.cos();
+    let sin_a = angle_rad.sin();
+
+    // Pressure splay: bristles spread outward under pressure
+    let splay = 1.0 + pressure * settings.bristle_spread * 0.5;
+
+    // Velocity bend: bristles bend in the direction of motion
+    let vel_len = (velocity[0] * velocity[0] + velocity[1] * velocity[1]).sqrt();
+    let stiffness = settings.bristle_stiffness.max(0.1);
+    let bend_amount = if vel_len > 0.01 {
+        (vel_len * 0.02 / stiffness).min(0.3)
+    } else {
+        0.0
+    };
+    let vel_dir = if vel_len > 0.01 {
+        [velocity[0] / vel_len, velocity[1] / vel_len]
+    } else {
+        [0.0, 0.0]
+    };
+
+    bristle_offsets
+        .iter()
+        .map(|&(base_x, base_y)| {
+            // Apply pressure splay to base offset
+            let splayed_x = base_x * splay;
+            let splayed_y = base_y * splay;
+
+            // Apply velocity bend (shift bristle in movement direction)
+            let bent_x = splayed_x + vel_dir[0] * bend_amount;
+            let bent_y = splayed_y + vel_dir[1] * bend_amount;
+
+            // Scale to brush radius with roundness
+            let scaled_x = bent_x * (0.5 + 0.5 * settings.bristle_spread) * radius;
+            let scaled_y =
+                bent_y * (0.5 + 0.5 * settings.bristle_spread) * radius * brush_roundness;
+
+            // Rotate by brush angle, position relative to brush center in canvas space
+            let cx = origin_x + scaled_x * cos_a - scaled_y * sin_a;
+            let cy = origin_y + scaled_x * sin_a + scaled_y * cos_a;
+
+            // Per-bristle pressure variation
+            let bp = (0.5 + 0.5 * rng.next_f32()) * pressure;
+
+            BristlePosition {
+                canvas_x: cx,
+                canvas_y: cy,
+                pressure: bp,
+            }
+        })
+        .collect()
+}
+
+/// Compute the bristle dot radius for a given brush size and bristle count.
+fn bristle_dot_radius(brush_size: f32, bristle_count: usize) -> f32 {
+    let radius = brush_size * 0.5;
+    (radius * 2.5 / (bristle_count as f32).sqrt()).max(0.5)
+}
+
+/// Stamp a soft dot into the mask at the given mask-space position.
+fn stamp_bristle_dot(
+    mask: &mut [f32],
+    mask_width: u32,
+    mask_height: u32,
+    bx: f32,
+    by: f32,
+    bristle_radius: f32,
+    bristle_pressure: f32,
+) {
+    let br = bristle_radius;
+    let x_min_i = ((bx - br).floor() as i32).max(0);
+    let x_max_i = ((bx + br).ceil() as i32).min(mask_width as i32 - 1);
+    let y_min_i = ((by - br).floor() as i32).max(0);
+    let y_max_i = ((by + br).ceil() as i32).min(mask_height as i32 - 1);
+
+    if x_max_i < x_min_i || y_max_i < y_min_i {
+        return;
+    }
+    let x_min = x_min_i as u32;
+    let x_max = x_max_i as u32;
+    let y_min = y_min_i as u32;
+    let y_max = y_max_i as u32;
+
+    for py in y_min..=y_max {
+        for px in x_min..=x_max {
+            let dx = px as f32 + 0.5 - bx;
+            let dy = py as f32 + 0.5 - by;
+            let dist = (dx * dx + dy * dy).sqrt();
+            if dist <= br {
+                // Smoothstep falloff
+                let t = (1.0 - dist / br).clamp(0.0, 1.0);
+                let alpha = t * t * (3.0 - 2.0 * t) * bristle_pressure;
+                let idx = (py * mask_width + px) as usize;
+                // Accumulate (max blend so bristles don't over-brighten)
+                mask[idx] = mask[idx].max(alpha);
+            }
+        }
+    }
+}
+
 /// Generate a bristle footprint mask for the given brush position and settings.
 ///
 /// The mask is a square of side `ceil(size)` pixels, centered at (origin_x, origin_y).
@@ -215,89 +340,24 @@ pub fn generate_bristle_footprint(
     bristle_offsets: &[(f32, f32)],
     rng: &mut Rng,
 ) -> BristleFootprint {
-    let radius = brush_size * 0.5;
     let footprint_size = (brush_size.ceil() as u32).max(1);
     let mask_len = (footprint_size * footprint_size) as usize;
     let mut mask = vec![0.0f32; mask_len];
 
     let center = footprint_size as f32 * 0.5;
-    let angle_rad = brush_angle.to_radians();
-    let cos_a = angle_rad.cos();
-    let sin_a = angle_rad.sin();
+    let br = bristle_dot_radius(brush_size, bristle_offsets.len());
 
-    // Each bristle is a soft dot placed within the brush ellipse.
-    // Size the dots so neighboring bristles overlap, producing a continuous
-    // coverage field rather than isolated circles.  The 2.5× multiplier
-    // ensures good overlap for typical bristle counts (32–128).
-    let bristle_radius = (radius * 2.5 / (bristle_offsets.len() as f32).sqrt()).max(0.5);
+    // Compute canvas positions and convert to mask-space for dot stamping
+    let positions = compute_bristle_canvas_positions(
+        origin_x, origin_y, pressure, brush_size, brush_angle, brush_roundness,
+        settings, velocity, bristle_offsets, rng,
+    );
 
-    // Pressure splay: bristles spread outward under pressure
-    let splay = 1.0 + pressure * settings.bristle_spread * 0.5;
-
-    // Velocity bend: bristles bend in the direction of motion
-    let vel_len = (velocity[0] * velocity[0] + velocity[1] * velocity[1]).sqrt();
-    let stiffness = settings.bristle_stiffness.max(0.1);
-    let bend_amount = if vel_len > 0.01 {
-        (vel_len * 0.02 / stiffness).min(0.3)
-    } else {
-        0.0
-    };
-    let vel_dir = if vel_len > 0.01 {
-        [velocity[0] / vel_len, velocity[1] / vel_len]
-    } else {
-        [0.0, 0.0]
-    };
-
-    for &(base_x, base_y) in bristle_offsets {
-        // Apply pressure splay to base offset
-        let splayed_x = base_x * splay;
-        let splayed_y = base_y * splay;
-
-        // Apply velocity bend (shift bristle in movement direction)
-        let bent_x = splayed_x + vel_dir[0] * bend_amount;
-        let bent_y = splayed_y + vel_dir[1] * bend_amount;
-
-        // Scale to brush radius with roundness
-        let scaled_x = bent_x * (0.5 + 0.5 * settings.bristle_spread) * radius;
-        let scaled_y = bent_y * (0.5 + 0.5 * settings.bristle_spread) * radius * brush_roundness;
-
-        // Rotate by brush angle
-        let bx = center + scaled_x * cos_a - scaled_y * sin_a;
-        let by = center + scaled_x * sin_a + scaled_y * cos_a;
-
-        // Per-bristle pressure variation
-        let bristle_pressure = (0.5 + 0.5 * rng.next_f32()) * pressure;
-
-        // Stamp a soft dot at (bx, by)
-        let br = bristle_radius;
-        let x_min_i = ((bx - br).floor() as i32).max(0);
-        let x_max_i = ((bx + br).ceil() as i32).min(footprint_size as i32 - 1);
-        let y_min_i = ((by - br).floor() as i32).max(0);
-        let y_max_i = ((by + br).ceil() as i32).min(footprint_size as i32 - 1);
-
-        if x_max_i < x_min_i || y_max_i < y_min_i {
-            continue;
-        }
-        let x_min = x_min_i as u32;
-        let x_max = x_max_i as u32;
-        let y_min = y_min_i as u32;
-        let y_max = y_max_i as u32;
-
-        for py in y_min..=y_max {
-            for px in x_min..=x_max {
-                let dx = px as f32 + 0.5 - bx;
-                let dy = py as f32 + 0.5 - by;
-                let dist = (dx * dx + dy * dy).sqrt();
-                if dist <= br {
-                    // Smoothstep falloff
-                    let t = (1.0 - dist / br).clamp(0.0, 1.0);
-                    let alpha = t * t * (3.0 - 2.0 * t) * bristle_pressure;
-                    let idx = (py * footprint_size + px) as usize;
-                    // Accumulate (max blend so bristles don't over-brighten)
-                    mask[idx] = mask[idx].max(alpha);
-                }
-            }
-        }
+    for pos in &positions {
+        // Convert canvas-space to mask-space: mask center corresponds to origin
+        let mx = pos.canvas_x - origin_x + center;
+        let my = pos.canvas_y - origin_y + center;
+        stamp_bristle_dot(&mut mask, footprint_size, footprint_size, mx, my, br, pos.pressure);
     }
 
     BristleFootprint {
