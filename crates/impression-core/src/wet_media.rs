@@ -167,6 +167,9 @@ pub struct WetMediaStrokeState {
     pub bristle_offsets: Vec<(f32, f32)>,
     /// Per-bristle color, starts as paint color, drifts over the stroke.
     pub bristle_colors: Vec<[f32; 3]>,
+    /// Previous bristle canvas positions for trail-based rendering.
+    /// `None` before the first footprint, `Some` after — each entry is one `BristlePosition`.
+    pub prev_bristle_positions: Option<Vec<BristlePosition>>,
 }
 
 impl Default for WetMediaStrokeState {
@@ -180,6 +183,7 @@ impl Default for WetMediaStrokeState {
             rng: Rng::from_coords(0.0, 0.0),
             bristle_offsets: Vec::new(),
             bristle_colors: Vec::new(),
+            prev_bristle_positions: None,
         }
     }
 }
@@ -198,10 +202,10 @@ pub fn init_bristle_offsets(count: u32, rng: &mut Rng) -> Vec<(f32, f32)> {
 
 /// A single bristle's computed canvas position and pressure.
 #[derive(Clone, Debug)]
-struct BristlePosition {
-    canvas_x: f32,
-    canvas_y: f32,
-    pressure: f32,
+pub struct BristlePosition {
+    pub canvas_x: f32,
+    pub canvas_y: f32,
+    pub pressure: f32,
 }
 
 /// Compute absolute canvas positions for all bristles given brush parameters.
@@ -383,11 +387,19 @@ fn rasterize_capsule(
     }
 }
 
+/// Maximum mask dimension to prevent pathological allocations with fast strokes.
+const MAX_MASK_DIM: u32 = 512;
+
 /// Generate a bristle footprint mask for the given brush position and settings.
 ///
-/// The mask is a square of side `ceil(size)` pixels, centered at (origin_x, origin_y).
-/// Uses persistent bristle offsets for consistent marks within a stroke.
-/// Pressure affects splay, velocity affects bend direction.
+/// When `prev_positions` is `None` (first dab), uses dot-stamp rasterization with a
+/// fixed-size mask centered at (origin_x, origin_y).
+///
+/// When `prev_positions` is `Some`, uses trail-based capsule rasterization: each bristle
+/// traces a line from its previous canvas position to its current one, producing smooth
+/// continuous coverage. The mask is sized to the bounding box of all bristle movements.
+///
+/// Returns the footprint and the current bristle positions (to be stored for the next call).
 pub fn generate_bristle_footprint(
     origin_x: f32,
     origin_y: f32,
@@ -400,34 +412,88 @@ pub fn generate_bristle_footprint(
     paint_load: f32,
     velocity: [f32; 2],
     bristle_offsets: &[(f32, f32)],
+    prev_positions: Option<&[BristlePosition]>,
     rng: &mut Rng,
-) -> BristleFootprint {
-    let footprint_size = (brush_size.ceil() as u32).max(1);
-    let mask_len = (footprint_size * footprint_size) as usize;
-    let mut mask = vec![0.0f32; mask_len];
-
-    let center = footprint_size as f32 * 0.5;
+) -> (BristleFootprint, Vec<BristlePosition>) {
     let br = bristle_dot_radius(brush_size, bristle_offsets.len());
 
-    // Compute canvas positions and convert to mask-space for dot stamping
+    // Compute current canvas positions for all bristles
     let positions = compute_bristle_canvas_positions(
         origin_x, origin_y, pressure, brush_size, brush_angle, brush_roundness,
         settings, velocity, bristle_offsets, rng,
     );
 
-    for pos in &positions {
-        // Convert canvas-space to mask-space: mask center corresponds to origin
-        let mx = pos.canvas_x - origin_x + center;
-        let my = pos.canvas_y - origin_y + center;
-        stamp_bristle_dot(&mut mask, footprint_size, footprint_size, mx, my, br, pos.pressure);
-    }
+    let (mask, mask_w, mask_h, mask_origin_x, mask_origin_y) = match prev_positions {
+        None => {
+            // First dab: fixed-size square mask centered at origin, dot-stamp rasterization
+            let footprint_size = (brush_size.ceil() as u32).max(1);
+            let mask_len = (footprint_size * footprint_size) as usize;
+            let mut mask = vec![0.0f32; mask_len];
+            let center = footprint_size as f32 * 0.5;
 
-    BristleFootprint {
+            for pos in &positions {
+                let mx = pos.canvas_x - origin_x + center;
+                let my = pos.canvas_y - origin_y + center;
+                stamp_bristle_dot(
+                    &mut mask, footprint_size, footprint_size, mx, my, br, pos.pressure,
+                );
+            }
+            (mask, footprint_size, footprint_size, origin_x, origin_y)
+        }
+        Some(prev) => {
+            // Trail mode: compute bounding box over all bristle movements + radius padding
+            let mut min_x = f32::MAX;
+            let mut min_y = f32::MAX;
+            let mut max_x = f32::MIN;
+            let mut max_y = f32::MIN;
+
+            for (curr, prev_pos) in positions.iter().zip(prev.iter()) {
+                min_x = min_x.min(curr.canvas_x).min(prev_pos.canvas_x);
+                min_y = min_y.min(curr.canvas_y).min(prev_pos.canvas_y);
+                max_x = max_x.max(curr.canvas_x).max(prev_pos.canvas_x);
+                max_y = max_y.max(curr.canvas_y).max(prev_pos.canvas_y);
+            }
+
+            // Pad by bristle radius + 1 pixel safety margin
+            let pad = br + 1.0;
+            min_x -= pad;
+            min_y -= pad;
+            max_x += pad;
+            max_y += pad;
+
+            let mask_w = ((max_x - min_x).ceil() as u32).max(1).min(MAX_MASK_DIM);
+            let mask_h = ((max_y - min_y).ceil() as u32).max(1).min(MAX_MASK_DIM);
+            let mask_len = (mask_w * mask_h) as usize;
+            let mut mask = vec![0.0f32; mask_len];
+
+            // The mask top-left corner in canvas space
+            let tl_x = min_x;
+            let tl_y = min_y;
+
+            for (curr, prev_pos) in positions.iter().zip(prev.iter()) {
+                // Convert canvas coords to mask space
+                let p0 = (prev_pos.canvas_x - tl_x, prev_pos.canvas_y - tl_y);
+                let p1 = (curr.canvas_x - tl_x, curr.canvas_y - tl_y);
+                rasterize_capsule(
+                    &mut mask, mask_w, mask_h,
+                    p0, p1, br,
+                    prev_pos.pressure, curr.pressure,
+                );
+            }
+
+            // Origin = center of the bounding box (shader interprets origin as mask center)
+            let center_x = min_x + mask_w as f32 * 0.5;
+            let center_y = min_y + mask_h as f32 * 0.5;
+            (mask, mask_w, mask_h, center_x, center_y)
+        }
+    };
+
+    let footprint = BristleFootprint {
         mask,
-        width: footprint_size,
-        height: footprint_size,
-        origin_x,
-        origin_y,
+        width: mask_w,
+        height: mask_h,
+        origin_x: mask_origin_x,
+        origin_y: mask_origin_y,
         paint_color,
         paint_load,
         velocity,
@@ -436,7 +502,9 @@ pub fn generate_bristle_footprint(
         wetness: settings.wetness,
         canvas_texture_strength: settings.canvas_texture_strength,
         viscosity: settings.viscosity,
-    }
+    };
+
+    (footprint, positions)
 }
 
 /// Begin a wet media stroke: generate the first footprint.
@@ -462,7 +530,7 @@ pub fn wet_media_stroke_begin(
     state.bristle_offsets = init_bristle_offsets(settings.bristle_count, &mut state.rng);
     state.bristle_colors = vec![paint_color; settings.bristle_count as usize];
 
-    let footprint = generate_bristle_footprint(
+    let (footprint, curr_positions) = generate_bristle_footprint(
         x, y, pressure,
         brush_size, brush_angle, brush_roundness,
         settings,
@@ -470,9 +538,11 @@ pub fn wet_media_stroke_begin(
         state.paint_load_remaining,
         [0.0, 0.0], // no velocity on first stamp
         &state.bristle_offsets,
+        None, // first dab — no previous positions
         &mut state.rng,
     );
     state.footprints.push(footprint);
+    state.prev_bristle_positions = Some(curr_positions);
 
     // Set residual so stroke_move starts from the next spacing interval
     let step = (brush_spacing * brush_size).max(1.0);
@@ -532,7 +602,7 @@ pub fn wet_media_stroke_move(
         // Average bristle colors for the footprint's paint color
         let avg_color = average_bristle_colors(&state.bristle_colors);
 
-        let footprint = generate_bristle_footprint(
+        let (footprint, curr_positions) = generate_bristle_footprint(
             px, py, pp,
             brush_size, brush_angle, brush_roundness,
             settings,
@@ -540,9 +610,11 @@ pub fn wet_media_stroke_move(
             state.paint_load_remaining,
             velocity,
             &state.bristle_offsets,
+            state.prev_bristle_positions.as_deref(),
             &mut state.rng,
         );
         state.footprints.push(footprint);
+        state.prev_bristle_positions = Some(curr_positions);
 
         dist += step;
     }
@@ -569,6 +641,7 @@ fn average_bristle_colors(colors: &[[f32; 3]]) -> [f32; 3] {
 /// End a wet media stroke.
 pub fn wet_media_stroke_end(state: &mut WetMediaStrokeState) {
     state.last_point = None;
+    state.prev_bristle_positions = None;
 }
 
 #[cfg(test)]
@@ -716,13 +789,13 @@ mod tests {
         let mut rng1b = Rng::from_coords(10.0, 20.0);
         let offsets2 = init_bristle_offsets(settings.bristle_count, &mut rng1b);
 
-        let fp1 = generate_bristle_footprint(
+        let (fp1, _) = generate_bristle_footprint(
             50.0, 50.0, 0.8, 20.0, 0.0, 1.0,
-            &settings, [1.0, 0.0, 0.0], 0.8, [1.0, 0.0], &offsets1, &mut rng1,
+            &settings, [1.0, 0.0, 0.0], 0.8, [1.0, 0.0], &offsets1, None, &mut rng1,
         );
-        let fp2 = generate_bristle_footprint(
+        let (fp2, _) = generate_bristle_footprint(
             50.0, 50.0, 0.8, 20.0, 0.0, 1.0,
-            &settings, [1.0, 0.0, 0.0], 0.8, [1.0, 0.0], &offsets2, &mut rng1b,
+            &settings, [1.0, 0.0, 0.0], 0.8, [1.0, 0.0], &offsets2, None, &mut rng1b,
         );
 
         assert_eq!(fp1.mask.len(), fp2.mask.len());
@@ -740,9 +813,9 @@ mod tests {
         };
         let mut rng = Rng::from_coords(5.0, 5.0);
         let offsets = init_bristle_offsets(32, &mut rng);
-        let fp = generate_bristle_footprint(
+        let (fp, _) = generate_bristle_footprint(
             25.0, 25.0, 1.0, 30.0, 0.0, 1.0,
-            &settings, [0.0, 0.0, 1.0], 1.0, [0.0, 0.0], &offsets, &mut rng,
+            &settings, [0.0, 0.0, 1.0], 1.0, [0.0, 0.0], &offsets, None, &mut rng,
         );
         let nonzero = fp.mask.iter().filter(|&&v| v > 0.0).count();
         assert!(nonzero > 0, "Footprint should have some nonzero pixels");
@@ -924,14 +997,14 @@ mod tests {
         // Generate footprints at different pressures using same offsets
         // Use a large brush to avoid edge clipping
         let mut rng_low = Rng::from_coords(99.0, 99.0);
-        let fp_low = generate_bristle_footprint(
+        let (fp_low, _) = generate_bristle_footprint(
             50.0, 50.0, 0.2, 60.0, 0.0, 1.0,
-            &settings, [1.0, 0.0, 0.0], 1.0, [0.0, 0.0], &offsets, &mut rng_low,
+            &settings, [1.0, 0.0, 0.0], 1.0, [0.0, 0.0], &offsets, None, &mut rng_low,
         );
         let mut rng_high = Rng::from_coords(99.0, 99.0);
-        let fp_high = generate_bristle_footprint(
+        let (fp_high, _) = generate_bristle_footprint(
             50.0, 50.0, 1.0, 60.0, 0.0, 1.0,
-            &settings, [1.0, 0.0, 0.0], 1.0, [0.0, 0.0], &offsets, &mut rng_high,
+            &settings, [1.0, 0.0, 0.0], 1.0, [0.0, 0.0], &offsets, None, &mut rng_high,
         );
 
         // Measure spatial spread: variance of active pixel positions from center
@@ -971,17 +1044,17 @@ mod tests {
         let offsets = init_bristle_offsets(16, &mut rng);
 
         // No velocity
-        let fp_still = generate_bristle_footprint(
+        let (fp_still, _) = generate_bristle_footprint(
             50.0, 50.0, 0.5, 30.0, 0.0, 1.0,
-            &settings, [1.0, 0.0, 0.0], 1.0, [0.0, 0.0], &offsets, &mut rng,
+            &settings, [1.0, 0.0, 0.0], 1.0, [0.0, 0.0], &offsets, None, &mut rng,
         );
 
         // Strong rightward velocity
         let mut rng2 = Rng::from_coords(3.0, 3.0);
         let _ = init_bristle_offsets(16, &mut rng2);
-        let fp_moving = generate_bristle_footprint(
+        let (fp_moving, _) = generate_bristle_footprint(
             50.0, 50.0, 0.5, 30.0, 0.0, 1.0,
-            &settings, [1.0, 0.0, 0.0], 1.0, [50.0, 0.0], &offsets, &mut rng2,
+            &settings, [1.0, 0.0, 0.0], 1.0, [50.0, 0.0], &offsets, None, &mut rng2,
         );
 
         // The masks should differ due to velocity bending
