@@ -43,4 +43,15 @@ describe("Mixbox WGSL shader", () => {
     expect(source).toContain("fn mixbox_eval_polynomial");
     expect(source).toContain("struct MixboxLatent");
   });
+
+  it("shader source must not use unary + on literals (invalid WGSL)", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const shaderPath = path.resolve(__dirname, "../../shaders/mixbox.wgsl");
+    const source = fs.readFileSync(shaderPath, "utf-8");
+
+    // WGSL does not support unary + operator; vec3f(+0.5, ...) is a parse error
+    const unaryPlusPattern = /vec3f\([^)]*(?<![a-zA-Z0-9_])\+\d/;
+    expect(source).not.toMatch(unaryPlusPattern);
+  });
 });
