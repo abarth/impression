@@ -636,6 +636,16 @@ function WetMediaPane({ settings, onUpdate }: BrushSettingsPanelProps) {
             title="Brush flexibility — low bends with motion"
           />
           <SliderControl
+            label="Speed Smudging"
+            value={wm.speedSmudging}
+            min={0}
+            max={1.0}
+            step={0.01}
+            displayValue={`${Math.round(wm.speedSmudging * 100)}%`}
+            onChange={(v) => update({ speedSmudging: v })}
+            title="How much fast strokes increase paint smearing"
+          />
+          <SliderControl
             label="Color Noise"
             value={wm.colorNoise}
             min={0}

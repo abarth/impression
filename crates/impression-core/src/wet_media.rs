@@ -92,6 +92,14 @@ pub struct WetMediaBrushSettings {
     /// visible color variation across the brush.
     #[serde(default)]
     pub color_noise: f32,
+    /// Speed-based smudging (0.0–1.0). Fast brush strokes increase mixing
+    /// strength, causing more paint smearing. Default 0.3.
+    #[serde(default = "default_speed_smudging")]
+    pub speed_smudging: f32,
+}
+
+fn default_speed_smudging() -> f32 {
+    0.3
 }
 
 fn default_viscosity() -> f32 {
@@ -122,6 +130,7 @@ impl Default for WetMediaBrushSettings {
             bristle_stiffness: 0.5,
             brush_form: 0.5,
             color_noise: 0.0,
+            speed_smudging: 0.3,
         }
     }
 }
@@ -632,9 +641,13 @@ pub fn wet_media_stroke_move(
         let load_ratio = (state.paint_load_remaining / settings.paint_load.max(0.01)).clamp(0.0, 1.0);
         let depletion_ratio = 1.0 - load_ratio;
         // As paint depletes: mixing increases (brush transitions to smudging)
-        let effective_mixing = (settings.mixing_strength
+        let mut effective_mixing = (settings.mixing_strength
             + (1.0 - settings.mixing_strength) * depletion_ratio * 0.8)
             .min(1.0);
+        // Speed-based smudging: fast strokes increase mixing
+        let vel_mag = (velocity[0] * velocity[0] + velocity[1] * velocity[1]).sqrt();
+        let speed_factor = (vel_mag / brush_size).min(2.0);
+        effective_mixing = (effective_mixing + settings.speed_smudging * speed_factor * 0.3).min(1.0);
         // As paint depletes: wetness fades (stroke dries out)
         let effective_wetness = settings.wetness * load_ratio.max(0.1);
 
@@ -828,6 +841,7 @@ mod tests {
             bristle_stiffness: 0.6,
             brush_form: 0.5,
             color_noise: 0.0,
+            speed_smudging: 0.3,
         };
         let bytes = rmp_serde::to_vec(&settings).unwrap();
         let decoded: WetMediaBrushSettings = rmp_serde::from_slice(&bytes).unwrap();
@@ -974,6 +988,7 @@ mod tests {
             bristle_stiffness: 0.5,
             brush_form: 0.5,
             color_noise: 0.0,
+            speed_smudging: 0.3,
         };
         // Serialize without the new fields by using JSON (simulates old format)
         let json = r#"{"paint_load":0.8,"paint_thickness":0.5,"wetness":0.7,"mixing_strength":0.5,"bristle_count":64,"bristle_spread":0.3,"paint_depletion_rate":0.1,"canvas_texture_strength":0.3}"#;
@@ -983,6 +998,7 @@ mod tests {
         assert!((decoded.bristle_stiffness - 0.5).abs() < f32::EPSILON);
         assert!((decoded.brush_form - 0.5).abs() < f32::EPSILON);
         assert!((decoded.color_noise - 0.0).abs() < f32::EPSILON);
+        assert!((decoded.speed_smudging - 0.3).abs() < f32::EPSILON);
         assert_eq!(decoded, old_settings);
     }
 
@@ -1668,5 +1684,86 @@ mod tests {
         );
 
         assert_eq!(state1.bristle_colors, state2.bristle_colors, "Same seed should produce same colors");
+    }
+
+    #[test]
+    fn test_speed_smudging_fast_stroke_higher_mixing() {
+        let settings = WetMediaBrushSettings {
+            bristle_count: 8,
+            bristle_spread: 0.1,
+            speed_smudging: 0.7,
+            mixing_strength: 0.3,
+            ..Default::default()
+        };
+        let color = [1.0, 0.0, 0.0];
+
+        // Slow stroke
+        let mut state_slow = WetMediaStrokeState::default();
+        wet_media_stroke_begin(
+            &mut state_slow, 10.0, 10.0, 1.0,
+            20.0, 0.0, 1.0, 0.12,
+            &settings, color,
+        );
+        state_slow.footprints.clear();
+        wet_media_stroke_move(
+            &mut state_slow, 13.0, 10.0, 1.0, // small movement = slow velocity
+            20.0, 0.0, 1.0, 0.12,
+            &settings, color,
+        );
+        let slow_mixing = state_slow.footprints.last().unwrap().mixing_strength;
+
+        // Fast stroke
+        let mut state_fast = WetMediaStrokeState::default();
+        wet_media_stroke_begin(
+            &mut state_fast, 10.0, 10.0, 1.0,
+            20.0, 0.0, 1.0, 0.12,
+            &settings, color,
+        );
+        state_fast.footprints.clear();
+        wet_media_stroke_move(
+            &mut state_fast, 80.0, 10.0, 1.0, // large movement = fast velocity
+            20.0, 0.0, 1.0, 0.12,
+            &settings, color,
+        );
+        let fast_mixing = state_fast.footprints.last().unwrap().mixing_strength;
+
+        assert!(
+            fast_mixing > slow_mixing,
+            "Fast stroke should have higher mixing: fast={}, slow={}",
+            fast_mixing, slow_mixing
+        );
+    }
+
+    #[test]
+    fn test_speed_smudging_zero_no_effect() {
+        let settings = WetMediaBrushSettings {
+            bristle_count: 8,
+            bristle_spread: 0.1,
+            speed_smudging: 0.0,
+            mixing_strength: 0.3,
+            paint_load: 1.0,
+            paint_depletion_rate: 0.0, // no depletion so mixing stays at base
+            ..Default::default()
+        };
+        let color = [1.0, 0.0, 0.0];
+
+        let mut state = WetMediaStrokeState::default();
+        wet_media_stroke_begin(
+            &mut state, 10.0, 10.0, 1.0,
+            20.0, 0.0, 1.0, 0.12,
+            &settings, color,
+        );
+        state.footprints.clear();
+        wet_media_stroke_move(
+            &mut state, 50.0, 10.0, 1.0,
+            20.0, 0.0, 1.0, 0.12,
+            &settings, color,
+        );
+        let mixing = state.footprints.last().unwrap().mixing_strength;
+        assert!(
+            (mixing - 0.3).abs() < 0.01,
+            "With speed_smudging=0, mixing should stay at base: {}",
+            mixing
+        );
     }
 }
