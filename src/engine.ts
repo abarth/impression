@@ -644,15 +644,21 @@ export class Engine {
     });
   }
 
-  /** Load a serialized chunk of operations into the canvas. */
+  /** Load a serialized chunk of operations into the canvas.
+   *  Wet media replay events accumulate across chunks — call
+   *  finishLoading() once after all chunks are loaded. */
   loadChunk(data: Uint8Array): boolean {
     const result = this.canvas.load_chunk(data);
     if (result) {
       this.syncAllLayers();
-      // Replay wet media GPU deposits accumulated during load_chunk
-      this.replayWetMediaEvents();
     }
     return result;
+  }
+
+  /** Dispatch accumulated wet media GPU deposits after all chunks are loaded.
+   *  Must be called once after the loadChunk loop completes. */
+  finishLoading(): void {
+    this.replayWetMediaEvents();
   }
 
   sampleColor(x: number, y: number): [number, number, number] {

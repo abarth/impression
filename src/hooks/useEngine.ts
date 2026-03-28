@@ -99,6 +99,8 @@ export function useEngine(
           for (const entry of opLogEntries) {
             eng.loadChunk(entry);
           }
+          // Dispatch accumulated wet media GPU deposits after all chunks
+          eng.finishLoading();
         } else {
           // New document: add initial layer
           eng.addLayer();

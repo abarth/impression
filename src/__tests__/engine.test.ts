@@ -519,15 +519,18 @@ describe("Engine", () => {
   });
 
   describe("loadChunk wet media replay", () => {
-    it("should call replayWetMediaEvents after loading chunk", () => {
-      // loadChunk should check for wet media replay events after loading
+    it("should not replay during loadChunk — only on finishLoading", () => {
       mockCanvas.load_chunk.mockReturnValue(true);
       mockCanvas.wet_media_replay_event_count.mockReturnValue(0);
 
       engine.loadChunk(new Uint8Array([1, 2, 3]));
 
       expect(mockCanvas.load_chunk).toHaveBeenCalled();
-      // replayWetMediaEvents checks event count — verify it was called
+      // loadChunk should NOT trigger replay (events accumulate across chunks)
+      expect(mockCanvas.wet_media_replay_event_count).not.toHaveBeenCalled();
+
+      // finishLoading dispatches accumulated replay events
+      engine.finishLoading();
       expect(mockCanvas.wet_media_replay_event_count).toHaveBeenCalled();
     });
 
