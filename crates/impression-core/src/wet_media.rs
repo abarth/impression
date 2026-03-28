@@ -321,6 +321,68 @@ fn stamp_bristle_dot(
     }
 }
 
+/// Compute the shortest distance from point (px, py) to the line segment (ax, ay)→(bx, by).
+///
+/// Returns `(distance, t)` where `t` in [0, 1] is the projection parameter along the segment.
+/// When `t == 0` the closest point is at `a`, when `t == 1` it's at `b`.
+fn distance_to_segment(px: f32, py: f32, ax: f32, ay: f32, bx: f32, by: f32) -> (f32, f32) {
+    let dx = bx - ax;
+    let dy = by - ay;
+    let len_sq = dx * dx + dy * dy;
+    let t = if len_sq < 1e-12 {
+        0.0
+    } else {
+        ((px - ax) * dx + (py - ay) * dy) / len_sq
+    }
+    .clamp(0.0, 1.0);
+    let proj_x = ax + t * dx;
+    let proj_y = ay + t * dy;
+    let d = ((px - proj_x).powi(2) + (py - proj_y).powi(2)).sqrt();
+    (d, t)
+}
+
+/// Rasterize a capsule (line segment with hemispherical end caps) into a mask buffer.
+///
+/// Endpoints `p0` and `p1` are in **mask space** (i.e., relative to the mask's top-left corner).
+/// `radius` is the capsule half-width. Pressure is linearly interpolated from `pressure_start`
+/// (at `p0`) to `pressure_end` (at `p1`). Uses smoothstep falloff and max-blend accumulation.
+fn rasterize_capsule(
+    mask: &mut [f32],
+    mask_width: u32,
+    mask_height: u32,
+    p0: (f32, f32),
+    p1: (f32, f32),
+    radius: f32,
+    pressure_start: f32,
+    pressure_end: f32,
+) {
+    // Bounding box of the capsule within the mask
+    let min_x = p0.0.min(p1.0) - radius;
+    let max_x = p0.0.max(p1.0) + radius;
+    let min_y = p0.1.min(p1.1) - radius;
+    let max_y = p0.1.max(p1.1) + radius;
+
+    let x_start = (min_x.floor() as i32).max(0) as u32;
+    let x_end = ((max_x.ceil() as i32).min(mask_width as i32 - 1)).max(0) as u32;
+    let y_start = (min_y.floor() as i32).max(0) as u32;
+    let y_end = ((max_y.ceil() as i32).min(mask_height as i32 - 1)).max(0) as u32;
+
+    for py in y_start..=y_end {
+        for px in x_start..=x_end {
+            let cx = px as f32 + 0.5;
+            let cy = py as f32 + 0.5;
+            let (dist, t) = distance_to_segment(cx, cy, p0.0, p0.1, p1.0, p1.1);
+            if dist <= radius {
+                let pressure = pressure_start + t * (pressure_end - pressure_start);
+                let s = (1.0 - dist / radius).clamp(0.0, 1.0);
+                let alpha = s * s * (3.0 - 2.0 * s) * pressure;
+                let idx = (py * mask_width + px) as usize;
+                mask[idx] = mask[idx].max(alpha);
+            }
+        }
+    }
+}
+
 /// Generate a bristle footprint mask for the given brush position and settings.
 ///
 /// The mask is a square of side `ceil(size)` pixels, centered at (origin_x, origin_y).
@@ -512,6 +574,94 @@ pub fn wet_media_stroke_end(state: &mut WetMediaStrokeState) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_distance_to_segment_at_start() {
+        let (d, t) = distance_to_segment(0.0, 0.0, 0.0, 0.0, 10.0, 0.0);
+        assert!(d.abs() < 1e-5, "Point on segment start: dist={}", d);
+        assert!(t.abs() < 1e-5, "t should be 0 at start: t={}", t);
+    }
+
+    #[test]
+    fn test_distance_to_segment_at_end() {
+        let (d, t) = distance_to_segment(10.0, 0.0, 0.0, 0.0, 10.0, 0.0);
+        assert!(d.abs() < 1e-5);
+        assert!((t - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_distance_to_segment_perpendicular() {
+        let (d, t) = distance_to_segment(5.0, 3.0, 0.0, 0.0, 10.0, 0.0);
+        assert!((d - 3.0).abs() < 1e-5, "Perpendicular distance: d={}", d);
+        assert!((t - 0.5).abs() < 1e-5, "Midpoint projection: t={}", t);
+    }
+
+    #[test]
+    fn test_distance_to_segment_beyond_end() {
+        // Point past the end of the segment — should clamp to endpoint
+        let (d, _t) = distance_to_segment(15.0, 0.0, 0.0, 0.0, 10.0, 0.0);
+        assert!((d - 5.0).abs() < 1e-5, "Beyond end: dist={}", d);
+    }
+
+    #[test]
+    fn test_distance_to_segment_degenerate() {
+        // Zero-length segment
+        let (d, t) = distance_to_segment(3.0, 4.0, 0.0, 0.0, 0.0, 0.0);
+        assert!((d - 5.0).abs() < 1e-5, "Distance to point: d={}", d);
+        assert!(t.abs() < 1e-5, "t for degenerate: t={}", t);
+    }
+
+    #[test]
+    fn test_rasterize_capsule_horizontal() {
+        let w = 20u32;
+        let h = 10u32;
+        let mut mask = vec![0.0f32; (w * h) as usize];
+        rasterize_capsule(
+            &mut mask, w, h,
+            (2.0, 5.0), (18.0, 5.0),
+            2.0, 1.0, 1.0,
+        );
+        // Center row (y=4 or y=5) should have non-zero values along the segment
+        let center_row = 5;
+        let active: Vec<u32> = (0..w)
+            .filter(|&x| mask[(center_row * w + x) as usize] > 0.0)
+            .collect();
+        assert!(!active.is_empty(), "Capsule should have non-zero pixels along center");
+        assert!(active.len() >= 14, "Should span most of the segment: got {}", active.len());
+    }
+
+    #[test]
+    fn test_rasterize_capsule_pressure_interpolation() {
+        let w = 30u32;
+        let h = 5u32;
+        let mut mask = vec![0.0f32; (w * h) as usize];
+        // Horizontal capsule: pressure 1.0 at left, 0.0 at right
+        rasterize_capsule(
+            &mut mask, w, h,
+            (2.0, 2.5), (28.0, 2.5),
+            1.5, 1.0, 0.0,
+        );
+        let row = 2;
+        let left_val = mask[(row * w + 3) as usize];
+        let right_val = mask[(row * w + 27) as usize];
+        assert!(left_val > right_val,
+            "Left should be brighter than right: left={}, right={}", left_val, right_val);
+    }
+
+    #[test]
+    fn test_rasterize_capsule_zero_length() {
+        // Degenerate capsule (point) should produce a dot
+        let w = 10u32;
+        let h = 10u32;
+        let mut mask = vec![0.0f32; (w * h) as usize];
+        rasterize_capsule(
+            &mut mask, w, h,
+            (5.0, 5.0), (5.0, 5.0),
+            2.0, 0.8, 0.8,
+        );
+        let nonzero = mask.iter().filter(|&&v| v > 0.0).count();
+        assert!(nonzero > 0, "Degenerate capsule should produce a dot");
+    }
 
     #[test]
     fn test_default_wet_media_settings() {
