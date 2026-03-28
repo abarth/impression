@@ -498,7 +498,7 @@ pub fn generate_bristle_footprint(
         paint_load,
         velocity,
         mixing_strength: settings.mixing_strength,
-        paint_thickness: settings.paint_thickness,
+        paint_thickness: settings.paint_thickness * pressure,
         wetness: settings.wetness,
         canvas_texture_strength: settings.canvas_texture_strength,
         viscosity: settings.viscosity,
@@ -590,6 +590,16 @@ pub fn wet_media_stroke_move(
             (state.paint_load_remaining - settings.paint_depletion_rate * step / brush_size)
                 .max(0.0);
 
+        // Paint-to-blend transition: as paint depletes, brush becomes a blender
+        let load_ratio = (state.paint_load_remaining / settings.paint_load.max(0.01)).clamp(0.0, 1.0);
+        let depletion_ratio = 1.0 - load_ratio;
+        // As paint depletes: mixing increases (brush transitions to smudging)
+        let effective_mixing = (settings.mixing_strength
+            + (1.0 - settings.mixing_strength) * depletion_ratio * 0.8)
+            .min(1.0);
+        // As paint depletes: wetness fades (stroke dries out)
+        let effective_wetness = settings.wetness * load_ratio.max(0.1);
+
         // Per-bristle color drift: blend each bristle's color toward the paint color
         // weighted by mixing_strength (simulates dirty brush picking up canvas color)
         let drift = settings.mixing_strength * 0.02;
@@ -599,10 +609,22 @@ pub fn wet_media_stroke_move(
             }
         }
 
+        // Simulated canvas color pickup: as paint depletes, bristles pick up
+        // diverse colors from the canvas surface, causing per-bristle variation
+        let pickup_strength = depletion_ratio * 0.05;
+        if pickup_strength > 0.001 {
+            for color in state.bristle_colors.iter_mut() {
+                for c in 0..3 {
+                    color[c] += (state.rng.next_f32() - 0.5) * pickup_strength;
+                    color[c] = color[c].clamp(0.0, 1.0);
+                }
+            }
+        }
+
         // Average bristle colors for the footprint's paint color
         let avg_color = average_bristle_colors(&state.bristle_colors);
 
-        let (footprint, curr_positions) = generate_bristle_footprint(
+        let (mut footprint, curr_positions) = generate_bristle_footprint(
             px, py, pp,
             brush_size, brush_angle, brush_roundness,
             settings,
@@ -613,6 +635,9 @@ pub fn wet_media_stroke_move(
             state.prev_bristle_positions.as_deref(),
             &mut state.rng,
         );
+        // Apply paint-to-blend effective values
+        footprint.mixing_strength = effective_mixing;
+        footprint.wetness = effective_wetness;
         state.footprints.push(footprint);
         state.prev_bristle_positions = Some(curr_positions);
 
@@ -1284,5 +1309,173 @@ mod tests {
                 first_mask_sum, last_mask_sum
             );
         }
+    }
+
+    #[test]
+    fn test_paint_to_blend_transition_mixing_increases() {
+        let settings = WetMediaBrushSettings {
+            paint_load: 0.5,
+            paint_depletion_rate: 0.5, // fast depletion
+            mixing_strength: 0.3,
+            wetness: 0.7,
+            bristle_count: 8,
+            bristle_spread: 0.1,
+            ..Default::default()
+        };
+        let mut state = WetMediaStrokeState::default();
+        let color = [1.0, 0.0, 0.0];
+
+        wet_media_stroke_begin(
+            &mut state, 10.0, 10.0, 1.0,
+            20.0, 0.0, 1.0, 0.12,
+            &settings, color,
+        );
+        let initial_mixing = state.footprints.last().unwrap().mixing_strength;
+
+        // Move many times to deplete paint
+        for i in 1..=30 {
+            state.footprints.clear();
+            wet_media_stroke_move(
+                &mut state, 10.0 + i as f32 * 3.0, 10.0, 1.0,
+                20.0, 0.0, 1.0, 0.12,
+                &settings, color,
+            );
+        }
+
+        let final_mixing = state.footprints.last().unwrap().mixing_strength;
+        assert!(
+            final_mixing > initial_mixing,
+            "Mixing should increase as paint depletes: initial={}, final={}",
+            initial_mixing, final_mixing
+        );
+    }
+
+    #[test]
+    fn test_paint_to_blend_transition_wetness_decreases() {
+        let settings = WetMediaBrushSettings {
+            paint_load: 0.5,
+            paint_depletion_rate: 0.5,
+            mixing_strength: 0.3,
+            wetness: 0.7,
+            bristle_count: 8,
+            bristle_spread: 0.1,
+            ..Default::default()
+        };
+        let mut state = WetMediaStrokeState::default();
+        let color = [1.0, 0.0, 0.0];
+
+        wet_media_stroke_begin(
+            &mut state, 10.0, 10.0, 1.0,
+            20.0, 0.0, 1.0, 0.12,
+            &settings, color,
+        );
+        // stroke_begin uses raw settings, so wetness should equal settings.wetness
+        let initial_wetness = state.footprints.last().unwrap().wetness;
+
+        for i in 1..=30 {
+            state.footprints.clear();
+            wet_media_stroke_move(
+                &mut state, 10.0 + i as f32 * 3.0, 10.0, 1.0,
+                20.0, 0.0, 1.0, 0.12,
+                &settings, color,
+            );
+        }
+
+        let final_wetness = state.footprints.last().unwrap().wetness;
+        assert!(
+            final_wetness < initial_wetness,
+            "Wetness should decrease as paint depletes: initial={}, final={}",
+            initial_wetness, final_wetness
+        );
+        // Wetness should not go below the floor (10% of settings.wetness)
+        assert!(
+            final_wetness >= settings.wetness * 0.1 - 0.001,
+            "Wetness should not go below floor: final={}, floor={}",
+            final_wetness, settings.wetness * 0.1
+        );
+    }
+
+    #[test]
+    fn test_pressure_modulated_paint_thickness() {
+        let settings = WetMediaBrushSettings {
+            paint_thickness: 0.8,
+            bristle_count: 8,
+            ..Default::default()
+        };
+        let mut rng = Rng::from_coords(5.0, 5.0);
+        let offsets = init_bristle_offsets(settings.bristle_count, &mut rng);
+        let color = [1.0, 0.0, 0.0];
+
+        // Full pressure → full thickness
+        let (fp_full, _) = generate_bristle_footprint(
+            50.0, 50.0, 1.0, 20.0, 0.0, 1.0,
+            &settings, color, 0.8, [0.0, 0.0], &offsets, None, &mut rng,
+        );
+
+        // Half pressure → half thickness
+        let (fp_half, _) = generate_bristle_footprint(
+            50.0, 50.0, 0.5, 20.0, 0.0, 1.0,
+            &settings, color, 0.8, [0.0, 0.0], &offsets, None, &mut rng,
+        );
+
+        assert!(
+            (fp_full.paint_thickness - 0.8).abs() < 0.01,
+            "Full pressure: thickness={}, expected 0.8", fp_full.paint_thickness
+        );
+        assert!(
+            (fp_half.paint_thickness - 0.4).abs() < 0.01,
+            "Half pressure: thickness={}, expected 0.4", fp_half.paint_thickness
+        );
+    }
+
+    #[test]
+    fn test_canvas_color_pickup_diverges_bristle_colors() {
+        let settings = WetMediaBrushSettings {
+            paint_load: 0.3,
+            paint_depletion_rate: 0.8, // very fast depletion
+            mixing_strength: 0.3,
+            bristle_count: 16,
+            bristle_spread: 0.1,
+            ..Default::default()
+        };
+        let mut state = WetMediaStrokeState::default();
+        let color = [0.5, 0.5, 0.5];
+
+        wet_media_stroke_begin(
+            &mut state, 10.0, 10.0, 1.0,
+            20.0, 0.0, 1.0, 0.12,
+            &settings, color,
+        );
+
+        // All bristle colors should start identical
+        let first = state.bristle_colors[0];
+        for c in &state.bristle_colors {
+            assert_eq!(*c, first, "Bristle colors should start identical");
+        }
+
+        // Move many times to deplete paint and accumulate color pickup
+        for i in 1..=40 {
+            wet_media_stroke_move(
+                &mut state, 10.0 + i as f32 * 3.0, 10.0, 1.0,
+                20.0, 0.0, 1.0, 0.12,
+                &settings, color,
+            );
+        }
+
+        // After depletion, bristle colors should have diverged
+        let mut max_diff = 0.0f32;
+        for i in 0..state.bristle_colors.len() {
+            for j in (i + 1)..state.bristle_colors.len() {
+                for c in 0..3 {
+                    let diff = (state.bristle_colors[i][c] - state.bristle_colors[j][c]).abs();
+                    max_diff = max_diff.max(diff);
+                }
+            }
+        }
+        assert!(
+            max_diff > 0.001,
+            "Bristle colors should diverge after depletion, max_diff={}",
+            max_diff
+        );
     }
 }
