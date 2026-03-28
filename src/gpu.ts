@@ -6,6 +6,8 @@ import wetMediaDepositShaderSource from "../shaders/wet_media_deposit.wgsl?raw";
 import wetMediaAdvectShaderSource from "../shaders/wet_media_advect.wgsl?raw";
 import wetMediaDiffuseShaderSource from "../shaders/wet_media_diffuse.wgsl?raw";
 import wetMediaDryShaderSource from "../shaders/wet_media_dry.wgsl?raw";
+import wetMediaPressureShaderSource from "../shaders/wet_media_pressure.wgsl?raw";
+import wetMediaSurfaceTensionShaderSource from "../shaders/wet_media_surface_tension.wgsl?raw";
 import mixboxShaderSource from "../shaders/mixbox.wgsl?raw";
 import { generatePaperTexture } from "./paperTexture";
 import { initMixbox } from "./mixbox";
@@ -60,6 +62,16 @@ export interface GPUContext {
   wetMediaDiffuseBindGroupLayout: GPUBindGroupLayout;
   wetMediaDryPipeline: GPUComputePipeline;
   wetMediaDryBindGroupLayout: GPUBindGroupLayout;
+
+  // Navier-Stokes pressure projection pipelines
+  wetMediaPressureDivergencePipeline: GPUComputePipeline;
+  wetMediaPressureJacobiPipeline: GPUComputePipeline;
+  wetMediaPressureGradientPipeline: GPUComputePipeline;
+  wetMediaPressureBindGroupLayout: GPUBindGroupLayout;
+
+  // Surface tension pipeline
+  wetMediaSurfaceTensionPipeline: GPUComputePipeline;
+  wetMediaSurfaceTensionBindGroupLayout: GPUBindGroupLayout;
 
   // Mixbox pigment mixing LUT
   mixboxLUT: GPUTexture;
@@ -383,6 +395,49 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
     compute: { module: device.createShaderModule({ code: wetMediaDryShaderSource }), entryPoint: "main" },
   });
 
+  // --- Navier-Stokes pressure projection pipelines ---
+  const wetMediaPressureBindGroupLayout = device.createBindGroupLayout({
+    entries: [
+      { binding: 0, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "read-only", format: "rg32float" } },   // velocity_src
+      { binding: 1, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rg32float" } },  // velocity_dst
+      { binding: 2, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "read-only", format: "r32float" } },    // pressure_src
+      { binding: 3, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "r32float" } },   // pressure_dst
+      { binding: 4, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "read-only", format: "r32float" } },    // divergence
+      { binding: 5, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "read-only", format: "rgba32float" } }, // props (for wetness)
+      { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+    ],
+  });
+  const pressureModule = device.createShaderModule({ code: wetMediaPressureShaderSource });
+  const wetMediaPressureDivergencePipeline = device.createComputePipeline({
+    layout: device.createPipelineLayout({ bindGroupLayouts: [wetMediaPressureBindGroupLayout] }),
+    compute: { module: pressureModule, entryPoint: "divergence_pass" },
+  });
+  const wetMediaPressureJacobiPipeline = device.createComputePipeline({
+    layout: device.createPipelineLayout({ bindGroupLayouts: [wetMediaPressureBindGroupLayout] }),
+    compute: { module: pressureModule, entryPoint: "jacobi_pass" },
+  });
+  const wetMediaPressureGradientPipeline = device.createComputePipeline({
+    layout: device.createPipelineLayout({ bindGroupLayouts: [wetMediaPressureBindGroupLayout] }),
+    compute: { module: pressureModule, entryPoint: "gradient_subtract" },
+  });
+
+  // --- Wet media surface tension pipeline ---
+  const wetMediaSurfaceTensionBindGroupLayout = device.createBindGroupLayout({
+    entries: [
+      { binding: 0, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "read-only", format: "rg32float" } },   // velocity_src
+      { binding: 1, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rg32float" } },  // velocity_dst
+      { binding: 2, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "read-only", format: "rgba32float" } }, // props_src
+      { binding: 3, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba32float" } },// props_dst
+      { binding: 4, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "read-only", format: "rgba32float" } }, // color_src
+      { binding: 5, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba32float" } },// color_dst
+      { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+    ],
+  });
+  const wetMediaSurfaceTensionPipeline = device.createComputePipeline({
+    layout: device.createPipelineLayout({ bindGroupLayouts: [wetMediaSurfaceTensionBindGroupLayout] }),
+    compute: { module: device.createShaderModule({ code: wetMediaSurfaceTensionShaderSource }), entryPoint: "main" },
+  });
+
   // --- Selection overlay pipeline ---
 
   const selectionBindGroupLayout = device.createBindGroupLayout({
@@ -486,6 +541,12 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
     wetMediaDiffuseBindGroupLayout,
     wetMediaDryPipeline,
     wetMediaDryBindGroupLayout,
+    wetMediaPressureDivergencePipeline,
+    wetMediaPressureJacobiPipeline,
+    wetMediaPressureGradientPipeline,
+    wetMediaPressureBindGroupLayout,
+    wetMediaSurfaceTensionPipeline,
+    wetMediaSurfaceTensionBindGroupLayout,
     mixboxLUT: mixboxResources.lutTexture,
     mixboxSampler: mixboxResources.lutSampler,
   };
@@ -696,6 +757,11 @@ export interface WetMediaLayerGPU {
   /** Velocity field (RG32Float) for advection — ping-pong pair. */
   velocityTexture: GPUTexture;
   velocityTextureB: GPUTexture;
+  /** Pressure field (R32Float) for incompressible Navier-Stokes — ping-pong pair. */
+  pressureTexture: GPUTexture;
+  pressureTextureB: GPUTexture;
+  /** Divergence field (R32Float) — computed once per pressure solve. */
+  divergenceTexture: GPUTexture;
   /** Which buffer is current (0 = A, 1 = B). Toggled each sim step. */
   pingPong: number;
   /** Composite bind group (references current color + props textures). */
@@ -743,6 +809,9 @@ export function createWetMediaLayerTexture(
   const propsTextureB = createFloat32Texture();
   const velocityTexture = createFloat32Texture("rg32float");
   const velocityTextureB = createFloat32Texture("rg32float");
+  const pressureTexture = createFloat32Texture("r32float");
+  const pressureTextureB = createFloat32Texture("r32float");
+  const divergenceTexture = createFloat32Texture("r32float");
 
   // Paper grain texture (r32float) — deterministic from layer count as seed
   const paperSeed = gpu.layerTextures.length + 1;
@@ -810,6 +879,8 @@ export function createWetMediaLayerTexture(
     colorTexture, propsTexture,
     colorTextureB, propsTextureB,
     velocityTexture, velocityTextureB,
+    pressureTexture, pressureTextureB,
+    divergenceTexture,
     pingPong: 0,
     bindGroup, bindGroupB,
     uniformBuffer,
@@ -937,7 +1008,8 @@ export function dispatchWetMediaDeposit(
 }
 
 /**
- * Run one simulation step (advect → diffuse → dry) for a wet media layer.
+ * Run one simulation step for a wet media layer.
+ * New order: Deposit (already done) → Pressure Solve → Surface Tension → Advect → Diffuse → Dry
  * Toggles the ping-pong buffers.
  */
 export function stepWetMediaSimulation(
@@ -967,35 +1039,166 @@ export function stepWetMediaSimulation(
   const velDst = wm.pingPong === 0 ? wm.velocityTextureB : wm.velocityTexture;
 
   const encoder = gpu.device.createCommandEncoder();
+  const transientBuffers: GPUBuffer[] = [];
 
-  // --- Advection pass ---
-  const advectUniform = gpu.device.createBuffer({
-    size: 16,
-    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    mappedAtCreation: true,
-  });
+  const createUniform = (data: ArrayBuffer): GPUBuffer => {
+    const buf = gpu.device.createBuffer({
+      size: data.byteLength,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      mappedAtCreation: true,
+    });
+    new Uint8Array(buf.getMappedRange()).set(new Uint8Array(data));
+    buf.unmap();
+    transientBuffers.push(buf);
+    return buf;
+  };
+
+  // --- 1. Pressure Projection (Navier-Stokes incompressibility) ---
+  // This enforces mass conservation by removing divergence from the velocity field.
   {
-    const view = new ArrayBuffer(16);
-    new Uint32Array(view, 0, 2).set([canvasWidth, canvasHeight]);
-    new Float32Array(view, 8, 2).set([1.0, advectionDissipation]);
-    new Uint8Array(advectUniform.getMappedRange()).set(new Uint8Array(view));
-    advectUniform.unmap();
+    // 1a. Compute divergence of velocity field
+    const pressureUniform = new ArrayBuffer(16);
+    new Uint32Array(pressureUniform, 0, 3).set([canvasWidth, canvasHeight, 0]);
+    const pressureUB = createUniform(pressureUniform);
+
+    const divBG = gpu.device.createBindGroup({
+      layout: gpu.wetMediaPressureBindGroupLayout,
+      entries: [
+        { binding: 0, resource: velSrc.createView() },
+        { binding: 1, resource: velDst.createView() }, // unused in divergence pass
+        { binding: 2, resource: wm.pressureTexture.createView() }, // unused
+        { binding: 3, resource: wm.divergenceTexture.createView() }, // writes divergence here
+        { binding: 4, resource: wm.divergenceTexture.createView() }, // unused
+        { binding: 5, resource: propsSrc.createView() },
+        { binding: 6, resource: { buffer: pressureUB } },
+      ],
+    });
+
+    const divPass = encoder.beginComputePass();
+    divPass.setPipeline(gpu.wetMediaPressureDivergencePipeline);
+    divPass.setBindGroup(0, divBG);
+    divPass.dispatchWorkgroups(workgroupsX, workgroupsY);
+    divPass.end();
+
+    // 1b. Jacobi iterations to solve pressure Poisson equation
+    let pSrc = wm.pressureTexture;
+    let pDst = wm.pressureTextureB;
+
+    for (let i = 0; i < physics.pressureIterations; i++) {
+      const jacobiBG = gpu.device.createBindGroup({
+        layout: gpu.wetMediaPressureBindGroupLayout,
+        entries: [
+          { binding: 0, resource: velSrc.createView() },    // unused
+          { binding: 1, resource: velDst.createView() },     // unused
+          { binding: 2, resource: pSrc.createView() },       // read pressure
+          { binding: 3, resource: pDst.createView() },       // write pressure
+          { binding: 4, resource: wm.divergenceTexture.createView() }, // read divergence
+          { binding: 5, resource: propsSrc.createView() },
+          { binding: 6, resource: { buffer: pressureUB } },
+        ],
+      });
+
+      const jacobiPass = encoder.beginComputePass();
+      jacobiPass.setPipeline(gpu.wetMediaPressureJacobiPipeline);
+      jacobiPass.setBindGroup(0, jacobiBG);
+      jacobiPass.dispatchWorkgroups(workgroupsX, workgroupsY);
+      jacobiPass.end();
+
+      // Ping-pong pressure textures
+      const tmp = pSrc;
+      pSrc = pDst;
+      pDst = tmp;
+    }
+
+    // 1c. Subtract pressure gradient from velocity
+    const gradBG = gpu.device.createBindGroup({
+      layout: gpu.wetMediaPressureBindGroupLayout,
+      entries: [
+        { binding: 0, resource: velSrc.createView() },     // read velocity
+        { binding: 1, resource: velDst.createView() },      // write corrected velocity
+        { binding: 2, resource: pSrc.createView() },        // read final pressure
+        { binding: 3, resource: pDst.createView() },        // unused
+        { binding: 4, resource: wm.divergenceTexture.createView() }, // unused
+        { binding: 5, resource: propsSrc.createView() },
+        { binding: 6, resource: { buffer: pressureUB } },
+      ],
+    });
+
+    const gradPass = encoder.beginComputePass();
+    gradPass.setPipeline(gpu.wetMediaPressureGradientPipeline);
+    gradPass.setBindGroup(0, gradBG);
+    gradPass.dispatchWorkgroups(workgroupsX, workgroupsY);
+    gradPass.end();
+
+    // After gradient subtraction, corrected velocity is in velDst.
+    // Copy back to velSrc so subsequent passes read from the correct buffer.
+    encoder.copyTextureToTexture(
+      { texture: velDst },
+      { texture: velSrc },
+      { width: canvasWidth, height: canvasHeight },
+    );
   }
 
-  const advectBG = gpu.device.createBindGroup({
-    layout: gpu.wetMediaAdvectBindGroupLayout,
-    entries: [
-      { binding: 0, resource: colorSrc.createView() },
-      { binding: 1, resource: colorDst.createView() },
-      { binding: 2, resource: propsSrc.createView() },
-      { binding: 3, resource: propsDst.createView() },
-      { binding: 4, resource: velSrc.createView() },
-      { binding: 5, resource: velDst.createView() },
-      { binding: 6, resource: { buffer: advectUniform } },
-    ],
-  });
-
+  // --- 2. Surface Tension ---
+  // Applies inward restoring force at paint boundaries and edge accumulation.
   {
+    const stUniform = new ArrayBuffer(16);
+    new Uint32Array(stUniform, 0, 2).set([canvasWidth, canvasHeight]);
+    new Float32Array(stUniform, 8, 2).set([physics.surfaceTension, physics.edgeAccumulation]);
+    const stUB = createUniform(stUniform);
+
+    const stBG = gpu.device.createBindGroup({
+      layout: gpu.wetMediaSurfaceTensionBindGroupLayout,
+      entries: [
+        { binding: 0, resource: velSrc.createView() },
+        { binding: 1, resource: velDst.createView() },
+        { binding: 2, resource: propsSrc.createView() },
+        { binding: 3, resource: propsDst.createView() },
+        { binding: 4, resource: colorSrc.createView() },
+        { binding: 5, resource: colorDst.createView() },
+        { binding: 6, resource: { buffer: stUB } },
+      ],
+    });
+
+    const stPass = encoder.beginComputePass();
+    stPass.setPipeline(gpu.wetMediaSurfaceTensionPipeline);
+    stPass.setBindGroup(0, stBG);
+    stPass.dispatchWorkgroups(workgroupsX, workgroupsY);
+    stPass.end();
+
+    // Copy results back to src buffers for advection pass
+    encoder.copyTextureToTexture({ texture: velDst }, { texture: velSrc }, { width: canvasWidth, height: canvasHeight });
+    encoder.copyTextureToTexture({ texture: propsDst }, { texture: propsSrc }, { width: canvasWidth, height: canvasHeight });
+    encoder.copyTextureToTexture({ texture: colorDst }, { texture: colorSrc }, { width: canvasWidth, height: canvasHeight });
+  }
+
+  // --- 3. Advection pass (with vorticity confinement and gravity) ---
+  {
+    const advectData = new ArrayBuffer(32);
+    new Uint32Array(advectData, 0, 2).set([canvasWidth, canvasHeight]);
+    new Float32Array(advectData, 8, 6).set([
+      1.0,                          // dt
+      advectionDissipation,          // dissipation
+      physics.vorticityStrength,     // vorticity_strength
+      0.0,                          // gravity_x
+      1.0,                          // gravity_y (down)
+      physics.gravityStrength,       // gravity_strength
+    ]);
+    const advectUB = createUniform(advectData);
+
+    const advectBG = gpu.device.createBindGroup({
+      layout: gpu.wetMediaAdvectBindGroupLayout,
+      entries: [
+        { binding: 0, resource: colorSrc.createView() },
+        { binding: 1, resource: colorDst.createView() },
+        { binding: 2, resource: propsSrc.createView() },
+        { binding: 3, resource: propsDst.createView() },
+        { binding: 4, resource: velSrc.createView() },
+        { binding: 5, resource: velDst.createView() },
+        { binding: 6, resource: { buffer: advectUB } },
+      ],
+    });
+
     const pass = encoder.beginComputePass();
     pass.setPipeline(gpu.wetMediaAdvectPipeline);
     pass.setBindGroup(0, advectBG);
@@ -1004,35 +1207,27 @@ export function stepWetMediaSimulation(
   }
 
   // After advection, dst is now the "current" buffer
-  // --- Diffusion pass (reads from dst, writes back to src) ---
-  const diffuseUniform = gpu.device.createBuffer({
-    size: 16,
-    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    mappedAtCreation: true,
-  });
+  // --- 4. Diffusion pass (reads from dst, writes back to src) ---
   {
-    const view = new ArrayBuffer(16);
-    new Uint32Array(view, 0, 2).set([canvasWidth, canvasHeight]);
-    new Float32Array(view, 8, 2).set([diffusionRate, 0.0]);
-    new Uint8Array(diffuseUniform.getMappedRange()).set(new Uint8Array(view));
-    diffuseUniform.unmap();
-  }
+    const diffuseData = new ArrayBuffer(16);
+    new Uint32Array(diffuseData, 0, 2).set([canvasWidth, canvasHeight]);
+    new Float32Array(diffuseData, 8, 2).set([diffusionRate, 0.0]);
+    const diffuseUB = createUniform(diffuseData);
 
-  const diffuseBG = gpu.device.createBindGroup({
-    layout: gpu.wetMediaDiffuseBindGroupLayout,
-    entries: [
-      { binding: 0, resource: colorDst.createView() },
-      { binding: 1, resource: colorSrc.createView() },
-      { binding: 2, resource: propsDst.createView() },
-      { binding: 3, resource: propsSrc.createView() },
-      { binding: 4, resource: { buffer: diffuseUniform } },
-      { binding: 5, resource: wm.paperTexture.createView() },
-      { binding: 6, resource: gpu.mixboxLUT.createView() },
-      { binding: 7, resource: gpu.mixboxSampler },
-    ],
-  });
+    const diffuseBG = gpu.device.createBindGroup({
+      layout: gpu.wetMediaDiffuseBindGroupLayout,
+      entries: [
+        { binding: 0, resource: colorDst.createView() },
+        { binding: 1, resource: colorSrc.createView() },
+        { binding: 2, resource: propsDst.createView() },
+        { binding: 3, resource: propsSrc.createView() },
+        { binding: 4, resource: { buffer: diffuseUB } },
+        { binding: 5, resource: wm.paperTexture.createView() },
+        { binding: 6, resource: gpu.mixboxLUT.createView() },
+        { binding: 7, resource: gpu.mixboxSampler },
+      ],
+    });
 
-  {
     const pass = encoder.beginComputePass();
     pass.setPipeline(gpu.wetMediaDiffusePipeline);
     pass.setBindGroup(0, diffuseBG);
@@ -1041,30 +1236,22 @@ export function stepWetMediaSimulation(
   }
 
   // After diffusion, src is now current again (ping-pong stays the same)
-  // --- Drying pass (propsSrc → propsDst, then copy back to propsSrc) ---
-  const dryUniform = gpu.device.createBuffer({
-    size: 16,
-    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    mappedAtCreation: true,
-  });
+  // --- 5. Drying pass (propsSrc → propsDst, then copy back to propsSrc) ---
   {
-    const view = new ArrayBuffer(16);
-    new Uint32Array(view, 0, 2).set([canvasWidth, canvasHeight]);
-    new Float32Array(view, 8, 2).set([dryingRate, 0.0]);
-    new Uint8Array(dryUniform.getMappedRange()).set(new Uint8Array(view));
-    dryUniform.unmap();
-  }
+    const dryData = new ArrayBuffer(16);
+    new Uint32Array(dryData, 0, 2).set([canvasWidth, canvasHeight]);
+    new Float32Array(dryData, 8, 2).set([dryingRate, 0.0]);
+    const dryUB = createUniform(dryData);
 
-  const dryBG = gpu.device.createBindGroup({
-    layout: gpu.wetMediaDryBindGroupLayout,
-    entries: [
-      { binding: 0, resource: propsSrc.createView() },
-      { binding: 1, resource: propsDst.createView() },
-      { binding: 2, resource: { buffer: dryUniform } },
-    ],
-  });
+    const dryBG = gpu.device.createBindGroup({
+      layout: gpu.wetMediaDryBindGroupLayout,
+      entries: [
+        { binding: 0, resource: propsSrc.createView() },
+        { binding: 1, resource: propsDst.createView() },
+        { binding: 2, resource: { buffer: dryUB } },
+      ],
+    });
 
-  {
     const pass = encoder.beginComputePass();
     pass.setPipeline(gpu.wetMediaDryPipeline);
     pass.setBindGroup(0, dryBG);
@@ -1082,9 +1269,9 @@ export function stepWetMediaSimulation(
   gpu.device.queue.submit([encoder.finish()]);
 
   // Clean up transient uniform buffers
-  advectUniform.destroy();
-  diffuseUniform.destroy();
-  dryUniform.destroy();
+  for (const buf of transientBuffers) {
+    buf.destroy();
+  }
 
   // Note: ping-pong state stays the same because diffusion writes back to src
 }
@@ -1169,6 +1356,18 @@ export function clearWetMediaTextures(gpu: GPUContext, index: number): void {
       { width, height },
     );
   }
+  // r32float pressure/divergence textures = 4 bytes per pixel
+  for (const tex of [wm.pressureTexture, wm.pressureTextureB, wm.divergenceTexture]) {
+    const { width, height } = tex;
+    const bytesPerPixel = 4;
+    const buf = new ArrayBuffer(width * height * bytesPerPixel);
+    gpu.device.queue.writeTexture(
+      { texture: tex },
+      buf,
+      { bytesPerRow: width * bytesPerPixel, rowsPerImage: height },
+      { width, height },
+    );
+  }
 
   wm.pingPong = 0;
   wm.hasWetPaint = false;
@@ -1184,6 +1383,9 @@ export function removeWetMediaLayer(index: number): void {
     wm.propsTextureB.destroy();
     wm.velocityTexture.destroy();
     wm.velocityTextureB.destroy();
+    wm.pressureTexture.destroy();
+    wm.pressureTextureB.destroy();
+    wm.divergenceTexture.destroy();
     wetMediaLayers.delete(index);
   }
   // Re-key entries above this index

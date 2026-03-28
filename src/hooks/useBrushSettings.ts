@@ -332,12 +332,29 @@ export interface MediumPhysics {
   dryingRate: number;
   diffusionRate: number;
   advectionDissipation: number;
+  surfaceTension: number;
+  edgeAccumulation: number;
+  vorticityStrength: number;
+  gravityStrength: number;
+  pressureIterations: number;
 }
 
 const MEDIUM_PHYSICS: Record<MediumType, MediumPhysics> = {
-  Oil: { viscosity: 0.85, dryingRate: 0.001, diffusionRate: 0.05, advectionDissipation: 0.99 },
-  Acrylic: { viscosity: 0.5, dryingRate: 0.005, diffusionRate: 0.15, advectionDissipation: 0.97 },
-  Watercolor: { viscosity: 0.2, dryingRate: 0.003, diffusionRate: 0.4, advectionDissipation: 0.95 },
+  Oil: {
+    viscosity: 0.85, dryingRate: 0.0008, diffusionRate: 0.03, advectionDissipation: 0.99,
+    surfaceTension: 0.7, edgeAccumulation: 0.6, vorticityStrength: 0.3,
+    gravityStrength: 0.02, pressureIterations: 30,
+  },
+  Acrylic: {
+    viscosity: 0.5, dryingRate: 0.008, diffusionRate: 0.10, advectionDissipation: 0.97,
+    surfaceTension: 0.4, edgeAccumulation: 0.3, vorticityStrength: 0.2,
+    gravityStrength: 0.05, pressureIterations: 20,
+  },
+  Watercolor: {
+    viscosity: 0.2, dryingRate: 0.003, diffusionRate: 0.4, advectionDissipation: 0.95,
+    surfaceTension: 0.1, edgeAccumulation: 0.1, vorticityStrength: 0.5,
+    gravityStrength: 0.15, pressureIterations: 15,
+  },
 };
 
 export function getMediumPhysics(medium: MediumType): MediumPhysics {
