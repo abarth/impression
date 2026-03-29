@@ -445,8 +445,10 @@ fn compute_bristle_canvas_positions(
         [0.0, 0.0]
     };
 
-    // Spring rate for elastic recovery (0.3 = moderate spring, bristles ease back)
-    let spring_rate = 0.3;
+    // Spring rate inversely correlated with stiffness:
+    // Stiff brushes (stiffness=1.0) → spring_rate=0.6 (snaps back fast)
+    // Soft brushes (stiffness=0.1) → spring_rate=0.15 (lags behind)
+    let spring_rate = 0.1 + 0.5 * base_stiffness;
 
     bristle_offsets
         .iter()
@@ -460,7 +462,7 @@ fn compute_bristle_canvas_positions(
             };
 
             let bend_amount = if vel_len > 0.01 {
-                (vel_len * 0.02 / stiffness).min(0.3)
+                (vel_len * 0.06 / stiffness).min(0.5)
             } else {
                 0.0
             };
@@ -498,8 +500,13 @@ fn compute_bristle_canvas_positions(
             let ry = if brush_roundness > 0.01 { 1.0 / brush_roundness } else { 100.0 };
             let dist_from_center = (base_x * base_x + (base_y * ry) * (base_y * ry)).sqrt();
             let activation_threshold = 1.0 - settings.brush_form * (1.0 - pressure);
-            if dist_from_center > activation_threshold {
-                bp = 0.0;
+            // Smooth falloff instead of hard cutoff
+            let edge_width = 0.15;
+            if dist_from_center > activation_threshold - edge_width {
+                let fade = 1.0 - ((dist_from_center - (activation_threshold - edge_width)) / (edge_width * 2.0)).clamp(0.0, 1.0);
+                // Smoothstep curve for natural transition
+                let fade = fade * fade * (3.0 - 2.0 * fade);
+                bp *= fade;
             }
 
             // Bristle splitting: at low paint load, bristles gap out
@@ -507,11 +514,17 @@ fn compute_bristle_canvas_positions(
                 if bs.paint_load < splitting_threshold {
                     let split_factor = bs.paint_load / splitting_threshold.max(0.01);
                     bp *= split_factor;
-                    // At very low paint load, odd-indexed outer bristles deactivate (no RNG needed)
-                    if bs.paint_load < splitting_threshold * 0.3 && bs.radial_distance > 0.5 && i % 2 == 0 {
-                        bp = 0.0;
+                    // At very low paint load, outer bristles deactivate with natural pattern
+                    if bs.paint_load < splitting_threshold * 0.3 && bs.radial_distance > 0.5 {
+                        // Hash-based pseudo-random for natural splitting pattern
+                        let hash = ((i as u32).wrapping_mul(2654435761)) >> 16;
+                        if hash & 1 == 0 {
+                            bp = 0.0;
+                        }
                     }
                 }
+                // Wetter bristles deposit more readily
+                bp *= 0.5 + 0.5 * bs.wetness;
                 // Modulate by bristle thickness
                 bp *= bs.thickness;
             }
