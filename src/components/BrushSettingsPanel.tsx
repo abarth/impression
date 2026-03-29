@@ -2,7 +2,7 @@ import { useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { Settings2 } from "lucide-react";
 import { SliderControl } from "./SliderControl";
-import type { BrushSettings, DynamicParam, DynamicControl, ScatterSettings, DualBrushSettings, TextureSettings, WetMediaSettings, MediumType } from "../hooks/useBrushSettings";
+import type { BrushSettings, DynamicParam, DynamicControl, ScatterSettings, DualBrushSettings, TextureSettings, WetMediaSettings, MediumType, BrushShape } from "../hooks/useBrushSettings";
 import {
   DUAL_BRUSH_MODE_MULTIPLY,
   DUAL_BRUSH_MODE_DARKEN,
@@ -567,6 +567,22 @@ function WetMediaPane({ settings, onUpdate }: BrushSettingsPanelProps) {
               </button>
             </div>
           </div>
+          <div className="flex flex-col gap-2">
+            <label className="text-[10px] font-medium text-cream-muted uppercase tracking-wider">
+              Brush Shape
+            </label>
+            <div className="flex gap-1 bg-graphite-850 p-1 rounded-lg border border-graphite-800">
+              {(["Round", "Flat", "Filbert", "Fan"] as BrushShape[]).map((s) => (
+                <button
+                  key={s}
+                  onClick={() => update({ brushShape: s })}
+                  className={`flex-1 py-1 text-[11px] rounded transition-all duration-150 ${wm.brushShape === s ? "bg-graphite-700 text-cream shadow-sm" : "text-cream-muted hover:text-cream-dim"}`}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
           <SliderControl
             label="Paint Load"
             value={wm.paintLoad}
@@ -621,7 +637,7 @@ function WetMediaPane({ settings, onUpdate }: BrushSettingsPanelProps) {
             label="Bristle Count"
             value={wm.bristleCount}
             min={4}
-            max={256}
+            max={512}
             step={1}
             displayValue={`${wm.bristleCount}`}
             onChange={(v) => update({ bristleCount: Math.round(v) })}
@@ -644,6 +660,16 @@ function WetMediaPane({ settings, onUpdate }: BrushSettingsPanelProps) {
             displayValue={`${Math.round(wm.bristleStiffness * 100)}%`}
             onChange={(v) => update({ bristleStiffness: v })}
             title="Brush flexibility — low bends with motion"
+          />
+          <SliderControl
+            label="Splitting"
+            value={wm.splittingThreshold}
+            min={0}
+            max={1.0}
+            step={0.01}
+            displayValue={`${Math.round(wm.splittingThreshold * 100)}%`}
+            onChange={(v) => update({ splittingThreshold: v })}
+            title="Bristle splitting threshold — lower values cause earlier bristle separation"
           />
           <SliderControl
             label="Speed Smudging"
