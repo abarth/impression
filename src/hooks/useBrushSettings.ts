@@ -347,6 +347,8 @@ export interface MediumPhysics {
   vorticityStrength: number;
   gravityStrength: number;
   pressureIterations: number;
+  absorptionRate: number;
+  capillaryStrength: number;
 }
 
 const MEDIUM_PHYSICS: Record<MediumType, MediumPhysics> = {
@@ -354,16 +356,19 @@ const MEDIUM_PHYSICS: Record<MediumType, MediumPhysics> = {
     viscosity: 0.85, dryingRate: 0.0008, diffusionRate: 0.03, advectionDissipation: 0.99,
     surfaceTension: 0.7, edgeAccumulation: 0.6, vorticityStrength: 0.3,
     gravityStrength: 0.02, pressureIterations: 30,
+    absorptionRate: 0.01, capillaryStrength: 0.15,
   },
   Acrylic: {
     viscosity: 0.5, dryingRate: 0.008, diffusionRate: 0.10, advectionDissipation: 0.97,
     surfaceTension: 0.4, edgeAccumulation: 0.3, vorticityStrength: 0.2,
     gravityStrength: 0.05, pressureIterations: 20,
+    absorptionRate: 0.05, capillaryStrength: 0.3,
   },
   Watercolor: {
     viscosity: 0.2, dryingRate: 0.003, diffusionRate: 0.4, advectionDissipation: 0.95,
     surfaceTension: 0.1, edgeAccumulation: 0.1, vorticityStrength: 0.5,
     gravityStrength: 0.15, pressureIterations: 15,
+    absorptionRate: 0.1, capillaryStrength: 0.6,
   },
 };
 

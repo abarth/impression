@@ -9,6 +9,8 @@ import wetMediaDryShaderSource from "../shaders/wet_media_dry.wgsl?raw";
 import wetMediaPressureShaderSource from "../shaders/wet_media_pressure.wgsl?raw";
 import wetMediaSurfaceTensionShaderSource from "../shaders/wet_media_surface_tension.wgsl?raw";
 import wetMediaShadowShaderSource from "../shaders/wet_media_shadow.wgsl?raw";
+import wetMediaAbsorptionShaderSource from "../shaders/wet_media_absorption.wgsl?raw";
+import wetMediaCapillaryShaderSource from "../shaders/wet_media_capillary.wgsl?raw";
 import mixboxShaderSource from "../shaders/mixbox.wgsl?raw";
 import { generatePaperTexture } from "./paperTexture";
 import { initMixbox } from "./mixbox";
@@ -73,6 +75,14 @@ export interface GPUContext {
   // Surface tension pipeline
   wetMediaSurfaceTensionPipeline: GPUComputePipeline;
   wetMediaSurfaceTensionBindGroupLayout: GPUBindGroupLayout;
+
+  // Paint absorption pipeline
+  wetMediaAbsorptionPipeline: GPUComputePipeline;
+  wetMediaAbsorptionBindGroupLayout: GPUBindGroupLayout;
+
+  // Capillary flow pipeline
+  wetMediaCapillaryPipeline: GPUComputePipeline;
+  wetMediaCapillaryBindGroupLayout: GPUBindGroupLayout;
 
   // HBAO self-shadow compute pipeline
   wetMediaShadowPipeline: GPUComputePipeline;
@@ -453,6 +463,38 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
     compute: { module: device.createShaderModule({ code: wetMediaSurfaceTensionShaderSource }), entryPoint: "main" },
   });
 
+  // --- Wet media absorption pipeline ---
+  const wetMediaAbsorptionBindGroupLayout = device.createBindGroupLayout({
+    entries: [
+      { binding: 0, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "read-only", format: "rgba32float" } },  // props_src
+      { binding: 1, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba32float" } }, // props_dst
+      { binding: 2, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "read-only", format: "r32float" } },     // paper_tex
+      { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+    ],
+  });
+  const wetMediaAbsorptionPipeline = device.createComputePipeline({
+    layout: device.createPipelineLayout({ bindGroupLayouts: [wetMediaAbsorptionBindGroupLayout] }),
+    compute: { module: device.createShaderModule({ code: wetMediaAbsorptionShaderSource }), entryPoint: "main" },
+  });
+
+  // --- Wet media capillary flow pipeline ---
+  const wetMediaCapillaryBindGroupLayout = device.createBindGroupLayout({
+    entries: [
+      { binding: 0, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "read-only", format: "rgba32float" } },  // color_src
+      { binding: 1, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba32float" } }, // color_dst
+      { binding: 2, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "read-only", format: "rgba32float" } },  // props_src
+      { binding: 3, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba32float" } }, // props_dst
+      { binding: 4, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "read-only", format: "rg32float" } },    // velocity_src
+      { binding: 5, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rg32float" } },   // velocity_dst
+      { binding: 6, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "read-only", format: "r32float" } },     // paper_tex
+      { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+    ],
+  });
+  const wetMediaCapillaryPipeline = device.createComputePipeline({
+    layout: device.createPipelineLayout({ bindGroupLayouts: [wetMediaCapillaryBindGroupLayout] }),
+    compute: { module: device.createShaderModule({ code: wetMediaCapillaryShaderSource }), entryPoint: "main" },
+  });
+
   // --- HBAO self-shadow compute pipeline ---
   const wetMediaShadowBindGroupLayout = device.createBindGroupLayout({
     entries: [
@@ -575,6 +617,10 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
     wetMediaPressureBindGroupLayout,
     wetMediaSurfaceTensionPipeline,
     wetMediaSurfaceTensionBindGroupLayout,
+    wetMediaAbsorptionPipeline,
+    wetMediaAbsorptionBindGroupLayout,
+    wetMediaCapillaryPipeline,
+    wetMediaCapillaryBindGroupLayout,
     wetMediaShadowPipeline,
     wetMediaShadowBindGroupLayout,
     mixboxLUT: mixboxResources.lutTexture,
@@ -1278,7 +1324,80 @@ export function stepWetMediaSimulation(
   }
 
   // After diffusion, src is now current again (ping-pong stays the same)
-  // --- 5. Drying pass (propsSrc → propsDst, then copy back to propsSrc) ---
+
+  // --- 5b. Absorption pass (propsSrc → propsDst, then copy back) ---
+  {
+    const absData = new ArrayBuffer(16);
+    new Float32Array(absData, 0, 4).set([
+      physics.absorptionRate,  // absorption_rate
+      1.0,                     // max_absorption
+      0.8,                     // canvas_absorbency
+      1.0,                     // dt
+    ]);
+    const absUB = createUniform(absData);
+
+    const absBG = gpu.device.createBindGroup({
+      layout: gpu.wetMediaAbsorptionBindGroupLayout,
+      entries: [
+        { binding: 0, resource: propsSrc.createView() },
+        { binding: 1, resource: propsDst.createView() },
+        { binding: 2, resource: wm.paperTexture.createView() },
+        { binding: 3, resource: { buffer: absUB } },
+      ],
+    });
+
+    const pass = encoder.beginComputePass();
+    pass.setPipeline(gpu.wetMediaAbsorptionPipeline);
+    pass.setBindGroup(0, absBG);
+    pass.dispatchWorkgroups(workgroupsX, workgroupsY);
+    pass.end();
+
+    // Copy absorbed props back to src for capillary pass
+    encoder.copyTextureToTexture(
+      { texture: propsDst },
+      { texture: propsSrc },
+      { width: canvasWidth, height: canvasHeight },
+    );
+  }
+
+  // --- 5c. Capillary flow pass (all src → all dst, then copy back) ---
+  {
+    const capData = new ArrayBuffer(16);
+    new Float32Array(capData, 0, 4).set([
+      physics.capillaryStrength,  // capillary_strength
+      1.0,                        // flow_rate
+      0.01,                       // min_wetness
+      1.0,                        // dt
+    ]);
+    const capUB = createUniform(capData);
+
+    const capBG = gpu.device.createBindGroup({
+      layout: gpu.wetMediaCapillaryBindGroupLayout,
+      entries: [
+        { binding: 0, resource: colorSrc.createView() },
+        { binding: 1, resource: colorDst.createView() },
+        { binding: 2, resource: propsSrc.createView() },
+        { binding: 3, resource: propsDst.createView() },
+        { binding: 4, resource: velSrc.createView() },
+        { binding: 5, resource: velDst.createView() },
+        { binding: 6, resource: wm.paperTexture.createView() },
+        { binding: 7, resource: { buffer: capUB } },
+      ],
+    });
+
+    const pass = encoder.beginComputePass();
+    pass.setPipeline(gpu.wetMediaCapillaryPipeline);
+    pass.setBindGroup(0, capBG);
+    pass.dispatchWorkgroups(workgroupsX, workgroupsY);
+    pass.end();
+
+    // Copy results back to src buffers for drying pass
+    encoder.copyTextureToTexture({ texture: colorDst }, { texture: colorSrc }, { width: canvasWidth, height: canvasHeight });
+    encoder.copyTextureToTexture({ texture: propsDst }, { texture: propsSrc }, { width: canvasWidth, height: canvasHeight });
+    encoder.copyTextureToTexture({ texture: velDst }, { texture: velSrc }, { width: canvasWidth, height: canvasHeight });
+  }
+
+  // --- 6. Drying pass (propsSrc → propsDst, then copy back to propsSrc) ---
   {
     const dryData = new ArrayBuffer(16);
     new Uint32Array(dryData, 0, 2).set([canvasWidth, canvasHeight]);
