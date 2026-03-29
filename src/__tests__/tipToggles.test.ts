@@ -105,7 +105,9 @@ describe("useBrushPresets toggleTipType", () => {
         hardness: 1.0,
         sizeRatio: 1.0,
         spacing: 0.25,
+        flip: false,
         count: 1,
+        countJitter: 0,
         scatter: 0,
         bothAxes: false,
       }

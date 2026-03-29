@@ -18,7 +18,7 @@ function createMockEngine(): Engine {
 
 /** Minimal settings blob for tests. */
 function defaultSettings(): SerializableBrushSettings {
-  const dynParam = { jitter: 0, control: 0, minimum: 0 };
+  const dynParam = { jitter: 0, control: 0 as const, minimum: 0 };
   return {
     size: 20, spacing: 0.15,
     color_r: 0, color_g: 0, color_b: 0,
@@ -35,6 +35,15 @@ function defaultSettings(): SerializableBrushSettings {
     },
     texture: { enabled: false, scale: 100, depth: 1.0, texture_each_tip: false },
     active_tip_id: null, secondary_tip_id: null, texture_tip_id: null,
+    brush_model: "Stamp",
+    pressure_curve: 1.0,
+    wet_media: {
+      paint_load: 0.8, paint_thickness: 0.5, wetness: 0.7, mixing_strength: 0.5,
+      bristle_count: 256, bristle_spread: 0.3, paint_depletion_rate: 0.1,
+      canvas_texture_strength: 0.3, medium_type: "Oil" as const, viscosity: 0.7,
+      bristle_stiffness: 0.5, brush_form: 0.5, color_noise: 0.0, speed_smudging: 0.3,
+      brush_shape: "Round" as const, splitting_threshold: 0.3,
+    },
   };
 }
 

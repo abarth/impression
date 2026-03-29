@@ -61,6 +61,16 @@ export class Engine {
     this._onLayersChanged = cb;
   }
 
+  /** Canvas width in pixels. */
+  width(): number {
+    return this.canvas.width();
+  }
+
+  /** Canvas height in pixels. */
+  height(): number {
+    return this.canvas.height();
+  }
+
   enablePersistence(opts: PersistenceOptions & { startSequence?: number }): void {
     this.storage = opts.storage;
     this.documentMeta = opts.documentMeta;

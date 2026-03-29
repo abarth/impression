@@ -18,13 +18,13 @@ function makeSettings(overrides: Partial<BrushSettings> = {}): BrushSettings {
     flipX: false,
     flipY: false,
     shapeDynamics: {
-      size: { jitter: 0, control: 0, minimum: 0 },
-      angle: { jitter: 0, control: 0, minimum: 0 },
-      roundness: { jitter: 0, control: 0, minimum: 0 },
+      size: { jitter: 0, control: 0 as const, minimum: 0 },
+      angle: { jitter: 0, control: 0 as const, minimum: 0 },
+      roundness: { jitter: 0, control: 0 as const, minimum: 0 },
     },
     transferDynamics: {
-      opacity: { jitter: 0, control: 0, minimum: 0 },
-      flow: { jitter: 0, control: 0, minimum: 0 },
+      opacity: { jitter: 0, control: 0 as const, minimum: 0 },
+      flow: { jitter: 0, control: 0 as const, minimum: 0 },
     },
     scatterSettings: { scatter: 0, bothAxes: false, count: 1, countJitter: 0 },
     dualBrush: {
@@ -35,6 +35,7 @@ function makeSettings(overrides: Partial<BrushSettings> = {}): BrushSettings {
     texture: { enabled: false, scale: 100, depth: 1.0, textureEachTip: false },
     wetMedia: { ...DEFAULT_WET_MEDIA, enabled: true },
     activeTipId: null,
+    pressureCurve: 1.0,
     ...overrides,
   };
 }

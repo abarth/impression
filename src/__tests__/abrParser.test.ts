@@ -57,6 +57,11 @@ class BinaryBuilder {
     while (this.parts.length < targetLength) this.parts.push(0);
     return this;
   }
+  /** Overwrite a byte at a given index. */
+  setByteAt(index: number, value: number): this {
+    this.parts[index] = value & 0xff;
+    return this;
+  }
 
   toArray(): number[] { return this.parts; }
   get length(): number { return this.parts.length; }
@@ -865,7 +870,7 @@ describe("abrParser", () => {
     pattEntry.u16(0); // null terminator
     // Pascal-style UUID with NO padding
     pattEntry.u8(patternUuid.length);
-    for (let i = 0; i < patternUuid.length; i++) pattEntry.parts.push(patternUuid.charCodeAt(i));
+    for (let i = 0; i < patternUuid.length; i++) pattEntry.u8(patternUuid.charCodeAt(i));
     // VirtualMemoryArrayList v3
     pattEntry.u32(3); // VMA version
     // VMA length — compute later; placeholder
@@ -886,7 +891,7 @@ describe("abrParser", () => {
     // Patch VMA length
     const vmaLen = pattEntry.length - (vmaLenPos + 4);
     const vmaLenBytes = [(vmaLen >> 24) & 0xff, (vmaLen >> 16) & 0xff, (vmaLen >> 8) & 0xff, vmaLen & 0xff];
-    for (let i = 0; i < 4; i++) pattEntry.parts[vmaLenPos + i] = vmaLenBytes[i];
+    for (let i = 0; i < 4; i++) pattEntry.setByteAt(vmaLenPos + i, vmaLenBytes[i]);
 
     // Wrap in patt section: u32 entry length + entry data
     const pattSection = new BinaryBuilder();
