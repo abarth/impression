@@ -541,7 +541,8 @@ fn compute_bristle_canvas_positions(
 /// Compute the bristle dot radius for a given brush size and bristle count.
 fn bristle_dot_radius(brush_size: f32, bristle_count: usize) -> f32 {
     let radius = brush_size * 0.5;
-    (radius * 2.5 / (bristle_count as f32).sqrt()).max(0.5)
+    // Larger dots create smoother overlapping footprints (less visible stamping)
+    (radius * 3.5 / (bristle_count as f32).sqrt()).max(0.75)
 }
 
 /// Stamp a soft dot into the mask at the given mask-space position.

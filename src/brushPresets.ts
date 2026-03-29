@@ -72,7 +72,7 @@ export const DEFAULT_PRESETS: BrushPreset[] = [
     group: "Oil",
     tip: { type: "computed", hardness: 0.6 },
     size: 24,
-    spacing: 0.08,
+    spacing: 0.04,
     roundness: 1.0,
     angle: 0,
     wetMedia: {
@@ -92,7 +92,7 @@ export const DEFAULT_PRESETS: BrushPreset[] = [
     group: "Oil",
     tip: { type: "computed", hardness: 0.8 },
     size: 30,
-    spacing: 0.08,
+    spacing: 0.04,
     roundness: 0.35,
     angle: 0,
     wetMedia: {
@@ -112,7 +112,7 @@ export const DEFAULT_PRESETS: BrushPreset[] = [
     group: "Oil",
     tip: { type: "computed", hardness: 0.7 },
     size: 28,
-    spacing: 0.08,
+    spacing: 0.04,
     roundness: 0.6,
     angle: 0,
     wetMedia: {
@@ -132,7 +132,7 @@ export const DEFAULT_PRESETS: BrushPreset[] = [
     group: "Oil",
     tip: { type: "computed", hardness: 0.5 },
     size: 40,
-    spacing: 0.1,
+    spacing: 0.05,
     roundness: 0.3,
     angle: 0,
     wetMedia: {
@@ -152,7 +152,7 @@ export const DEFAULT_PRESETS: BrushPreset[] = [
     group: "Oil",
     tip: { type: "computed", hardness: 0.9 },
     size: 20,
-    spacing: 0.06,
+    spacing: 0.04,
     roundness: 0.85,
     angle: 0,
     wetMedia: {
@@ -172,7 +172,7 @@ export const DEFAULT_PRESETS: BrushPreset[] = [
     group: "Oil",
     tip: { type: "computed", hardness: 0.25 },
     size: 35,
-    spacing: 0.06,
+    spacing: 0.03,
     roundness: 1.0,
     angle: 0,
     wetMedia: {
@@ -192,7 +192,7 @@ export const DEFAULT_PRESETS: BrushPreset[] = [
     group: "Oil",
     tip: { type: "computed", hardness: 0.85 },
     size: 35,
-    spacing: 0.1,
+    spacing: 0.05,
     roundness: 0.55,
     angle: 0,
     wetMedia: {
@@ -212,7 +212,7 @@ export const DEFAULT_PRESETS: BrushPreset[] = [
     group: "Oil",
     tip: { type: "computed", hardness: 0.75 },
     size: 8,
-    spacing: 0.06,
+    spacing: 0.04,
     roundness: 1.0,
     angle: 0,
     wetMedia: {
@@ -253,7 +253,7 @@ export const DEFAULT_PRESETS: BrushPreset[] = [
     group: "Acrylic",
     tip: { type: "computed", hardness: 0.55 },
     size: 22,
-    spacing: 0.08,
+    spacing: 0.04,
     roundness: 1.0,
     angle: 0,
     wetMedia: {
@@ -273,7 +273,7 @@ export const DEFAULT_PRESETS: BrushPreset[] = [
     group: "Acrylic",
     tip: { type: "computed", hardness: 0.7 },
     size: 28,
-    spacing: 0.08,
+    spacing: 0.04,
     roundness: 0.4,
     angle: 0,
     wetMedia: {
@@ -293,7 +293,7 @@ export const DEFAULT_PRESETS: BrushPreset[] = [
     group: "Acrylic",
     tip: { type: "computed", hardness: 0.85 },
     size: 22,
-    spacing: 0.06,
+    spacing: 0.04,
     roundness: 0.75,
     angle: 0,
     wetMedia: {
@@ -313,7 +313,7 @@ export const DEFAULT_PRESETS: BrushPreset[] = [
     group: "Acrylic",
     tip: { type: "computed", hardness: 0.35 },
     size: 30,
-    spacing: 0.08,
+    spacing: 0.04,
     roundness: 1.0,
     angle: 0,
     wetMedia: {
@@ -333,7 +333,7 @@ export const DEFAULT_PRESETS: BrushPreset[] = [
     group: "Acrylic",
     tip: { type: "computed", hardness: 0.8 },
     size: 32,
-    spacing: 0.1,
+    spacing: 0.05,
     roundness: 0.5,
     angle: 0,
     wetMedia: {
@@ -353,7 +353,7 @@ export const DEFAULT_PRESETS: BrushPreset[] = [
     group: "Acrylic",
     tip: { type: "computed", hardness: 0.2 },
     size: 30,
-    spacing: 0.06,
+    spacing: 0.04,
     roundness: 1.0,
     angle: 0,
     wetMedia: {
