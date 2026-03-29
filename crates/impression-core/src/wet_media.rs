@@ -2169,5 +2169,95 @@ mod tests {
 
         wet_media_stroke_end(&mut state);
         assert!(state.bristle_deformations.is_empty(), "Deformations should be cleared on end");
+        assert!(state.bristle_states.is_empty(), "Bristle states should be cleared on end");
+    }
+
+    #[test]
+    fn test_brush_shape_round_distribution() {
+        let mut rng = Rng::from_coords(1.0, 1.0);
+        let (offsets, states) = init_bristle_layout(64, BrushShape::Round, 0.5, 0.8, 0.7, &mut rng);
+        assert_eq!(offsets.len(), 64);
+        assert_eq!(states.len(), 64);
+        // Center bristles should be stiffer
+        let center: Vec<&BristleState> = states.iter().filter(|s| s.radial_distance < 0.3).collect();
+        let edge: Vec<&BristleState> = states.iter().filter(|s| s.radial_distance > 0.7).collect();
+        if !center.is_empty() && !edge.is_empty() {
+            let avg_center_stiff: f32 = center.iter().map(|s| s.stiffness).sum::<f32>() / center.len() as f32;
+            let avg_edge_stiff: f32 = edge.iter().map(|s| s.stiffness).sum::<f32>() / edge.len() as f32;
+            assert!(avg_center_stiff > avg_edge_stiff, "Center should be stiffer: center={}, edge={}", avg_center_stiff, avg_edge_stiff);
+        }
+    }
+
+    #[test]
+    fn test_brush_shape_flat_distribution() {
+        let mut rng = Rng::from_coords(2.0, 2.0);
+        let (offsets, states) = init_bristle_layout(64, BrushShape::Flat, 0.5, 0.8, 0.7, &mut rng);
+        assert_eq!(offsets.len(), 64);
+        assert_eq!(states.len(), 64);
+        // Flat brush: Y range should be narrow, X range wide
+        let x_range_span = offsets.iter().map(|o| o.0).fold(f32::MIN, f32::max) - offsets.iter().map(|o| o.0).fold(f32::MAX, f32::min);
+        let y_range_span = offsets.iter().map(|o| o.1).fold(f32::MIN, f32::max) - offsets.iter().map(|o| o.1).fold(f32::MAX, f32::min);
+        assert!(x_range_span > y_range_span * 2.0, "Flat brush X range should be wider than Y: x={}, y={}", x_range_span, y_range_span);
+    }
+
+    #[test]
+    fn test_bristle_splitting_at_low_paint() {
+        let settings = WetMediaBrushSettings {
+            bristle_count: 32,
+            splitting_threshold: 0.3,
+            paint_load: 0.05, // very low initial load, below splitting_threshold * 0.3
+            paint_depletion_rate: 0.0,
+            brush_form: 0.0, // disable brush_form deactivation
+            ..Default::default()
+        };
+        let mut rng = Rng::from_coords(5.0, 5.0);
+        let (offsets, states) = init_bristle_layout(32, settings.brush_shape, settings.bristle_stiffness, settings.paint_load, settings.wetness, &mut rng);
+
+        // With paint load 0.1 < splitting_threshold 0.3, some bristles should have reduced pressure
+        let positions = compute_bristle_canvas_positions(
+            50.0, 50.0, 1.0, 20.0, 0.0, 1.0,
+            &settings, [0.0, 0.0], &offsets, &mut vec![(0.0, 0.0); 32], &states, settings.splitting_threshold, &mut rng,
+        );
+
+        // Some bristles should have zero or reduced pressure due to splitting
+        let zero_pressure = positions.iter().filter(|p| p.pressure == 0.0).count();
+        assert!(zero_pressure > 0, "Low paint load should cause some bristle gaps: zero_count={}", zero_pressure);
+    }
+
+    #[test]
+    fn test_per_bristle_depletion_outer_faster() {
+        let settings = WetMediaBrushSettings {
+            paint_load: 1.0,
+            paint_depletion_rate: 0.1,
+            bristle_count: 32,
+            ..Default::default()
+        };
+        let mut state = WetMediaStrokeState::default();
+        let color = [1.0, 0.0, 0.0];
+
+        wet_media_stroke_begin(&mut state, 0.0, 0.0, 1.0, 20.0, 0.0, 1.0, 0.25, &settings, color);
+
+        // Move enough to partially deplete but not fully
+        for i in 1..=10 {
+            wet_media_stroke_move(&mut state, i as f32 * 6.0, 0.0, 1.0, 20.0, 0.0, 1.0, 0.25, &settings, color);
+        }
+
+        // Outer bristles should have less paint than center bristles
+        let center_states: Vec<&BristleState> = state.bristle_states.iter().filter(|s| s.radial_distance < 0.3).collect();
+        let edge_states: Vec<&BristleState> = state.bristle_states.iter().filter(|s| s.radial_distance > 0.7).collect();
+        if !center_states.is_empty() && !edge_states.is_empty() {
+            let avg_center_load: f32 = center_states.iter().map(|s| s.paint_load).sum::<f32>() / center_states.len() as f32;
+            let avg_edge_load: f32 = edge_states.iter().map(|s| s.paint_load).sum::<f32>() / edge_states.len() as f32;
+            assert!(avg_center_load > avg_edge_load, "Center bristles should retain more paint: center={}, edge={}", avg_center_load, avg_edge_load);
+        }
+    }
+
+    #[test]
+    fn test_brush_shape_serialization() {
+        for shape in [BrushShape::Round, BrushShape::Flat, BrushShape::Filbert, BrushShape::Fan] {
+            let bytes = rmp_serde::to_vec(&shape).unwrap();
+            let decoded: BrushShape = rmp_serde::from_slice(&bytes).unwrap();
+            assert_eq!(shape, decoded);
+        }
     }
 }
