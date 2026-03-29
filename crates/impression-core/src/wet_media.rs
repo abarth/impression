@@ -921,9 +921,9 @@ pub fn wet_media_stroke_move(
         for bs in state.bristle_states.iter_mut() {
             let depletion_mult = 1.0 + 0.4 * bs.radial_distance; // outer = 1.4x faster
             bs.paint_load = (bs.paint_load - settings.paint_depletion_rate * step / brush_size * depletion_mult).max(0.0);
-            // Wetness decreases as paint depletes
+            // Wetness decreases as paint depletes — fully depleted brush leaves no mark
             let load_ratio = (bs.paint_load / settings.paint_load.max(0.01)).clamp(0.0, 1.0);
-            bs.wetness = settings.wetness * load_ratio.max(0.1);
+            bs.wetness = settings.wetness * load_ratio;
         }
 
         // Global paint load = average of per-bristle loads (for footprint params)
@@ -937,16 +937,16 @@ pub fn wet_media_stroke_move(
         // Paint-to-blend transition: as paint depletes, brush becomes a blender
         let load_ratio = (state.paint_load_remaining / settings.paint_load.max(0.01)).clamp(0.0, 1.0);
         let depletion_ratio = 1.0 - load_ratio;
-        // As paint depletes: mixing increases (brush transitions to smudging)
+        // As paint depletes: mixing increases moderately (brush transitions to smudging)
         let mut effective_mixing = (settings.mixing_strength
-            + (1.0 - settings.mixing_strength) * depletion_ratio * 0.8)
+            + (1.0 - settings.mixing_strength) * depletion_ratio * 0.4)
             .min(1.0);
         // Speed-based smudging: fast strokes increase mixing
         let vel_mag = (velocity[0] * velocity[0] + velocity[1] * velocity[1]).sqrt();
         let speed_factor = (vel_mag / brush_size).min(2.0);
         effective_mixing = (effective_mixing + settings.speed_smudging * speed_factor * 0.3).min(1.0);
         // As paint depletes: wetness fades (stroke dries out)
-        let effective_wetness = settings.wetness * load_ratio.max(0.1);
+        let effective_wetness = settings.wetness * load_ratio;
 
         // Per-bristle color drift: blend each bristle's color toward the paint color
         // weighted by mixing_strength (simulates dirty brush picking up canvas color)
@@ -957,13 +957,16 @@ pub fn wet_media_stroke_move(
             }
         }
 
-        // Simulated canvas color pickup: as paint depletes, bristles pick up
-        // diverse colors from the canvas surface, causing per-bristle variation
-        let pickup_strength = depletion_ratio * 0.05;
+        // Simulated canvas color pickup: as paint depletes, bristle colors
+        // fade toward a muted version (less saturated, slightly darker)
+        // rather than adding random noise that drifts toward white/gray
+        let pickup_strength = depletion_ratio * 0.03;
         if pickup_strength > 0.001 {
             for color in state.bristle_colors.iter_mut() {
+                // Desaturate toward luminance (muted color, not random white)
+                let lum = color[0] * 0.299 + color[1] * 0.587 + color[2] * 0.114;
                 for c in 0..3 {
-                    color[c] += (state.rng.next_f32() - 0.5) * pickup_strength;
+                    color[c] += (lum - color[c]) * pickup_strength;
                     color[c] = color[c].clamp(0.0, 1.0);
                 }
             }
@@ -1799,11 +1802,11 @@ mod tests {
             "Wetness should decrease as paint depletes: initial={}, final={}",
             initial_wetness, final_wetness
         );
-        // Wetness should not go below the floor (10% of settings.wetness)
+        // Wetness should reach zero when paint is fully depleted
         assert!(
-            final_wetness >= settings.wetness * 0.1 - 0.001,
-            "Wetness should not go below floor: final={}, floor={}",
-            final_wetness, settings.wetness * 0.1
+            final_wetness < 0.01,
+            "Wetness should approach zero when paint is depleted: final={}",
+            final_wetness
         );
     }
 
@@ -1841,7 +1844,7 @@ mod tests {
     }
 
     #[test]
-    fn test_canvas_color_pickup_diverges_bristle_colors() {
+    fn test_canvas_color_pickup_desaturates_bristle_colors() {
         let settings = WetMediaBrushSettings {
             paint_load: 0.3,
             paint_depletion_rate: 0.8, // very fast depletion
@@ -1851,7 +1854,8 @@ mod tests {
             ..Default::default()
         };
         let mut state = WetMediaStrokeState::default();
-        let color = [0.5, 0.5, 0.5];
+        // Use a saturated red color so desaturation is observable
+        let color = [0.9, 0.1, 0.1];
 
         wet_media_stroke_begin(
             &mut state, 10.0, 10.0, 1.0,
@@ -1859,13 +1863,9 @@ mod tests {
             &settings, color,
         );
 
-        // All bristle colors should start identical
-        let first = state.bristle_colors[0];
-        for c in &state.bristle_colors {
-            assert_eq!(*c, first, "Bristle colors should start identical");
-        }
+        let initial_colors = state.bristle_colors.clone();
 
-        // Move many times to deplete paint and accumulate color pickup
+        // Move many times to deplete paint and accumulate desaturation
         for i in 1..=40 {
             wet_media_stroke_move(
                 &mut state, 10.0 + i as f32 * 3.0, 10.0, 1.0,
@@ -1874,20 +1874,18 @@ mod tests {
             );
         }
 
-        // After depletion, bristle colors should have diverged
-        let mut max_diff = 0.0f32;
-        for i in 0..state.bristle_colors.len() {
-            for j in (i + 1)..state.bristle_colors.len() {
-                for c in 0..3 {
-                    let diff = (state.bristle_colors[i][c] - state.bristle_colors[j][c]).abs();
-                    max_diff = max_diff.max(diff);
-                }
-            }
-        }
+        // After depletion, bristle colors should have desaturated
+        // (green and blue channels should have moved closer to the red channel)
+        let initial_saturation: f32 = initial_colors.iter()
+            .map(|c| (c[0] - c[1]).abs() + (c[0] - c[2]).abs())
+            .sum::<f32>() / initial_colors.len() as f32;
+        let final_saturation: f32 = state.bristle_colors.iter()
+            .map(|c| (c[0] - c[1]).abs() + (c[0] - c[2]).abs())
+            .sum::<f32>() / state.bristle_colors.len() as f32;
         assert!(
-            max_diff > 0.001,
-            "Bristle colors should diverge after depletion, max_diff={}",
-            max_diff
+            final_saturation < initial_saturation,
+            "Bristle colors should desaturate after depletion: initial_sat={}, final_sat={}",
+            initial_saturation, final_saturation
         );
     }
 

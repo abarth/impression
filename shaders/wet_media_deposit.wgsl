@@ -115,14 +115,12 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 
     // Blend color: deposit new paint, mix with existing wet paint
     let deposit_strength = footprint_pressure * load * texture_mod * params.opacity_multiplier;
-    // Nonlinear blend for richer color layering (avoids washed-out overlaps)
-    let perceptual_strength = pow(deposit_strength, 0.7);
-    let blend_factor = perceptual_strength * (1.0 - t * 0.5);
+    // Scale blend factor linearly with deposit strength (no perceptual boost for thin paint)
+    let blend_factor = deposit_strength * (1.0 - t * 0.5);
     let mixbox_result = mixbox_lerp(existing_color.rgb, paint_color, blend_factor, mixbox_lut, mixbox_lut_sampler);
 
-    // K-M glazing correction: for thin paint layers, use Kubelka-Munk layering
-    // to add transparency depth that Mixbox alone doesn't model.
-    // Approximate K/S from RGB: K ≈ (1-R)²/2R, S ≈ 1 (normalized)
+    // K-M glazing correction: for thick paint layers, add Kubelka-Munk layering
+    // for physically-based pigment depth. Thin layers stay Mixbox-only to avoid lightening.
     let base_rgb = clamp(existing_color.rgb, vec3f(0.01), vec3f(0.99));
     let paint_rgb = clamp(paint_color, vec3f(0.01), vec3f(0.99));
     let base_K = (1.0 - base_rgb) * (1.0 - base_rgb) / (2.0 * base_rgb);
@@ -131,10 +129,10 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let paint_S = vec3f(1.0);
     let km_thickness = deposit_strength * 2.0;
     let km_result = km_layer_over(base_K, base_S, paint_K, paint_S, km_thickness);
-    // Blend between Mixbox (better for opaque mixing) and K-M (better for glazing)
-    // Thin layers favor K-M, thick layers favor Mixbox
-    let km_weight = (1.0 - deposit_strength) * 0.3;
+    // Thick deposits favor K-M for physically-based depth; thin deposits stay Mixbox
+    let km_weight = deposit_strength * 0.3;
     let new_color = mix(mixbox_result, km_result, km_weight);
+    // Alpha scales with deposit strength — depleted paint becomes transparent
     let new_alpha = min(1.0, existing_color.a + deposit_strength);
 
     // Paint displacement: brush scrapes/pushes existing wet paint
