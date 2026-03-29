@@ -12,6 +12,7 @@ import wetMediaShadowShaderSource from "../shaders/wet_media_shadow.wgsl?raw";
 import wetMediaAbsorptionShaderSource from "../shaders/wet_media_absorption.wgsl?raw";
 import wetMediaCapillaryShaderSource from "../shaders/wet_media_capillary.wgsl?raw";
 import mixboxShaderSource from "../shaders/mixbox.wgsl?raw";
+import kubelkaMunkShaderSource from "../shaders/kubelka_munk.wgsl?raw";
 import { generatePaperTexture } from "./paperTexture";
 import { initMixbox } from "./mixbox";
 import type { MediumType } from "./hooks/useBrushSettings";
@@ -355,11 +356,13 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
       { binding: 6, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "read-only", format: "r32float" } },
       { binding: 7, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
       { binding: 8, visibility: GPUShaderStage.COMPUTE, sampler: { type: "filtering" } },
+      { binding: 9, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "read-only", format: "rg32float" } },
+      { binding: 10, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rg32float" } },
     ],
   });
 
   const wetMediaDepositModule = device.createShaderModule({
-    code: mixboxShaderSource + "\n" + wetMediaDepositShaderSource,
+    code: mixboxShaderSource + "\n" + kubelkaMunkShaderSource + "\n" + wetMediaDepositShaderSource,
   });
 
   const wetMediaDepositPipeline = device.createComputePipeline({
@@ -1062,6 +1065,11 @@ export function dispatchWetMediaDeposit(
     { texture: wm.propsTextureB },
     { width: params.canvasWidth, height: params.canvasHeight },
   );
+  encoder.copyTextureToTexture(
+    { texture: wm.velocityTexture },
+    { texture: wm.velocityTextureB },
+    { width: params.canvasWidth, height: params.canvasHeight },
+  );
 
   // Create bind group: read from B (src), write to A (dst)
   const bindGroup = gpu.device.createBindGroup({
@@ -1076,6 +1084,8 @@ export function dispatchWetMediaDeposit(
       { binding: 6, resource: wm.paperTexture.createView() },
       { binding: 7, resource: gpu.mixboxLUT.createView() },
       { binding: 8, resource: gpu.mixboxSampler },
+      { binding: 9, resource: wm.velocityTextureB.createView() },
+      { binding: 10, resource: wm.velocityTexture.createView() },
     ],
   });
 

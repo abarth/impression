@@ -47,6 +47,8 @@ struct DepositParams {
 @group(0) @binding(6) var paper_texture: texture_storage_2d<r32float, read>;
 @group(0) @binding(7) var mixbox_lut: texture_2d<f32>;
 @group(0) @binding(8) var mixbox_lut_sampler: sampler;
+@group(0) @binding(9) var velocity_src: texture_storage_2d<rg32float, read>;
+@group(0) @binding(10) var velocity_dst: texture_storage_2d<rg32float, write>;
 
 @compute @workgroup_size(8, 8)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
@@ -83,6 +85,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     if (footprint_pressure <= 0.0) {
         textureStore(canvas_color_dst, coord, existing_color);
         textureStore(canvas_props_dst, coord, existing_props);
+        textureStore(velocity_dst, coord, textureLoad(velocity_src, coord));
         return;
     }
 
@@ -101,8 +104,26 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 
     // Blend color: deposit new paint, mix with existing wet paint
     let deposit_strength = footprint_pressure * load * texture_mod * params.opacity_multiplier;
-    let blend_factor = deposit_strength * (1.0 - t * 0.5);
-    let new_color = mixbox_lerp(existing_color.rgb, paint_color, blend_factor, mixbox_lut, mixbox_lut_sampler);
+    // Nonlinear blend for richer color layering (avoids washed-out overlaps)
+    let perceptual_strength = pow(deposit_strength, 0.7);
+    let blend_factor = perceptual_strength * (1.0 - t * 0.5);
+    let mixbox_result = mixbox_lerp(existing_color.rgb, paint_color, blend_factor, mixbox_lut, mixbox_lut_sampler);
+
+    // K-M glazing correction: for thin paint layers, use Kubelka-Munk layering
+    // to add transparency depth that Mixbox alone doesn't model.
+    // Approximate K/S from RGB: K ≈ (1-R)²/2R, S ≈ 1 (normalized)
+    let base_rgb = clamp(existing_color.rgb, vec3f(0.01), vec3f(0.99));
+    let paint_rgb = clamp(paint_color, vec3f(0.01), vec3f(0.99));
+    let base_K = (1.0 - base_rgb) * (1.0 - base_rgb) / (2.0 * base_rgb);
+    let base_S = vec3f(1.0);
+    let paint_K = (1.0 - paint_rgb) * (1.0 - paint_rgb) / (2.0 * paint_rgb);
+    let paint_S = vec3f(1.0);
+    let km_thickness = deposit_strength * 2.0;
+    let km_result = km_layer_over(base_K, base_S, paint_K, paint_S, km_thickness);
+    // Blend between Mixbox (better for opaque mixing) and K-M (better for glazing)
+    // Thin layers favor K-M, thick layers favor Mixbox
+    let km_weight = (1.0 - deposit_strength) * 0.3;
+    let new_color = mix(mixbox_result, km_result, km_weight);
     let new_alpha = min(1.0, existing_color.a + deposit_strength);
 
     // Accumulate height (impasto) — viscosity increases buildup
@@ -120,4 +141,12 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     // Write to dst textures
     textureStore(canvas_color_dst, coord, vec4f(new_color, new_alpha));
     textureStore(canvas_props_dst, coord, vec4f(new_height, new_wetness, new_amount, 0.0));
+
+    // Seed velocity field from brush motion — this drives the fluid simulation
+    let existing_vel = textureLoad(velocity_src, coord).rg;
+    let brush_vel = vec2f(params.velocity_x, params.velocity_y);
+    // Blend brush velocity into existing field, weighted by footprint pressure and wetness
+    let vel_strength = footprint_pressure * new_wetness * (1.0 - params.viscosity * 0.5);
+    let new_vel = mix(existing_vel, brush_vel, vel_strength);
+    textureStore(velocity_dst, coord, vec4f(new_vel, 0.0, 0.0));
 }
