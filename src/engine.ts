@@ -203,11 +203,18 @@ export class Engine {
       // Read mask from WASM memory (f32 array)
       const maskData = new Float32Array(this.wasmMemory.buffer, maskPtr, maskLen);
 
-      // Read params (flat array of 13 f32s)
+      // Read per-pixel color mask from WASM memory (RGB per pixel)
+      const colorMaskPtr = this.canvas.wet_media_footprint_color_mask_ptr(i);
+      const colorMaskLen = this.canvas.wet_media_footprint_color_mask_len(i);
+      const colorMaskData = colorMaskLen > 0
+        ? new Float32Array(this.wasmMemory.buffer, colorMaskPtr, colorMaskLen)
+        : new Float32Array(0);
+
+      // Read params (flat array of 16 f32s)
       const paramsArray = this.canvas.wet_media_footprint_params(i) as number[];
       if (!paramsArray || paramsArray.length < 15) continue;
 
-      dispatchWetMediaDeposit(this.gpu, layer, maskData, {
+      dispatchWetMediaDeposit(this.gpu, layer, maskData, colorMaskData, {
         originX: paramsArray[0],
         originY: paramsArray[1],
         paintR: paramsArray[2],
@@ -508,7 +515,7 @@ export class Engine {
         const paramsArray = this.canvas.wet_media_replay_deposit_params(i) as number[];
         if (!paramsArray || paramsArray.length < 15) continue;
 
-        dispatchWetMediaDeposit(this.gpu, layerIdx, maskData, {
+        dispatchWetMediaDeposit(this.gpu, layerIdx, maskData, new Float32Array(0), {
           originX: paramsArray[0],
           originY: paramsArray[1],
           paintR: paramsArray[2],

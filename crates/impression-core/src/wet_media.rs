@@ -203,12 +203,16 @@ impl Default for BrushModel {
 pub struct BristleFootprint {
     /// Per-pixel pressure values (0.0–1.0), row-major, width × height.
     pub mask: Vec<f32>,
+    /// Per-pixel bristle color (RGB interleaved), 3 floats per pixel, row-major.
+    /// Each pixel gets the color of the bristle that contributed the most pressure.
+    /// Length = width × height × 3.
+    pub color_mask: Vec<f32>,
     pub width: u32,
     pub height: u32,
     /// Canvas position of the footprint center.
     pub origin_x: f32,
     pub origin_y: f32,
-    /// Paint color (RGB, 0.0–1.0).
+    /// Paint color (RGB, 0.0–1.0) — fallback for pixels not covered by color_mask.
     pub paint_color: [f32; 3],
     /// Remaining paint load on the brush (0.0–1.0).
     pub paint_load: f32,
@@ -546,14 +550,17 @@ fn bristle_dot_radius(brush_size: f32, bristle_count: usize) -> f32 {
 }
 
 /// Stamp a soft dot into the mask at the given mask-space position.
+/// Also writes the bristle's color to color_mask using max-pressure-wins.
 fn stamp_bristle_dot(
     mask: &mut [f32],
+    color_mask: &mut [f32],
     mask_width: u32,
     mask_height: u32,
     bx: f32,
     by: f32,
     bristle_radius: f32,
     bristle_pressure: f32,
+    bristle_color: [f32; 3],
 ) {
     let br = bristle_radius;
     let x_min_i = ((bx - br).floor() as i32).max(0);
@@ -579,8 +586,14 @@ fn stamp_bristle_dot(
                 let t = (1.0 - dist / br).clamp(0.0, 1.0);
                 let alpha = t * t * (3.0 - 2.0 * t) * bristle_pressure;
                 let idx = (py * mask_width + px) as usize;
-                // Accumulate (max blend so bristles don't over-brighten)
-                mask[idx] = mask[idx].max(alpha);
+                // Max-pressure-wins: bristle with highest alpha determines color
+                if alpha > mask[idx] {
+                    mask[idx] = alpha;
+                    let cidx = idx * 3;
+                    color_mask[cidx] = bristle_color[0];
+                    color_mask[cidx + 1] = bristle_color[1];
+                    color_mask[cidx + 2] = bristle_color[2];
+                }
             }
         }
     }
@@ -611,8 +624,10 @@ fn distance_to_segment(px: f32, py: f32, ax: f32, ay: f32, bx: f32, by: f32) -> 
 /// Endpoints `p0` and `p1` are in **mask space** (i.e., relative to the mask's top-left corner).
 /// `radius` is the capsule half-width. Pressure is linearly interpolated from `pressure_start`
 /// (at `p0`) to `pressure_end` (at `p1`). Uses smoothstep falloff and max-blend accumulation.
+/// Also writes per-bristle color using max-pressure-wins.
 fn rasterize_capsule(
     mask: &mut [f32],
+    color_mask: &mut [f32],
     mask_width: u32,
     mask_height: u32,
     p0: (f32, f32),
@@ -620,6 +635,7 @@ fn rasterize_capsule(
     radius: f32,
     pressure_start: f32,
     pressure_end: f32,
+    bristle_color: [f32; 3],
 ) {
     // Bounding box of the capsule within the mask
     let min_x = p0.0.min(p1.0) - radius;
@@ -642,7 +658,13 @@ fn rasterize_capsule(
                 let s = (1.0 - dist / radius).clamp(0.0, 1.0);
                 let alpha = s * s * (3.0 - 2.0 * s) * pressure;
                 let idx = (py * mask_width + px) as usize;
-                mask[idx] = mask[idx].max(alpha);
+                if alpha > mask[idx] {
+                    mask[idx] = alpha;
+                    let cidx = idx * 3;
+                    color_mask[cidx] = bristle_color[0];
+                    color_mask[cidx + 1] = bristle_color[1];
+                    color_mask[cidx + 2] = bristle_color[2];
+                }
             }
         }
     }
@@ -678,6 +700,7 @@ pub fn generate_bristle_footprint(
     bristle_states: &[BristleState],
     splitting_threshold: f32,
     rng: &mut Rng,
+    bristle_colors: &[[f32; 3]],
 ) -> (BristleFootprint, Vec<BristlePosition>) {
     let br = bristle_dot_radius(brush_size, bristle_offsets.len());
 
@@ -687,22 +710,31 @@ pub fn generate_bristle_footprint(
         settings, velocity, bristle_offsets, deformations, bristle_states, splitting_threshold, rng,
     );
 
-    let (mask, mask_w, mask_h, mask_origin_x, mask_origin_y) = match prev_positions {
+    let (mask, color_mask, mask_w, mask_h, mask_origin_x, mask_origin_y) = match prev_positions {
         None => {
             // First dab: fixed-size square mask centered at origin, dot-stamp rasterization
             let footprint_size = (brush_size.ceil() as u32).max(1);
             let mask_len = (footprint_size * footprint_size) as usize;
             let mut mask = vec![0.0f32; mask_len];
+            let mut color_mask = vec![0.0f32; mask_len * 3];
+            // Initialize color_mask with fallback paint color
+            for i in 0..mask_len {
+                color_mask[i * 3] = paint_color[0];
+                color_mask[i * 3 + 1] = paint_color[1];
+                color_mask[i * 3 + 2] = paint_color[2];
+            }
             let center = footprint_size as f32 * 0.5;
 
-            for pos in &positions {
+            for (idx, pos) in positions.iter().enumerate() {
                 let mx = pos.canvas_x - origin_x + center;
                 let my = pos.canvas_y - origin_y + center;
+                let bc = if idx < bristle_colors.len() { bristle_colors[idx] } else { paint_color };
                 stamp_bristle_dot(
-                    &mut mask, footprint_size, footprint_size, mx, my, br, pos.pressure,
+                    &mut mask, &mut color_mask, footprint_size, footprint_size,
+                    mx, my, br, pos.pressure, bc,
                 );
             }
-            (mask, footprint_size, footprint_size, origin_x, origin_y)
+            (mask, color_mask, footprint_size, footprint_size, origin_x, origin_y)
         }
         Some(prev) => {
             // Trail mode: compute bounding box over all bristle movements + radius padding
@@ -729,31 +761,40 @@ pub fn generate_bristle_footprint(
             let mask_h = ((max_y - min_y).ceil() as u32).max(1).min(MAX_MASK_DIM);
             let mask_len = (mask_w * mask_h) as usize;
             let mut mask = vec![0.0f32; mask_len];
+            let mut color_mask = vec![0.0f32; mask_len * 3];
+            // Initialize color_mask with fallback paint color
+            for i in 0..mask_len {
+                color_mask[i * 3] = paint_color[0];
+                color_mask[i * 3 + 1] = paint_color[1];
+                color_mask[i * 3 + 2] = paint_color[2];
+            }
 
             // The mask top-left corner in canvas space
             let tl_x = min_x;
             let tl_y = min_y;
 
-            for (curr, prev_pos) in positions.iter().zip(prev.iter()) {
+            for (idx, (curr, prev_pos)) in positions.iter().zip(prev.iter()).enumerate() {
                 // Convert canvas coords to mask space
                 let p0 = (prev_pos.canvas_x - tl_x, prev_pos.canvas_y - tl_y);
                 let p1 = (curr.canvas_x - tl_x, curr.canvas_y - tl_y);
+                let bc = if idx < bristle_colors.len() { bristle_colors[idx] } else { paint_color };
                 rasterize_capsule(
-                    &mut mask, mask_w, mask_h,
+                    &mut mask, &mut color_mask, mask_w, mask_h,
                     p0, p1, br,
-                    prev_pos.pressure, curr.pressure,
+                    prev_pos.pressure, curr.pressure, bc,
                 );
             }
 
             // Origin = center of the bounding box (shader interprets origin as mask center)
             let center_x = min_x + mask_w as f32 * 0.5;
             let center_y = min_y + mask_h as f32 * 0.5;
-            (mask, mask_w, mask_h, center_x, center_y)
+            (mask, color_mask, mask_w, mask_h, center_x, center_y)
         }
     };
 
     let footprint = BristleFootprint {
         mask,
+        color_mask,
         width: mask_w,
         height: mask_h,
         origin_x: mask_origin_x,
@@ -830,6 +871,7 @@ pub fn wet_media_stroke_begin(
         &state.bristle_states,
         settings.splitting_threshold,
         &mut state.rng,
+        &state.bristle_colors,
     );
     state.footprints.push(footprint);
     state.prev_bristle_positions = Some(curr_positions);
@@ -943,6 +985,7 @@ pub fn wet_media_stroke_move(
             &state.bristle_states,
             settings.splitting_threshold,
             &mut state.rng,
+            &state.bristle_colors,
         );
         // Apply paint-to-blend effective values
         footprint.mixing_strength = effective_mixing;
@@ -1025,10 +1068,11 @@ mod tests {
         let w = 20u32;
         let h = 10u32;
         let mut mask = vec![0.0f32; (w * h) as usize];
+        let mut cm = vec![0.0f32; (w * h * 3) as usize];
         rasterize_capsule(
-            &mut mask, w, h,
+            &mut mask, &mut cm, w, h,
             (2.0, 5.0), (18.0, 5.0),
-            2.0, 1.0, 1.0,
+            2.0, 1.0, 1.0, [1.0, 0.0, 0.0],
         );
         // Center row (y=4 or y=5) should have non-zero values along the segment
         let center_row = 5;
@@ -1044,11 +1088,12 @@ mod tests {
         let w = 30u32;
         let h = 5u32;
         let mut mask = vec![0.0f32; (w * h) as usize];
+        let mut cm = vec![0.0f32; (w * h * 3) as usize];
         // Horizontal capsule: pressure 1.0 at left, 0.0 at right
         rasterize_capsule(
-            &mut mask, w, h,
+            &mut mask, &mut cm, w, h,
             (2.0, 2.5), (28.0, 2.5),
-            1.5, 1.0, 0.0,
+            1.5, 1.0, 0.0, [1.0, 0.0, 0.0],
         );
         let row = 2;
         let left_val = mask[(row * w + 3) as usize];
@@ -1063,10 +1108,11 @@ mod tests {
         let w = 10u32;
         let h = 10u32;
         let mut mask = vec![0.0f32; (w * h) as usize];
+        let mut cm = vec![0.0f32; (w * h * 3) as usize];
         rasterize_capsule(
-            &mut mask, w, h,
+            &mut mask, &mut cm, w, h,
             (5.0, 5.0), (5.0, 5.0),
-            2.0, 0.8, 0.8,
+            2.0, 0.8, 0.8, [1.0, 0.0, 0.0],
         );
         let nonzero = mask.iter().filter(|&&v| v > 0.0).count();
         assert!(nonzero > 0, "Degenerate capsule should produce a dot");
@@ -1132,12 +1178,12 @@ mod tests {
 
         let (fp1, _) = generate_bristle_footprint(
             50.0, 50.0, 0.8, 20.0, 0.0, 1.0,
-            &settings, [1.0, 0.0, 0.0], 0.8, [1.0, 0.0], &offsets1, None, &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng1,
-        );
+            &settings, [1.0, 0.0, 0.0], 0.8, [1.0, 0.0], &offsets1, None, &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng1, &[],
+            );
         let (fp2, _) = generate_bristle_footprint(
             50.0, 50.0, 0.8, 20.0, 0.0, 1.0,
-            &settings, [1.0, 0.0, 0.0], 0.8, [1.0, 0.0], &offsets2, None, &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng1b,
-        );
+            &settings, [1.0, 0.0, 0.0], 0.8, [1.0, 0.0], &offsets2, None, &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng1b, &[],
+            );
 
         assert_eq!(fp1.mask.len(), fp2.mask.len());
         assert_eq!(fp1.width, fp2.width);
@@ -1156,10 +1202,50 @@ mod tests {
         let offsets = init_bristle_offsets(32, &mut rng);
         let (fp, _) = generate_bristle_footprint(
             25.0, 25.0, 1.0, 30.0, 0.0, 1.0,
-            &settings, [0.0, 0.0, 1.0], 1.0, [0.0, 0.0], &offsets, None, &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng,
-        );
+            &settings, [0.0, 0.0, 1.0], 1.0, [0.0, 0.0], &offsets, None, &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng, &[],
+            );
         let nonzero = fp.mask.iter().filter(|&&v| v > 0.0).count();
         assert!(nonzero > 0, "Footprint should have some nonzero pixels");
+    }
+
+    #[test]
+    fn test_color_mask_has_per_bristle_colors() {
+        let settings = WetMediaBrushSettings {
+            bristle_count: 16,
+            ..Default::default()
+        };
+        let mut rng = Rng::from_coords(7.0, 7.0);
+        let offsets = init_bristle_offsets(16, &mut rng);
+        // Give bristles distinct colors: half red, half blue
+        let mut bristle_colors = Vec::new();
+        for i in 0..16 {
+            if i < 8 {
+                bristle_colors.push([1.0, 0.0, 0.0]);
+            } else {
+                bristle_colors.push([0.0, 0.0, 1.0]);
+            }
+        }
+        let (fp, _) = generate_bristle_footprint(
+            25.0, 25.0, 1.0, 30.0, 0.0, 1.0,
+            &settings, [0.5, 0.5, 0.5], 1.0, [0.0, 0.0],
+            &offsets, None, &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng,
+            &bristle_colors,
+        );
+        assert_eq!(fp.color_mask.len(), fp.mask.len() * 3,
+            "Color mask should be 3x mask length");
+        // Check that at least some pixels have red and some have blue
+        let mut has_red = false;
+        let mut has_blue = false;
+        for i in 0..fp.mask.len() {
+            if fp.mask[i] > 0.0 {
+                let r = fp.color_mask[i * 3];
+                let b = fp.color_mask[i * 3 + 2];
+                if r > 0.8 && b < 0.2 { has_red = true; }
+                if b > 0.8 && r < 0.2 { has_blue = true; }
+            }
+        }
+        assert!(has_red, "Color mask should contain red bristle pixels");
+        assert!(has_blue, "Color mask should contain blue bristle pixels");
     }
 
     #[test]
@@ -1350,13 +1436,13 @@ mod tests {
         let mut rng_low = Rng::from_coords(99.0, 99.0);
         let (fp_low, _) = generate_bristle_footprint(
             50.0, 50.0, 0.2, 60.0, 0.0, 1.0,
-            &settings, [1.0, 0.0, 0.0], 1.0, [0.0, 0.0], &offsets, None, &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng_low,
-        );
+            &settings, [1.0, 0.0, 0.0], 1.0, [0.0, 0.0], &offsets, None, &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng_low, &[],
+            );
         let mut rng_high = Rng::from_coords(99.0, 99.0);
         let (fp_high, _) = generate_bristle_footprint(
             50.0, 50.0, 1.0, 60.0, 0.0, 1.0,
-            &settings, [1.0, 0.0, 0.0], 1.0, [0.0, 0.0], &offsets, None, &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng_high,
-        );
+            &settings, [1.0, 0.0, 0.0], 1.0, [0.0, 0.0], &offsets, None, &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng_high, &[],
+            );
 
         // Measure spatial spread: variance of active pixel positions from center
         fn spatial_variance(mask: &[f32], size: u32) -> f32 {
@@ -1397,16 +1483,16 @@ mod tests {
         // No velocity
         let (fp_still, _) = generate_bristle_footprint(
             50.0, 50.0, 0.5, 30.0, 0.0, 1.0,
-            &settings, [1.0, 0.0, 0.0], 1.0, [0.0, 0.0], &offsets, None, &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng,
-        );
+            &settings, [1.0, 0.0, 0.0], 1.0, [0.0, 0.0], &offsets, None, &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng, &[],
+            );
 
         // Strong rightward velocity
         let mut rng2 = Rng::from_coords(3.0, 3.0);
         let _ = init_bristle_offsets(16, &mut rng2);
         let (fp_moving, _) = generate_bristle_footprint(
             50.0, 50.0, 0.5, 30.0, 0.0, 1.0,
-            &settings, [1.0, 0.0, 0.0], 1.0, [50.0, 0.0], &offsets, None, &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng2,
-        );
+            &settings, [1.0, 0.0, 0.0], 1.0, [50.0, 0.0], &offsets, None, &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng2, &[],
+            );
 
         // The masks should differ due to velocity bending
         let diff: f32 = fp_still.mask.iter().zip(fp_moving.mask.iter())
@@ -1463,14 +1549,14 @@ mod tests {
         // First dab — no previous positions
         let (fp1, prev) = generate_bristle_footprint(
             50.0, 50.0, 1.0, 20.0, 0.0, 1.0,
-            &settings, [1.0, 0.0, 0.0], 1.0, [5.0, 0.0], &offsets, None, &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng,
-        );
+            &settings, [1.0, 0.0, 0.0], 1.0, [5.0, 0.0], &offsets, None, &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng, &[],
+            );
 
         // Second footprint — with previous positions (trail mode)
         let (fp2, _) = generate_bristle_footprint(
             55.0, 50.0, 1.0, 20.0, 0.0, 1.0,
-            &settings, [1.0, 0.0, 0.0], 1.0, [5.0, 0.0], &offsets, Some(&prev), &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng,
-        );
+            &settings, [1.0, 0.0, 0.0], 1.0, [5.0, 0.0], &offsets, Some(&prev), &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng, &[],
+            );
 
         // Trail mask can have different dimensions from first dab
         let nonzero1 = fp1.mask.iter().filter(|&&v| v > 0.0).count();
@@ -1492,14 +1578,14 @@ mod tests {
 
         let (_, prev) = generate_bristle_footprint(
             50.0, 50.0, 1.0, 10.0, 0.0, 1.0,
-            &settings, [1.0, 0.0, 0.0], 1.0, [0.0, 0.0], &offsets, None, &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng,
-        );
+            &settings, [1.0, 0.0, 0.0], 1.0, [0.0, 0.0], &offsets, None, &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng, &[],
+            );
 
         // Move significantly to the right
         let (fp, _) = generate_bristle_footprint(
             60.0, 50.0, 1.0, 10.0, 0.0, 1.0,
-            &settings, [1.0, 0.0, 0.0], 1.0, [10.0, 0.0], &offsets, Some(&prev), &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng,
-        );
+            &settings, [1.0, 0.0, 0.0], 1.0, [10.0, 0.0], &offsets, Some(&prev), &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng, &[],
+            );
 
         // The mask should be wider than the brush size since it covers movement
         assert!(fp.width > 10 || fp.height > 0, "Trail mask should cover movement area");
@@ -1520,12 +1606,12 @@ mod tests {
             let offsets = init_bristle_offsets(16, &mut rng);
             let (_, prev) = generate_bristle_footprint(
                 50.0, 50.0, 1.0, 20.0, 0.0, 1.0,
-                &settings, [1.0, 0.0, 0.0], 1.0, [0.0, 0.0], &offsets, None, &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng,
-            );
+                &settings, [1.0, 0.0, 0.0], 1.0, [0.0, 0.0], &offsets, None, &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng, &[],
+                );
             let (fp, _) = generate_bristle_footprint(
                 55.0, 52.0, 0.8, 20.0, 0.0, 1.0,
-                &settings, [1.0, 0.0, 0.0], 0.9, [5.0, 2.0], &offsets, Some(&prev), &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng,
-            );
+                &settings, [1.0, 0.0, 0.0], 0.9, [5.0, 2.0], &offsets, Some(&prev), &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng, &[],
+                );
             fp
         };
 
@@ -1552,13 +1638,13 @@ mod tests {
 
         let (_, prev) = generate_bristle_footprint(
             50.0, 50.0, 1.0, 20.0, 0.0, 1.0,
-            &settings, [1.0, 0.0, 0.0], 1.0, [0.0, 0.0], &offsets, None, &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng,
-        );
+            &settings, [1.0, 0.0, 0.0], 1.0, [0.0, 0.0], &offsets, None, &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng, &[],
+            );
 
         let (fp, _) = generate_bristle_footprint(
             55.0, 52.0, 0.9, 20.0, 0.0, 1.0,
-            &settings, [1.0, 0.0, 0.0], 0.9, [5.0, 2.0], &offsets, Some(&prev), &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng,
-        );
+            &settings, [1.0, 0.0, 0.0], 0.9, [5.0, 2.0], &offsets, Some(&prev), &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng, &[],
+            );
 
         let w = fp.width as usize;
         let h = fp.height as usize;
@@ -1735,14 +1821,14 @@ mod tests {
         // Full pressure → full thickness
         let (fp_full, _) = generate_bristle_footprint(
             50.0, 50.0, 1.0, 20.0, 0.0, 1.0,
-            &settings, color, 0.8, [0.0, 0.0], &offsets, None, &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng,
-        );
+            &settings, color, 0.8, [0.0, 0.0], &offsets, None, &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng, &[],
+            );
 
         // Half pressure → half thickness
         let (fp_half, _) = generate_bristle_footprint(
             50.0, 50.0, 0.5, 20.0, 0.0, 1.0,
-            &settings, color, 0.8, [0.0, 0.0], &offsets, None, &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng,
-        );
+            &settings, color, 0.8, [0.0, 0.0], &offsets, None, &mut vec![(0.0, 0.0); 128], &[], 0.3, &mut rng, &[],
+            );
 
         assert!(
             (fp_full.paint_thickness - 0.8).abs() < 0.01,

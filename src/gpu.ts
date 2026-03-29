@@ -358,6 +358,7 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
       { binding: 8, visibility: GPUShaderStage.COMPUTE, sampler: { type: "filtering" } },
       { binding: 9, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "read-only", format: "rg32float" } },
       { binding: 10, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rg32float" } },
+      { binding: 11, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
     ],
   });
 
@@ -987,6 +988,7 @@ export function dispatchWetMediaDeposit(
   gpu: GPUContext,
   layerIndex: number,
   maskData: Float32Array,
+  colorMaskData: Float32Array,
   params: {
     originX: number;
     originY: number;
@@ -1019,6 +1021,17 @@ export function dispatchWetMediaDeposit(
   });
   new Float32Array(maskBuffer.getMappedRange()).set(maskData);
   maskBuffer.unmap();
+
+  // Upload per-pixel color mask (RGB per pixel) to a storage buffer
+  const colorMaskBuffer = gpu.device.createBuffer({
+    size: Math.max(colorMaskData.byteLength, 4),
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    mappedAtCreation: true,
+  });
+  if (colorMaskData.byteLength > 0) {
+    new Float32Array(colorMaskBuffer.getMappedRange()).set(colorMaskData);
+  }
+  colorMaskBuffer.unmap();
 
   // Create uniform buffer with deposit params
   // Must match the WGSL DepositParams struct layout (20 fields * 4 bytes = 80 bytes)
@@ -1086,6 +1099,7 @@ export function dispatchWetMediaDeposit(
       { binding: 8, resource: gpu.mixboxSampler },
       { binding: 9, resource: wm.velocityTextureB.createView() },
       { binding: 10, resource: wm.velocityTexture.createView() },
+      { binding: 11, resource: { buffer: colorMaskBuffer } },
     ],
   });
 
@@ -1102,6 +1116,7 @@ export function dispatchWetMediaDeposit(
 
   // Clean up transient buffers
   maskBuffer.destroy();
+  colorMaskBuffer.destroy();
   uniformBuffer.destroy();
 }
 

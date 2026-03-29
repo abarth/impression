@@ -264,6 +264,28 @@ impl ImpressionCanvas {
         self.inner.site_mut().wet_media_stroke.footprints.clear();
     }
 
+    /// Pointer to the per-pixel color mask of a wet media footprint (RGB per pixel).
+    pub fn wet_media_footprint_color_mask_ptr(&self, index: u32) -> *const f32 {
+        self.inner
+            .site()
+            .wet_media_stroke
+            .footprints
+            .get(index as usize)
+            .map(|fp| fp.color_mask.as_ptr())
+            .unwrap_or(std::ptr::null())
+    }
+
+    /// Length (in f32 elements) of the per-pixel color mask (width * height * 3).
+    pub fn wet_media_footprint_color_mask_len(&self, index: u32) -> u32 {
+        self.inner
+            .site()
+            .wet_media_stroke
+            .footprints
+            .get(index as usize)
+            .map(|fp| fp.color_mask.len() as u32)
+            .unwrap_or(0)
+    }
+
     /// Record a WetMediaSimStep operation in the oplog.
     /// Called by TS before each wet media stroke to record how many simulation
     /// frames elapsed since the last stroke, enabling deterministic replay.

@@ -49,6 +49,7 @@ struct DepositParams {
 @group(0) @binding(8) var mixbox_lut_sampler: sampler;
 @group(0) @binding(9) var velocity_src: texture_storage_2d<rg32float, read>;
 @group(0) @binding(10) var velocity_dst: texture_storage_2d<rg32float, write>;
+@group(0) @binding(11) var<storage, read> color_mask: array<f32>;
 
 @compute @workgroup_size(8, 8)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
@@ -98,7 +99,12 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     // Mixing: new paint blends with existing wet paint
     // Viscosity reduces effective mixing (high viscosity = paint resists blending)
     // Stained areas resist mixing — absorbed paint is locked into the canvas
-    let paint_color = vec3f(params.paint_r, params.paint_g, params.paint_b);
+    // Read per-bristle color from color mask (3 floats per pixel: R, G, B)
+    let cm_base = mask_idx * 3u;
+    var paint_color = vec3f(params.paint_r, params.paint_g, params.paint_b);
+    if (arrayLength(&color_mask) >= (cm_base + 3u)) {
+        paint_color = vec3f(color_mask[cm_base], color_mask[cm_base + 1u], color_mask[cm_base + 2u]);
+    }
     let effective_mixing = params.mixing_strength * (1.0 - params.viscosity * 0.7) * (1.0 - stain_resistance * 0.8);
     let t = effective_mixing * existing_wetness * footprint_pressure;
     let load = params.paint_load;
