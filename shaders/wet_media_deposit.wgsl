@@ -91,10 +91,15 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 
     let existing_wetness = existing_props.g;
 
+    // Canvas staining: absorbed paint resists re-mixing
+    // Stain channel (props.a) is 0.0 for fresh paint, 1.0 for fully absorbed
+    let stain_resistance = existing_props.a;
+
     // Mixing: new paint blends with existing wet paint
     // Viscosity reduces effective mixing (high viscosity = paint resists blending)
+    // Stained areas resist mixing — absorbed paint is locked into the canvas
     let paint_color = vec3f(params.paint_r, params.paint_g, params.paint_b);
-    let effective_mixing = params.mixing_strength * (1.0 - params.viscosity * 0.7);
+    let effective_mixing = params.mixing_strength * (1.0 - params.viscosity * 0.7) * (1.0 - stain_resistance * 0.8);
     let t = effective_mixing * existing_wetness * footprint_pressure;
     let load = params.paint_load;
 
@@ -126,21 +131,37 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let new_color = mix(mixbox_result, km_result, km_weight);
     let new_alpha = min(1.0, existing_color.a + deposit_strength);
 
-    // Accumulate height (impasto) — viscosity increases buildup
+    // Paint displacement: brush scrapes/pushes existing wet paint
+    // Real brushes don't just add paint — they displace what's already there
     let existing_height = existing_props.r;
+    let existing_stain = existing_props.a;  // permanent absorbed paint (0-1)
+
+    // Scrape amount: brush pressure removes height from wet paint
+    // High pressure + wet paint = more scraping; dry/stained paint resists
+    let scrape_factor = footprint_pressure * existing_wetness * (1.0 - existing_stain);
+    let scrape_amount = scrape_factor * (1.0 - params.viscosity * 0.8) * 0.4;
+    let scraped_height = max(0.0, existing_height - scrape_amount);
+
+    // Add new paint on top (viscosity increases buildup)
     let height_factor = 0.5 + params.viscosity * 0.5;
-    let new_height = existing_height + params.paint_thickness * footprint_pressure * load * height_factor;
+    let deposit_height = params.paint_thickness * footprint_pressure * load * height_factor;
+    let new_height = scraped_height + deposit_height;
 
-    // Update wetness (max of existing and new)
-    let new_wetness = max(existing_wetness, params.wetness * footprint_pressure);
+    // Wetness: blend existing and new, accounting for displacement
+    let new_wetness = max(existing_wetness * (1.0 - scrape_factor * 0.3),
+                          params.wetness * footprint_pressure);
 
-    // Paint amount
+    // Paint amount: displaced paint partially removed
     let existing_amount = existing_props.b;
-    let new_amount = min(1.0, existing_amount + deposit_strength);
+    let displaced_amount = existing_amount * (1.0 - scrape_factor * 0.2);
+    let new_amount = min(1.0, displaced_amount + deposit_strength);
 
-    // Write to dst textures
+    // Preserve stain channel (written by absorption shader)
+    let new_stain = existing_stain;
+
+    // Write to dst textures (R=height, G=wetness, B=paint_amount, A=stain)
     textureStore(canvas_color_dst, coord, vec4f(new_color, new_alpha));
-    textureStore(canvas_props_dst, coord, vec4f(new_height, new_wetness, new_amount, 0.0));
+    textureStore(canvas_props_dst, coord, vec4f(new_height, new_wetness, new_amount, new_stain));
 
     // Seed velocity field from brush motion — this drives the fluid simulation
     let existing_vel = textureLoad(velocity_src, coord).rg;

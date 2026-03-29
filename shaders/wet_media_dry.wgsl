@@ -31,7 +31,11 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     if (wetness > 0.0) {
         let height = p.r;
         let effective_rate = params.drying_rate / (1.0 + height * 3.0);
-        p.g = max(0.0, wetness - effective_rate);
+        let dried_amount = min(wetness, effective_rate);
+        p.g = max(0.0, wetness - dried_amount);
+
+        // Drying paint gradually stains the canvas (becomes permanent)
+        p.a = min(1.0, p.a + dried_amount * 0.8);
     }
 
     textureStore(props_dst, coord, p);

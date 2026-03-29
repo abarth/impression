@@ -40,5 +40,11 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
   let new_wetness = max(0.0, wetness - clamped_absorption);
   let new_paint_amount = max(0.0, paint_amount - clamped_absorption * 0.5);
 
-  textureStore(props_dst, coord, vec4f(height, new_wetness, new_paint_amount, props.a));
+  // Canvas staining: absorbed paint becomes permanent (stored in alpha channel)
+  // Stain accumulates over time as paint absorbs into the canvas fibers
+  let existing_stain = props.a;
+  let stain_increment = clamped_absorption * 1.5;  // stain faster than wetness loss
+  let new_stain = min(1.0, existing_stain + stain_increment);
+
+  textureStore(props_dst, coord, vec4f(height, new_wetness, new_paint_amount, new_stain));
 }
