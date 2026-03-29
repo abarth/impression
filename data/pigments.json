@@ -1,0 +1,98 @@
+[
+  {
+    "id": "titanium_white",
+    "name": "Titanium White",
+    "rgb": [255, 250, 244],
+    "K": [0.0001, 0.0001, 0.001],
+    "S": [0.95, 0.93, 0.90],
+    "opacity": "opaque"
+  },
+  {
+    "id": "ivory_black",
+    "name": "Ivory Black",
+    "rgb": [35, 31, 32],
+    "K": [0.14, 0.13, 0.12],
+    "S": [0.05, 0.04, 0.04],
+    "opacity": "semi-opaque"
+  },
+  {
+    "id": "cadmium_yellow",
+    "name": "Cadmium Yellow",
+    "rgb": [255, 236, 0],
+    "K": [0.0001, 0.002, 10.0],
+    "S": [0.80, 0.75, 0.10],
+    "opacity": "opaque"
+  },
+  {
+    "id": "cadmium_red",
+    "name": "Cadmium Red",
+    "rgb": [227, 38, 54],
+    "K": [0.005, 0.19, 0.15],
+    "S": [0.70, 0.08, 0.10],
+    "opacity": "opaque"
+  },
+  {
+    "id": "ultramarine_blue",
+    "name": "Ultramarine Blue",
+    "rgb": [25, 25, 178],
+    "K": [0.62, 0.75, 0.05],
+    "S": [0.15, 0.18, 0.80],
+    "opacity": "semi-transparent"
+  },
+  {
+    "id": "phthalo_green",
+    "name": "Phthalo Green",
+    "rgb": [18, 53, 36],
+    "K": [0.61, 0.53, 0.31],
+    "S": [0.10, 0.35, 0.12],
+    "opacity": "transparent"
+  },
+  {
+    "id": "burnt_sienna",
+    "name": "Burnt Sienna",
+    "rgb": [138, 54, 15],
+    "K": [0.08, 0.22, 0.60],
+    "S": [0.40, 0.15, 0.08],
+    "opacity": "semi-transparent"
+  },
+  {
+    "id": "yellow_ochre",
+    "name": "Yellow Ochre",
+    "rgb": [204, 164, 0],
+    "K": [0.01, 0.05, 10.0],
+    "S": [0.60, 0.55, 0.10],
+    "opacity": "opaque"
+  },
+  {
+    "id": "raw_umber",
+    "name": "Raw Umber",
+    "rgb": [130, 102, 68],
+    "K": [0.08, 0.11, 0.15],
+    "S": [0.35, 0.25, 0.15],
+    "opacity": "semi-transparent"
+  },
+  {
+    "id": "alizarin_crimson",
+    "name": "Alizarin Crimson",
+    "rgb": [227, 38, 54],
+    "K": [0.001, 0.12, 0.12],
+    "S": [0.12, 0.05, 0.08],
+    "opacity": "transparent"
+  },
+  {
+    "id": "viridian",
+    "name": "Viridian",
+    "rgb": [64, 130, 109],
+    "K": [0.22, 0.12, 0.13],
+    "S": [0.20, 0.50, 0.35],
+    "opacity": "semi-transparent"
+  },
+  {
+    "id": "naples_yellow",
+    "name": "Naples Yellow",
+    "rgb": [250, 218, 94],
+    "K": [0.0001, 0.01, 0.16],
+    "S": [0.85, 0.80, 0.30],
+    "opacity": "opaque"
+  }
+]
