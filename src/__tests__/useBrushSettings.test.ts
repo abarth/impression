@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { useBrushSettings, buildSerializableSettings, TOOL_BLEND_MODES, getMediumPhysics, DEFAULT_WET_MEDIA } from "../hooks/useBrushSettings";
-import type { MediumType } from "../hooks/useBrushSettings";
+import type { MediumType, BrushShape } from "../hooks/useBrushSettings";
 import type { Tool } from "../hooks/useTool";
 
 function fireKeyDown(key: string, options: Partial<KeyboardEventInit> = {}) {
@@ -530,10 +530,13 @@ describe("buildSerializableSettings", () => {
 });
 
 describe("wet media medium type", () => {
-  it("should include mediumType, viscosity, and bristleStiffness in defaults", () => {
+  it("should include mediumType, viscosity, bristleStiffness, brushShape, and splittingThreshold in defaults", () => {
     expect(DEFAULT_WET_MEDIA.mediumType).toBe("Oil");
     expect(DEFAULT_WET_MEDIA.viscosity).toBe(0.7);
     expect(DEFAULT_WET_MEDIA.bristleStiffness).toBe(0.5);
+    expect(DEFAULT_WET_MEDIA.bristleCount).toBe(256);
+    expect(DEFAULT_WET_MEDIA.brushShape).toBe("Round");
+    expect(DEFAULT_WET_MEDIA.splittingThreshold).toBe(0.3);
   });
 
   it("should update mediumType via updateSetting", () => {
@@ -562,7 +565,7 @@ describe("wet media medium type", () => {
     expect(result.current.settings.wetMedia.viscosity).toBe(0.9);
   });
 
-  it("should include medium_type, viscosity, and bristle_stiffness in serializable settings", () => {
+  it("should include medium_type, viscosity, bristle_stiffness, brush_shape, and splitting_threshold in serializable settings", () => {
     const { result } = renderHook(() => useBrushSettings(null, "brush"));
 
     act(() => {
@@ -571,6 +574,8 @@ describe("wet media medium type", () => {
         mediumType: "Acrylic",
         viscosity: 0.55,
         bristleStiffness: 0.7,
+        brushShape: "Flat",
+        splittingThreshold: 0.45,
       });
     });
 
@@ -581,6 +586,8 @@ describe("wet media medium type", () => {
     expect(serializable.wet_media.medium_type).toBe("Acrylic");
     expect(serializable.wet_media.viscosity).toBe(0.55);
     expect(serializable.wet_media.bristle_stiffness).toBe(0.7);
+    expect(serializable.wet_media.brush_shape).toBe("Flat");
+    expect(serializable.wet_media.splitting_threshold).toBe(0.45);
   });
 });
 

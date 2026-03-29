@@ -66,6 +66,8 @@ export interface TextureSettings {
 
 export type MediumType = "Oil" | "Acrylic" | "Watercolor";
 
+export type BrushShape = 'Round' | 'Flat' | 'Filbert' | 'Fan';
+
 export interface WetMediaSettings {
   enabled: boolean;
   paintLoad: number;
@@ -82,6 +84,8 @@ export interface WetMediaSettings {
   brushForm: number;
   colorNoise: number;
   speedSmudging: number;
+  brushShape: BrushShape;
+  splittingThreshold: number;
 }
 
 /**
@@ -189,6 +193,8 @@ export interface SerializableBrushSettings {
     brush_form: number;
     color_noise: number;
     speed_smudging: number;
+    brush_shape: BrushShape;
+    splitting_threshold: number;
   };
 }
 
@@ -263,6 +269,8 @@ export function buildSerializableSettings(
       brush_form: s.wetMedia.brushForm,
       color_noise: s.wetMedia.colorNoise,
       speed_smudging: s.wetMedia.speedSmudging,
+      brush_shape: s.wetMedia.brushShape,
+      splitting_threshold: s.wetMedia.splittingThreshold,
     },
   };
 }
@@ -314,7 +322,7 @@ export const DEFAULT_WET_MEDIA: WetMediaSettings = {
   paintThickness: 0.5,
   wetness: 0.7,
   mixingStrength: 0.5,
-  bristleCount: 64,
+  bristleCount: 256,
   bristleSpread: 0.3,
   paintDepletionRate: 0.1,
   canvasTextureStrength: 0.3,
@@ -324,6 +332,8 @@ export const DEFAULT_WET_MEDIA: WetMediaSettings = {
   brushForm: 0.5,
   colorNoise: 0.0,
   speedSmudging: 0.3,
+  brushShape: 'Round',
+  splittingThreshold: 0.3,
 };
 
 /** Per-medium physics defaults used by the GPU simulation. */
