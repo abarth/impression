@@ -79,8 +79,8 @@ fn compute_normal(coord: vec2i, dims: vec2i) -> vec3f {
 }
 
 // Procedural environment map: simulates studio lighting setup.
-// Returns (diffuse_irradiance, specular_radiance) for a given normal and reflection direction.
-fn sample_environment(normal: vec3f, reflect_dir: vec3f, roughness: f32) -> vec3f {
+// Returns diffuse irradiance for a given normal direction.
+fn sample_environment_diffuse(normal: vec3f) -> vec3f {
     let rot = params.env_rotation;
     let cos_rot = cos(rot);
     let sin_rot = sin(rot);
@@ -91,11 +91,6 @@ fn sample_environment(normal: vec3f, reflect_dir: vec3f, roughness: f32) -> vec3
         normal.x * sin_rot + normal.y * cos_rot,
         normal.z,
     );
-    let rr = vec3f(
-        reflect_dir.x * cos_rot - reflect_dir.y * sin_rot,
-        reflect_dir.x * sin_rot + reflect_dir.y * cos_rot,
-        reflect_dir.z,
-    );
 
     // Studio soft lighting: warm key light from upper-left, cool fill from right,
     // rim light from behind, soft ambient bounce from below
@@ -103,10 +98,11 @@ fn sample_environment(normal: vec3f, reflect_dir: vec3f, roughness: f32) -> vec3
     let fill_dir = normalize(vec3f(0.6, 0.2, 0.5));
     let rim_dir = normalize(vec3f(0.0, 0.5, -0.3));
 
-    let key_color = vec3f(1.0, 0.95, 0.88) * 1.2;  // warm white
-    let fill_color = vec3f(0.7, 0.78, 0.9) * 0.6;   // cool blue
-    let rim_color = vec3f(0.9, 0.85, 0.75) * 0.3;    // warm rim
-    let ambient_color = vec3f(0.35, 0.33, 0.32);      // neutral ambient
+    // Energy-conserving light intensities: total should be ~1.0 for a face-up surface
+    let key_color = vec3f(1.0, 0.95, 0.88) * 0.55;  // warm key (dominant)
+    let fill_color = vec3f(0.7, 0.78, 0.9) * 0.25;   // cool fill
+    let rim_color = vec3f(0.9, 0.85, 0.75) * 0.10;    // subtle rim
+    let ambient_color = vec3f(0.15, 0.14, 0.13);       // gentle ambient
 
     // Diffuse: hemisphere-weighted irradiance
     let key_diff = max(dot(rn, key_dir), 0.0);
@@ -115,13 +111,34 @@ fn sample_environment(normal: vec3f, reflect_dir: vec3f, roughness: f32) -> vec3
     let sky_factor = rn.z * 0.5 + 0.5; // upward-facing bias
     let diffuse = key_color * key_diff + fill_color * fill_diff + rim_color * rim_diff + ambient_color * sky_factor;
 
+    return diffuse * params.env_intensity;
+}
+
+// Returns specular radiance for a given reflection direction.
+fn sample_environment_specular(reflect_dir: vec3f, roughness: f32) -> vec3f {
+    let rot = params.env_rotation;
+    let cos_rot = cos(rot);
+    let sin_rot = sin(rot);
+
+    let rr = vec3f(
+        reflect_dir.x * cos_rot - reflect_dir.y * sin_rot,
+        reflect_dir.x * sin_rot + reflect_dir.y * cos_rot,
+        reflect_dir.z,
+    );
+
+    let key_dir = normalize(vec3f(-0.5, -0.3, 0.8));
+    let fill_dir = normalize(vec3f(0.6, 0.2, 0.5));
+
+    let key_color = vec3f(1.0, 0.95, 0.88) * 0.55;
+    let fill_color = vec3f(0.7, 0.78, 0.9) * 0.25;
+
     // Specular: reflection-weighted radiance with roughness-based lobe width
     let spec_power = mix(256.0, 4.0, roughness * roughness);
     let key_spec = pow(max(dot(rr, key_dir), 0.0), spec_power);
     let fill_spec = pow(max(dot(rr, fill_dir), 0.0), spec_power) * 0.3;
     let specular = key_color * key_spec + fill_color * fill_spec;
 
-    return (diffuse + specular) * params.env_intensity;
+    return specular * params.env_intensity;
 }
 
 // GGX normal distribution function for physically-based specular.
@@ -250,8 +267,9 @@ fn approximate_sss(coord: vec2i, dims: vec2i, center_height: f32) -> f32 {
     // Reflection direction for environment sampling
     let reflect_dir = reflect(-view_dir, normal);
 
-    // Environment-mapped lighting
-    let env_light = sample_environment(normal, reflect_dir, roughness);
+    // Environment-mapped lighting (split diffuse/specular for energy conservation)
+    let env_diffuse = sample_environment_diffuse(normal);
+    let env_specular = sample_environment_specular(reflect_dir, roughness);
 
     // Key light direction for primary specular highlight
     let rot = params.env_rotation;
@@ -297,9 +315,10 @@ fn approximate_sss(coord: vec2i, dims: vec2i, center_height: f32) -> f32 {
     // Apply self-shadowing
     let shadow = mix(1.0, shadow_factor, params.shadow_strength);
 
-    // Combine lighting
-    let diffuse_lit = src.rgb * env_light * shadow;
-    let specular_lit = vec3f(spec_strength) * shadow;
+    // Combine lighting: energy-conserving diffuse + additive specular
+    // Diffuse is modulated by (1 - fresnel) to conserve energy
+    let diffuse_lit = src.rgb * env_diffuse * (1.0 - fresnel) * shadow;
+    let specular_lit = env_specular * spec_strength * shadow;
     let lit_color = diffuse_lit + specular_lit + sss_contribution;
     let lit_color_clamped = clamp(lit_color, vec3f(0.0), vec3f(1.0));
 
