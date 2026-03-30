@@ -1882,7 +1882,7 @@ export function createBristleState(
     size: initUniformData.byteLength,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
-  gpu.device.queue.writeBuffer(initUniformBuffer, 0, initUniformData);
+  gpu.device.queue.writeBuffer(initUniformBuffer, 0, initUniformData.buffer);
 
   // StylusState uniform: 8 f32 = 32 bytes
   const stylusUniformBuffer = gpu.device.createBuffer({
@@ -1992,7 +1992,7 @@ export function dispatchBristleSim(
   const state = bristleStates.get(layerIndex);
   if (!state) return;
 
-  gpu.device.queue.writeBuffer(state.stylusUniformBuffer, 0, stylusData);
+  gpu.device.queue.writeBuffer(state.stylusUniformBuffer, 0, stylusData.buffer);
 
   const encoder = gpu.device.createCommandEncoder();
   const pass = encoder.beginComputePass();
@@ -2014,7 +2014,7 @@ export function updateBristleSimParams(
 ): void {
   const state = bristleStates.get(layerIndex);
   if (!state) return;
-  gpu.device.queue.writeBuffer(state.simParamsUniformBuffer, 0, simParamsData);
+  gpu.device.queue.writeBuffer(state.simParamsUniformBuffer, 0, simParamsData.buffer);
 }
 
 /**
@@ -2054,7 +2054,7 @@ export function dispatchBristleCollide(
   const state = bristleStates.get(layerIndex);
   if (!state || !state.collideBindGroup) return;
 
-  gpu.device.queue.writeBuffer(state.collisionParamsBuffer, 0, collisionParamsData);
+  gpu.device.queue.writeBuffer(state.collisionParamsBuffer, 0, collisionParamsData.buffer);
 
   const encoder = gpu.device.createCommandEncoder();
   const pass = encoder.beginComputePass();
@@ -2152,7 +2152,7 @@ export function dispatchBristleTransfer(
   const state = bristleStates.get(layerIndex);
   if (!state || !state.transferBindGroup) return;
 
-  gpu.device.queue.writeBuffer(state.transferParamsBuffer, 0, transferParamsData);
+  gpu.device.queue.writeBuffer(state.transferParamsBuffer, 0, transferParamsData.buffer);
 
   const encoder = gpu.device.createCommandEncoder();
   const pass = encoder.beginComputePass();
@@ -2181,7 +2181,7 @@ export function dispatchBristleReduce(
   const wm = wetMediaLayers.get(layerIndex);
   if (!wm) return;
 
-  gpu.device.queue.writeBuffer(state.reduceParamsBuffer, 0, reduceParamsData);
+  gpu.device.queue.writeBuffer(state.reduceParamsBuffer, 0, reduceParamsData.buffer);
 
   const encoder = gpu.device.createCommandEncoder();
   const pass = encoder.beginComputePass();

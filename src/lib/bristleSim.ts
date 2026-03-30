@@ -27,9 +27,8 @@ export function writeStylusUniform(pt: StylusPoint): Float32Array {
   buf[3] = pt.altitude;
   buf[4] = pt.azimuth;
   buf[5] = pt.twist;
-  buf[6] = pt.velocity;
-  // Direction from azimuth (simplified: velocity along azimuth direction)
-  buf[7] = 0; // vy — will be overridden when we have 2D velocity from interpolator
+  buf[6] = 0; // velocity.x — set via writeStylusUniformInto for 2D velocity
+  buf[7] = 0; // velocity.y
   return buf;
 }
 

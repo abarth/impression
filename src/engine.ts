@@ -19,10 +19,26 @@ import {
   getWetMediaLayerIndices,
   uploadSelectionTexture,
   clearSelectionTexture,
+  createBristleState,
+  dispatchBristleInit,
+  dispatchBristleSim,
+  updateBristleSimParams,
+  ensureBristleCollideBindGroup,
+  dispatchBristleCollide,
+  ensureBristleTransferBindGroups,
+  dispatchBristleTransfer,
+  dispatchBristleReduce,
+  destroyBristleState,
+  getBristleState,
 } from "./gpu";
 import type { Storage, DocumentMeta } from "./storage";
 import type { SerializableBrushSettings } from "./hooks/useBrushSettings";
 import type { StylusPoint } from "./lib/stylusInput";
+import { buildBristleInitParams, writeBristleInitUniform } from "./lib/brushMorphology";
+import { writeStylusUniformInto, buildBristleSimConfig, writeSimParamsUniform } from "./lib/bristleSim";
+import { buildBristleCollisionConfig, writeCollisionParamsUniform } from "./lib/bristleCollision";
+import { computeAtlasLayout, buildBristleTransferConfig, writeTransferParamsUniform, buildBristleReduceConfig, writeReduceParamsUniform } from "./lib/bristleTransfer";
+import type { WetMediaSettings } from "./hooks/useBrushSettings";
 
 /**
  * Stylus telemetry state for the current stroke.
@@ -42,6 +58,29 @@ export interface StylusState {
 export interface PersistenceOptions {
   storage: Storage;
   documentMeta: DocumentMeta;
+}
+
+/** Convert snake_case serializable wet_media settings to camelCase WetMediaSettings. */
+function toWetMediaSettings(wm: SerializableBrushSettings["wet_media"]): WetMediaSettings {
+  return {
+    enabled: true,
+    paintLoad: wm.paint_load,
+    paintThickness: wm.paint_thickness,
+    wetness: wm.wetness,
+    mixingStrength: wm.mixing_strength,
+    bristleCount: wm.bristle_count,
+    bristleSpread: wm.bristle_spread,
+    paintDepletionRate: wm.paint_depletion_rate,
+    canvasTextureStrength: wm.canvas_texture_strength,
+    mediumType: wm.medium_type,
+    viscosity: wm.viscosity,
+    bristleStiffness: wm.bristle_stiffness,
+    brushForm: wm.brush_form,
+    colorNoise: wm.color_noise,
+    speedSmudging: wm.speed_smudging,
+    brushShape: wm.brush_shape,
+    splittingThreshold: wm.splitting_threshold,
+  };
 }
 
 export class Engine {
@@ -66,6 +105,12 @@ export class Engine {
     x: 0, y: 0, pressure: 0, altitude: Math.PI / 2,
     azimuth: 0, twist: 0, velocityX: 0, velocityY: 0,
   };
+  /** Layer index for the active GPU bristle stroke, or -1 if none. */
+  private _bristleStrokeLayer: number = -1;
+  /** Brush settings for the active bristle stroke (needed for sub-step params). */
+  private _bristleStrokeSettings: SerializableBrushSettings | null = null;
+  /** Reusable Float32Array for stylus uniform writes (avoids allocation per sub-step). */
+  private _stylusUniformBuf = new Float32Array(8);
 
   constructor(
     canvas: ImpressionCanvas,
@@ -205,8 +250,8 @@ export class Engine {
 
   /**
    * Begin a stroke with full stylus telemetry.
-   * Stores the stylus state for GPU bristle shaders and delegates
-   * to the standard strokeBegin for WASM processing.
+   * For wet media layers, initializes the GPU bristle pipeline.
+   * For other layers, delegates to the standard strokeBegin.
    */
   strokeBeginWithStylus(
     layer: number,
@@ -223,7 +268,12 @@ export class Engine {
       velocityX: velocity.x,
       velocityY: velocity.y,
     };
-    this.strokeBegin(layer, stylus.x, stylus.y, stylus.pressure, settings);
+
+    if (settings.brush_model === "WetMedia" && this.isWetMediaLayer(layer)) {
+      this.beginBristleStroke(layer, stylus, velocity, settings);
+    } else {
+      this.strokeBegin(layer, stylus.x, stylus.y, stylus.pressure, settings);
+    }
   }
 
   strokeMove(layer: number, x: number, y: number, pressure: number): void {
@@ -238,8 +288,8 @@ export class Engine {
 
   /**
    * Move a stroke with full stylus telemetry.
-   * Stores the stylus state for GPU bristle shaders and delegates
-   * to the standard strokeMove for WASM processing.
+   * For active bristle strokes, dispatches the GPU bristle pipeline.
+   * For other strokes, delegates to the standard strokeMove.
    */
   strokeMoveWithStylus(
     layer: number,
@@ -255,10 +305,18 @@ export class Engine {
       velocityX: velocity.x,
       velocityY: velocity.y,
     };
-    this.strokeMove(layer, stylus.x, stylus.y, stylus.pressure);
+
+    if (this._bristleStrokeLayer === layer) {
+      this.advanceBristleStroke(layer, stylus, velocity);
+    } else {
+      this.strokeMove(layer, stylus.x, stylus.y, stylus.pressure);
+    }
   }
 
   strokeEnd(): void {
+    if (this._bristleStrokeLayer >= 0) {
+      this.endBristleStroke();
+    }
     this.canvas.stroke_end();
     this.flushAll();
   }
@@ -320,6 +378,165 @@ export class Engine {
     this.canvas.wet_media_clear_footprints();
     setWetMediaHasWetPaint(layer, true);
     this.needsRender = true;
+  }
+
+  // ---------------------------------------------------------------------------
+  // GPU Bristle Stroke Lifecycle
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Initialize bristle GPU state and dispatch bristle_init for a new wet media stroke.
+   */
+  private beginBristleStroke(
+    layer: number,
+    stylus: StylusPoint,
+    velocity: { x: number; y: number },
+    settings: SerializableBrushSettings,
+  ): void {
+    // Record sim frames and set medium type (same as footprint path)
+    this.recordSimFrames(layer);
+    setWetMediaMediumType(layer, settings.wet_media.medium_type);
+
+    // Also record into WASM oplog for undo/redo
+    this.canvas.set_all_brush_settings(settings);
+    this.canvas.stroke_begin(layer, stylus.x, stylus.y, stylus.pressure);
+    this._dirty = true;
+
+    // Build bristle init params from brush settings
+    const wm = toWetMediaSettings(settings.wet_media);
+    const initParams = buildBristleInitParams(wm, settings.size);
+    const initUniform = writeBristleInitUniform(initParams);
+
+    // Create GPU bristle state and dispatch initialization
+    createBristleState(this.gpu, layer, initParams.bristleCount, initUniform);
+    dispatchBristleInit(this.gpu, layer);
+
+    // Prepare sim params (constant for the stroke)
+    const simConfig = buildBristleSimConfig(
+      initParams.bristleCount,
+      settings.size,
+      1.0, // dt will be updated per-move based on actual timing
+      { damping: 0.85, splayStrength: 0.4, clumpStrength: 0.15 },
+    );
+    updateBristleSimParams(this.gpu, layer, writeSimParamsUniform(simConfig));
+
+    // Ensure collision bind group is ready
+    ensureBristleCollideBindGroup(this.gpu, layer);
+
+    // Prepare atlas for transfer
+    const atlas = computeAtlasLayout(initParams.bristleCount);
+    ensureBristleTransferBindGroups(this.gpu, layer, atlas.atlasWidth, atlas.atlasHeight);
+
+    // Store stroke state
+    this._bristleStrokeLayer = layer;
+    this._bristleStrokeSettings = settings;
+
+    // Run one simulation step with the initial position
+    this.dispatchBristlePipeline(layer, stylus, velocity);
+
+    setWetMediaHasWetPaint(layer, true);
+    this.needsRender = true;
+  }
+
+  /**
+   * Advance an active GPU bristle stroke with a new stylus sample.
+   */
+  private advanceBristleStroke(
+    layer: number,
+    stylus: StylusPoint,
+    velocity: { x: number; y: number },
+  ): void {
+    // Also record into WASM oplog for undo/redo
+    this.canvas.stroke_move(layer, stylus.x, stylus.y, stylus.pressure);
+    this._dirty = true;
+
+    // Re-ensure transfer bind groups (they are invalidated after each reduce ping-pong)
+    const state = getBristleState(layer);
+    if (!state) return;
+
+    const atlas = computeAtlasLayout(state.bristleCount);
+    ensureBristleTransferBindGroups(this.gpu, layer, atlas.atlasWidth, atlas.atlasHeight);
+
+    this.dispatchBristlePipeline(layer, stylus, velocity);
+
+    setWetMediaHasWetPaint(layer, true);
+    this.needsRender = true;
+  }
+
+  /**
+   * End the active GPU bristle stroke and clean up resources.
+   */
+  private endBristleStroke(): void {
+    const layer = this._bristleStrokeLayer;
+    if (layer >= 0) {
+      destroyBristleState(layer);
+    }
+    this._bristleStrokeLayer = -1;
+    this._bristleStrokeSettings = null;
+  }
+
+  /**
+   * Dispatch the full bristle simulation pipeline for one sub-step:
+   * sim → collide → transfer → reduce.
+   */
+  private dispatchBristlePipeline(
+    layer: number,
+    stylus: StylusPoint,
+    velocity: { x: number; y: number },
+  ): void {
+    const settings = this._bristleStrokeSettings;
+    if (!settings) return;
+
+    const state = getBristleState(layer);
+    if (!state) return;
+
+    const wm = settings.wet_media;
+    const canvasWidth = this.canvas.width();
+    const canvasHeight = this.canvas.height();
+
+    // 1. Upload stylus state and dispatch kinematic simulation
+    writeStylusUniformInto(this._stylusUniformBuf, stylus, velocity.x, velocity.y);
+    dispatchBristleSim(this.gpu, layer, this._stylusUniformBuf);
+
+    // 2. Dispatch collision against paper heightmap
+    const collisionConfig = buildBristleCollisionConfig(
+      state.bristleCount, canvasWidth, canvasHeight, settings.size,
+      { roughness: wm.canvas_texture_strength },
+    );
+    dispatchBristleCollide(this.gpu, layer, writeCollisionParamsUniform(collisionConfig));
+
+    // 3. Dispatch transfer (bristle → atlas) 
+    const atlas = computeAtlasLayout(state.bristleCount);
+    const transferConfig = buildBristleTransferConfig(
+      state.bristleCount, canvasWidth, canvasHeight, atlas,
+      {
+        depositionRate: wm.paint_depletion_rate,
+        pickupRate: wm.speed_smudging * 0.2,
+        pickupThreshold: 0.3,
+        paintThickness: wm.paint_thickness,
+        wetness: wm.wetness,
+        velocityX: velocity.x,
+        velocityY: velocity.y,
+        viscosity: wm.viscosity,
+        canvasTextureStrength: wm.canvas_texture_strength,
+      },
+    );
+    dispatchBristleTransfer(this.gpu, layer, writeTransferParamsUniform(transferConfig));
+
+    // 4. Dispatch reduction (atlas → canvas) with Mixbox mixing
+    const reduceConfig = buildBristleReduceConfig(
+      state.bristleCount, canvasWidth, canvasHeight, atlas,
+      {
+        mixingStrength: wm.mixing_strength,
+        viscosity: wm.viscosity,
+        velocityX: velocity.x,
+        velocityY: velocity.y,
+      },
+    );
+    dispatchBristleReduce(
+      this.gpu, layer, writeReduceParamsUniform(reduceConfig),
+      canvasWidth, canvasHeight,
+    );
   }
 
   /** Record accumulated simulation frame count for a wet media layer into the oplog.

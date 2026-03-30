@@ -17,7 +17,6 @@ function defaultStylusPoint(): StylusPoint {
     altitude: Math.PI / 4,
     azimuth: Math.PI / 3,
     twist: 0.1,
-    velocity: 5.0,
     timestamp: 1000,
   };
 }
