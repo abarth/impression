@@ -14,6 +14,8 @@ import wetMediaCapillaryShaderSource from "../shaders/wet_media_capillary.wgsl?r
 import bristleInitShaderSource from "../shaders/bristle_init.wgsl?raw";
 import bristleSimShaderSource from "../shaders/bristle_sim.wgsl?raw";
 import bristleCollideShaderSource from "../shaders/bristle_collide.wgsl?raw";
+import bristleTransferShaderSource from "../shaders/bristle_transfer.wgsl?raw";
+import bristleReduceShaderSource from "../shaders/bristle_reduce.wgsl?raw";
 import mixboxShaderSource from "../shaders/mixbox.wgsl?raw";
 import kubelkaMunkShaderSource from "../shaders/kubelka_munk.wgsl?raw";
 import { generatePaperTexture } from "./paperTexture";
@@ -103,6 +105,14 @@ export interface GPUContext {
   // Bristle heightmap collision compute pipeline
   bristleCollidePipeline: GPUComputePipeline;
   bristleCollideBindGroupLayout: GPUBindGroupLayout;
+
+  // Bristle paint transfer compute pipeline
+  bristleTransferPipeline: GPUComputePipeline;
+  bristleTransferBindGroupLayout: GPUBindGroupLayout;
+
+  // Bristle reduction (atlas → canvas) compute pipeline
+  bristleReducePipeline: GPUComputePipeline;
+  bristleReduceBindGroupLayout: GPUBindGroupLayout;
 
   // Mixbox pigment mixing LUT
   mixboxLUT: GPUTexture;
@@ -565,6 +575,47 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
     compute: { module: device.createShaderModule({ code: bristleCollideShaderSource }), entryPoint: "main" },
   });
 
+  // --- Bristle paint transfer compute pipeline ---
+  const bristleTransferBindGroupLayout = device.createBindGroupLayout({
+    entries: [
+      { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+      { binding: 1, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "read-only", format: "rgba32float" } },
+      { binding: 2, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "read-only", format: "rgba32float" } },
+      { binding: 3, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba32float" } },
+      { binding: 4, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba32float" } },
+      { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+      { binding: 6, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "read-only", format: "r32float" } },
+    ],
+  });
+  const bristleTransferPipeline = device.createComputePipeline({
+    layout: device.createPipelineLayout({ bindGroupLayouts: [bristleTransferBindGroupLayout] }),
+    compute: { module: device.createShaderModule({ code: bristleTransferShaderSource }), entryPoint: "main" },
+  });
+
+  // --- Bristle reduction (atlas → canvas) compute pipeline ---
+  const bristleReduceBindGroupLayout = device.createBindGroupLayout({
+    entries: [
+      { binding: 0, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "read-only", format: "rgba32float" } },
+      { binding: 1, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "read-only", format: "rgba32float" } },
+      { binding: 2, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "read-only", format: "rgba32float" } },
+      { binding: 3, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba32float" } },
+      { binding: 4, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "read-only", format: "rgba32float" } },
+      { binding: 5, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba32float" } },
+      { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+      { binding: 7, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
+      { binding: 8, visibility: GPUShaderStage.COMPUTE, sampler: { type: "filtering" } },
+      { binding: 9, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "read-only", format: "rg32float" } },
+      { binding: 10, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rg32float" } },
+    ],
+  });
+  const bristleReducePipeline = device.createComputePipeline({
+    layout: device.createPipelineLayout({ bindGroupLayouts: [bristleReduceBindGroupLayout] }),
+    compute: {
+      module: device.createShaderModule({ code: mixboxShaderSource + kubelkaMunkShaderSource + bristleReduceShaderSource }),
+      entryPoint: "main",
+    },
+  });
+
   // --- Selection overlay pipeline ---
 
   const selectionBindGroupLayout = device.createBindGroupLayout({
@@ -686,6 +737,10 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
     bristleSimBindGroupLayout,
     bristleCollidePipeline,
     bristleCollideBindGroupLayout,
+    bristleTransferPipeline,
+    bristleTransferBindGroupLayout,
+    bristleReducePipeline,
+    bristleReduceBindGroupLayout,
     mixboxLUT: mixboxResources.lutTexture,
     mixboxSampler: mixboxResources.lutSampler,
   };
@@ -1775,6 +1830,18 @@ export interface BristleGPUState {
   collisionParamsBuffer: GPUBuffer;
   /** Bind group for the bristle collide pipeline (includes paper heightmap). */
   collideBindGroup: GPUBindGroup | null;
+  /** Deposition atlas color texture (rgba32float). */
+  atlasColorTexture: GPUTexture | null;
+  /** Deposition atlas props texture (rgba32float). */
+  atlasPropsTexture: GPUTexture | null;
+  /** Uniform buffer for TransferParams. */
+  transferParamsBuffer: GPUBuffer;
+  /** Bind group for the bristle transfer pipeline. */
+  transferBindGroup: GPUBindGroup | null;
+  /** Uniform buffer for ReduceParams. */
+  reduceParamsBuffer: GPUBuffer;
+  /** Bind group for the bristle reduce pipeline. */
+  reduceBindGroup: GPUBindGroup | null;
   /** Number of bristles currently allocated. */
   bristleCount: number;
 }
@@ -1799,6 +1866,10 @@ export function createBristleState(
     prev.stylusUniformBuffer.destroy();
     prev.simParamsUniformBuffer.destroy();
     prev.collisionParamsBuffer.destroy();
+    prev.transferParamsBuffer.destroy();
+    prev.reduceParamsBuffer.destroy();
+    if (prev.atlasColorTexture) prev.atlasColorTexture.destroy();
+    if (prev.atlasPropsTexture) prev.atlasPropsTexture.destroy();
   }
 
   const bufferSize = bristleCount * 20 * 4; // 20 f32s per bristle
@@ -1831,6 +1902,18 @@ export function createBristleState(
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
 
+  // TransferParams uniform: 16 values = 64 bytes
+  const transferParamsBuffer = gpu.device.createBuffer({
+    size: 64,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+
+  // ReduceParams uniform: 12 values = 48 bytes
+  const reduceParamsBuffer = gpu.device.createBuffer({
+    size: 48,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+
   const initBindGroup = gpu.device.createBindGroup({
     layout: gpu.bristleInitBindGroupLayout,
     entries: [
@@ -1848,9 +1931,8 @@ export function createBristleState(
     ],
   });
 
-  // Collision bind group needs the paper heightmap texture from the wet media
-  // layer. We create it lazily in ensureBristleCollideBindGroup since the wet
-  // media layer may not exist yet at bristle state creation time.
+  // Collision, transfer, and reduce bind groups are created lazily since
+  // they need the wet media layer textures which may not exist yet.
   const state: BristleGPUState = {
     buffer,
     initUniformBuffer,
@@ -1860,6 +1942,12 @@ export function createBristleState(
     simBindGroup,
     collisionParamsBuffer,
     collideBindGroup: null,
+    atlasColorTexture: null,
+    atlasPropsTexture: null,
+    transferParamsBuffer,
+    transferBindGroup: null,
+    reduceParamsBuffer,
+    reduceBindGroup: null,
     bristleCount,
   };
   bristleStates.set(layerIndex, state);
@@ -1977,6 +2065,142 @@ export function dispatchBristleCollide(
   gpu.device.queue.submit([encoder.finish()]);
 }
 
+/**
+ * Ensure the transfer and reduce bind groups exist for a layer.
+ * Creates atlas textures and bind groups lazily. Requires the wet media
+ * layer to exist so we can reference its canvas textures.
+ *
+ * @param atlasWidth  Width of the deposition atlas in texels.
+ * @param atlasHeight Height of the deposition atlas in texels.
+ */
+export function ensureBristleTransferBindGroups(
+  gpu: GPUContext,
+  layerIndex: number,
+  atlasWidth: number,
+  atlasHeight: number,
+): void {
+  const state = bristleStates.get(layerIndex);
+  if (!state || state.transferBindGroup) return;
+
+  const wm = wetMediaLayers.get(layerIndex);
+  if (!wm) return;
+
+  // Create atlas textures
+  const atlasColorTexture = gpu.device.createTexture({
+    size: { width: atlasWidth, height: atlasHeight },
+    format: "rgba32float",
+    usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
+  });
+  const atlasPropsTexture = gpu.device.createTexture({
+    size: { width: atlasWidth, height: atlasHeight },
+    format: "rgba32float",
+    usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
+  });
+  state.atlasColorTexture = atlasColorTexture;
+  state.atlasPropsTexture = atlasPropsTexture;
+
+  // Determine current ping-pong source textures
+  const colorSrc = wm.pingPong === 0 ? wm.colorTexture : wm.colorTextureB;
+  const propsSrc = wm.pingPong === 0 ? wm.propsTexture : wm.propsTextureB;
+
+  state.transferBindGroup = gpu.device.createBindGroup({
+    layout: gpu.bristleTransferBindGroupLayout,
+    entries: [
+      { binding: 0, resource: { buffer: state.buffer } },
+      { binding: 1, resource: colorSrc.createView() },
+      { binding: 2, resource: propsSrc.createView() },
+      { binding: 3, resource: atlasColorTexture.createView() },
+      { binding: 4, resource: atlasPropsTexture.createView() },
+      { binding: 5, resource: { buffer: state.transferParamsBuffer } },
+      { binding: 6, resource: wm.paperTexture.createView() },
+    ],
+  });
+
+  // Reduce bind group: reads atlas, reads src canvas, writes to dst canvas
+  const colorDst = wm.pingPong === 0 ? wm.colorTextureB : wm.colorTexture;
+  const propsDst = wm.pingPong === 0 ? wm.propsTextureB : wm.propsTexture;
+  const velSrc = wm.pingPong === 0 ? wm.velocityTexture : wm.velocityTextureB;
+  const velDst = wm.pingPong === 0 ? wm.velocityTextureB : wm.velocityTexture;
+
+  state.reduceBindGroup = gpu.device.createBindGroup({
+    layout: gpu.bristleReduceBindGroupLayout,
+    entries: [
+      { binding: 0, resource: atlasColorTexture.createView() },
+      { binding: 1, resource: atlasPropsTexture.createView() },
+      { binding: 2, resource: colorSrc.createView() },
+      { binding: 3, resource: colorDst.createView() },
+      { binding: 4, resource: propsSrc.createView() },
+      { binding: 5, resource: propsDst.createView() },
+      { binding: 6, resource: { buffer: state.reduceParamsBuffer } },
+      { binding: 7, resource: gpu.mixboxLUT.createView() },
+      { binding: 8, resource: gpu.mixboxSampler },
+      { binding: 9, resource: velSrc.createView() },
+      { binding: 10, resource: velDst.createView() },
+    ],
+  });
+}
+
+/**
+ * Dispatch the bristle transfer compute shader.
+ * Writes per-bristle deposition into the atlas textures.
+ */
+export function dispatchBristleTransfer(
+  gpu: GPUContext,
+  layerIndex: number,
+  transferParamsData: Float32Array,
+): void {
+  const state = bristleStates.get(layerIndex);
+  if (!state || !state.transferBindGroup) return;
+
+  gpu.device.queue.writeBuffer(state.transferParamsBuffer, 0, transferParamsData);
+
+  const encoder = gpu.device.createCommandEncoder();
+  const pass = encoder.beginComputePass();
+  pass.setPipeline(gpu.bristleTransferPipeline);
+  pass.setBindGroup(0, state.transferBindGroup);
+  pass.dispatchWorkgroups(Math.ceil(state.bristleCount / 64));
+  pass.end();
+  gpu.device.queue.submit([encoder.finish()]);
+}
+
+/**
+ * Dispatch the bristle reduction compute shader.
+ * Composites the atlas deposits into the canvas textures using Mixbox mixing.
+ * This also toggles the wet media layer's ping-pong state.
+ */
+export function dispatchBristleReduce(
+  gpu: GPUContext,
+  layerIndex: number,
+  reduceParamsData: Float32Array,
+  canvasWidth: number,
+  canvasHeight: number,
+): void {
+  const state = bristleStates.get(layerIndex);
+  if (!state || !state.reduceBindGroup) return;
+
+  const wm = wetMediaLayers.get(layerIndex);
+  if (!wm) return;
+
+  gpu.device.queue.writeBuffer(state.reduceParamsBuffer, 0, reduceParamsData);
+
+  const encoder = gpu.device.createCommandEncoder();
+  const pass = encoder.beginComputePass();
+  pass.setPipeline(gpu.bristleReducePipeline);
+  pass.setBindGroup(0, state.reduceBindGroup);
+  pass.dispatchWorkgroups(
+    Math.ceil(canvasWidth / 8),
+    Math.ceil(canvasHeight / 8),
+  );
+  pass.end();
+  gpu.device.queue.submit([encoder.finish()]);
+
+  // Toggle ping-pong so next pass reads from the just-written textures
+  wm.pingPong = 1 - wm.pingPong;
+  // Invalidate transfer/reduce bind groups since textures swapped
+  state.transferBindGroup = null;
+  state.reduceBindGroup = null;
+}
+
 /** Clean up bristle GPU resources for a layer. */
 export function destroyBristleState(layerIndex: number): void {
   const state = bristleStates.get(layerIndex);
@@ -1986,6 +2210,10 @@ export function destroyBristleState(layerIndex: number): void {
     state.stylusUniformBuffer.destroy();
     state.simParamsUniformBuffer.destroy();
     state.collisionParamsBuffer.destroy();
+    state.transferParamsBuffer.destroy();
+    state.reduceParamsBuffer.destroy();
+    if (state.atlasColorTexture) state.atlasColorTexture.destroy();
+    if (state.atlasPropsTexture) state.atlasPropsTexture.destroy();
     bristleStates.delete(layerIndex);
   }
 }
