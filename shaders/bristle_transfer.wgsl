@@ -113,8 +113,10 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let tip_x = tip.x;
     let tip_y = tip.y;
 
-    // Bristle radius (derived from thickness, clamped to half grid)
-    let bristle_radius = max(0.5, thickness * half_grid * 0.8);
+    // Bristle radius in canvas pixels — thin, crisp marks.
+    // Thickness is 0.1–1.0; map to a 0.4–1.5 pixel radius so individual
+    // bristle strands remain distinct rather than blurring into each other.
+    let bristle_radius = 0.4 + thickness * 1.1;
 
     // Amount to deposit this sub-step
     let deposit_amount = min(paint_load, params.deposition_rate * paint_load);
@@ -132,15 +134,17 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             let dy = f32(gy) - half_grid + 0.5;
             let dist = sqrt(dx * dx + dy * dy);
 
-            // Falloff from bristle center
-            if (dist > bristle_radius) {
+            // Hard-edge bristle profile with ~0.6px anti-aliased border.
+            // Beyond the radius, the texel contributes nothing.
+            let aa_width = 0.6;
+            if (dist > bristle_radius + aa_width) {
                 textureStore(deposit_atlas_color, atlas_coord, vec4f(0.0));
                 textureStore(deposit_atlas_props, atlas_coord, vec4f(0.0));
                 continue;
             }
 
-            let falloff = 1.0 - (dist / bristle_radius);
-            let pressure = falloff * falloff; // quadratic falloff
+            // Smooth step from 1 at the core to 0 at the outer edge
+            let pressure = 1.0 - smoothstep(bristle_radius - aa_width, bristle_radius + aa_width, dist);
 
             // Canvas coordinate for this texel
             let cx = i32(round(tip_x - half_grid + f32(gx) + 0.5));
