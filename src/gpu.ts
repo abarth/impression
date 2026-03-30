@@ -11,6 +11,7 @@ import wetMediaSurfaceTensionShaderSource from "../shaders/wet_media_surface_ten
 import wetMediaShadowShaderSource from "../shaders/wet_media_shadow.wgsl?raw";
 import wetMediaAbsorptionShaderSource from "../shaders/wet_media_absorption.wgsl?raw";
 import wetMediaCapillaryShaderSource from "../shaders/wet_media_capillary.wgsl?raw";
+import bristleInitShaderSource from "../shaders/bristle_init.wgsl?raw";
 import mixboxShaderSource from "../shaders/mixbox.wgsl?raw";
 import kubelkaMunkShaderSource from "../shaders/kubelka_munk.wgsl?raw";
 import { generatePaperTexture } from "./paperTexture";
@@ -88,6 +89,10 @@ export interface GPUContext {
   // HBAO self-shadow compute pipeline
   wetMediaShadowPipeline: GPUComputePipeline;
   wetMediaShadowBindGroupLayout: GPUBindGroupLayout;
+
+  // Bristle initialization compute pipeline
+  bristleInitPipeline: GPUComputePipeline;
+  bristleInitBindGroupLayout: GPUBindGroupLayout;
 
   // Mixbox pigment mixing LUT
   mixboxLUT: GPUTexture;
@@ -512,6 +517,18 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
     compute: { module: device.createShaderModule({ code: wetMediaShadowShaderSource }), entryPoint: "main" },
   });
 
+  // --- Bristle initialization compute pipeline ---
+  const bristleInitBindGroupLayout = device.createBindGroupLayout({
+    entries: [
+      { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+      { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+    ],
+  });
+  const bristleInitPipeline = device.createComputePipeline({
+    layout: device.createPipelineLayout({ bindGroupLayouts: [bristleInitBindGroupLayout] }),
+    compute: { module: device.createShaderModule({ code: bristleInitShaderSource }), entryPoint: "main" },
+  });
+
   // --- Selection overlay pipeline ---
 
   const selectionBindGroupLayout = device.createBindGroupLayout({
@@ -627,6 +644,8 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
     wetMediaCapillaryBindGroupLayout,
     wetMediaShadowPipeline,
     wetMediaShadowBindGroupLayout,
+    bristleInitPipeline,
+    bristleInitBindGroupLayout,
     mixboxLUT: mixboxResources.lutTexture,
     mixboxSampler: mixboxResources.lutSampler,
   };
@@ -1692,4 +1711,104 @@ export function updateLayerBlendMode(
   if (!buffer) return;
   // Write blend mode at offset 4
   gpu.device.queue.writeBuffer(buffer, 4, new Uint32Array([mode]));
+}
+
+// ---------------------------------------------------------------------------
+// Bristle GPU resources
+// ---------------------------------------------------------------------------
+
+/** Per-wet-media-layer bristle state stored on GPU. */
+export interface BristleGPUState {
+  /** Storage buffer holding bristle array (read_write). */
+  buffer: GPUBuffer;
+  /** Uniform buffer for BristleInitParams. */
+  initUniformBuffer: GPUBuffer;
+  /** Bind group for the bristle init pipeline. */
+  initBindGroup: GPUBindGroup;
+  /** Number of bristles currently allocated. */
+  bristleCount: number;
+}
+
+const bristleStates = new Map<number, BristleGPUState>();
+
+/**
+ * Create (or recreate) bristle GPU resources for a wet media layer.
+ * Called at stroke begin with the current brush settings.
+ */
+export function createBristleState(
+  gpu: GPUContext,
+  layerIndex: number,
+  bristleCount: number,
+  initUniformData: Float32Array,
+): BristleGPUState {
+  // Clean up previous state if any
+  const prev = bristleStates.get(layerIndex);
+  if (prev) {
+    prev.buffer.destroy();
+    prev.initUniformBuffer.destroy();
+  }
+
+  const bufferSize = bristleCount * 20 * 4; // 20 f32s per bristle
+  const buffer = gpu.device.createBuffer({
+    size: bufferSize,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+  });
+
+  const initUniformBuffer = gpu.device.createBuffer({
+    size: initUniformData.byteLength,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+  gpu.device.queue.writeBuffer(initUniformBuffer, 0, initUniformData);
+
+  const initBindGroup = gpu.device.createBindGroup({
+    layout: gpu.bristleInitBindGroupLayout,
+    entries: [
+      { binding: 0, resource: { buffer } },
+      { binding: 1, resource: { buffer: initUniformBuffer } },
+    ],
+  });
+
+  const state: BristleGPUState = {
+    buffer,
+    initUniformBuffer,
+    initBindGroup,
+    bristleCount,
+  };
+  bristleStates.set(layerIndex, state);
+  return state;
+}
+
+/**
+ * Dispatch the bristle initialization compute shader.
+ * Populates the bristle storage buffer with initial positions and properties.
+ */
+export function dispatchBristleInit(
+  gpu: GPUContext,
+  layerIndex: number,
+): void {
+  const state = bristleStates.get(layerIndex);
+  if (!state) return;
+
+  const encoder = gpu.device.createCommandEncoder();
+  const pass = encoder.beginComputePass();
+  pass.setPipeline(gpu.bristleInitPipeline);
+  pass.setBindGroup(0, state.initBindGroup);
+  pass.dispatchWorkgroups(Math.ceil(state.bristleCount / 64));
+  pass.end();
+  gpu.device.queue.submit([encoder.finish()]);
+}
+
+/** Get existing bristle GPU state for a layer. */
+export function getBristleState(layerIndex: number): BristleGPUState | undefined {
+  return bristleStates.get(layerIndex);
+}
+
+/** Clean up bristle GPU resources for a layer. */
+export function destroyBristleState(layerIndex: number): void {
+  const state = bristleStates.get(layerIndex);
+  if (state) {
+    state.buffer.destroy();
+    state.initUniformBuffer.destroy();
+    bristleStates.delete(layerIndex);
+  }
 }
