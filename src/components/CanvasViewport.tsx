@@ -4,6 +4,8 @@ import type { Tool } from "../hooks/useTool";
 import type { ViewTransform } from "../hooks/useViewTransform";
 import type { SerializableBrushSettings } from "../hooks/useBrushSettings";
 import { StrokeSmoother } from "../strokeSmoothing";
+import { extractStylusPoint } from "../lib/stylusInput";
+import { StrokeInterpolator } from "../lib/strokeInterpolator";
 
 /** Selection combine mode based on modifier keys (matches Photoshop). */
 function getCombineMode(e: PointerEvent): number {
@@ -104,6 +106,10 @@ export function CanvasViewport({
   const smootherRef = useRef(new StrokeSmoother());
   const smoothingRef = useRef(smoothing);
   smoothingRef.current = smoothing;
+  /** Stroke interpolator for wet media bristle strokes (spline + sub-stepping). */
+  const interpolatorRef = useRef<StrokeInterpolator | null>(null);
+  /** Whether the current stroke is a wet media stroke using the interpolator. */
+  const wetStrokeActiveRef = useRef(false);
 
   /** Update the SVG selection preview overlay. */
   const updateOverlay = useCallback(
@@ -192,16 +198,48 @@ export function CanvasViewport({
         if (layerKindRef.current !== "raster" && layerKindRef.current !== undefined) return;
         viewport.setPointerCapture(e.pointerId);
         const { x, y } = screenToCanvas(e.clientX, e.clientY);
-        const pressure = e.pointerType === "pen" ? e.pressure : 1.0;
-        const pt = smootherRef.current.begin(x, y, pressure, smoothingRef.current);
         const settings = getStrokeSettings();
-        engine.strokeBegin(
-          engine.getActiveLayer(),
-          pt.x,
-          pt.y,
-          pt.pressure,
-          settings,
-        );
+        const isWetMedia = settings.brush_model === "WetMedia";
+
+        if (isWetMedia) {
+          // Wet media: use spline interpolator with full stylus telemetry
+          const stylusPt = extractStylusPoint(e, x, y);
+          const interp = new StrokeInterpolator(settings.size / 2);
+          interpolatorRef.current = interp;
+          wetStrokeActiveRef.current = true;
+          const subPts = interp.addPoint(stylusPt);
+          // First sub-point starts the stroke
+          if (subPts.length > 0) {
+            const sp = subPts[0];
+            engine.strokeBeginWithStylus(
+              engine.getActiveLayer(), stylusPt,
+              { x: sp.velocity * Math.cos(sp.velocityAngle), y: sp.velocity * Math.sin(sp.velocityAngle) },
+              settings,
+            );
+            // Additional sub-points as moves
+            for (let i = 1; i < subPts.length; i++) {
+              const mp = subPts[i];
+              engine.strokeMoveWithStylus(
+                engine.getActiveLayer(),
+                { ...stylusPt, x: mp.x, y: mp.y, pressure: mp.pressure },
+                { x: mp.velocity * Math.cos(mp.velocityAngle), y: mp.velocity * Math.sin(mp.velocityAngle) },
+              );
+            }
+          }
+        } else {
+          // Standard stamp brush: use EMA smoother
+          wetStrokeActiveRef.current = false;
+          interpolatorRef.current = null;
+          const pressure = e.pointerType === "pen" ? e.pressure : 1.0;
+          const pt = smootherRef.current.begin(x, y, pressure, smoothingRef.current);
+          engine.strokeBegin(
+            engine.getActiveLayer(),
+            pt.x,
+            pt.y,
+            pt.pressure,
+            settings,
+          );
+        }
       } else if (tool === "pan" || tool === "zoom") {
         viewport.setPointerCapture(e.pointerId);
         dragStart.current = { x: e.clientX, y: e.clientY };
@@ -234,16 +272,33 @@ export function CanvasViewport({
         updateOverlay("lasso");
       } else if ((tool === "brush" || tool === "eraser") && engine) {
         const events = e.getCoalescedEvents?.() ?? [e];
-        for (const ce of events) {
-          const { x, y } = screenToCanvas(ce.clientX, ce.clientY);
-          const pressure = ce.pointerType === "pen" ? ce.pressure : 1.0;
-          const pt = smootherRef.current.move(x, y, pressure);
-          engine.strokeMove(
-            engine.getActiveLayer(),
-            pt.x,
-            pt.y,
-            pt.pressure,
-          );
+        if (wetStrokeActiveRef.current && interpolatorRef.current) {
+          // Wet media: spline interpolation with sub-stepping
+          for (const ce of events) {
+            const { x, y } = screenToCanvas(ce.clientX, ce.clientY);
+            const stylusPt = extractStylusPoint(ce, x, y);
+            const subPts = interpolatorRef.current.addPoint(stylusPt);
+            for (const mp of subPts) {
+              engine.strokeMoveWithStylus(
+                engine.getActiveLayer(),
+                { ...stylusPt, x: mp.x, y: mp.y, pressure: mp.pressure, altitude: mp.altitude, azimuth: mp.azimuth, twist: mp.twist },
+                { x: mp.velocity * Math.cos(mp.velocityAngle), y: mp.velocity * Math.sin(mp.velocityAngle) },
+              );
+            }
+          }
+        } else {
+          // Standard stamp brush: EMA smoother
+          for (const ce of events) {
+            const { x, y } = screenToCanvas(ce.clientX, ce.clientY);
+            const pressure = ce.pointerType === "pen" ? ce.pressure : 1.0;
+            const pt = smootherRef.current.move(x, y, pressure);
+            engine.strokeMove(
+              engine.getActiveLayer(),
+              pt.x,
+              pt.y,
+              pt.pressure,
+            );
+          }
         }
       } else if (tool === "pan" && dragStart.current) {
         const dx = e.clientX - dragStart.current.x;
@@ -285,16 +340,34 @@ export function CanvasViewport({
         lassoPreviewPoints.current = [];
         updateOverlay("clear");
       } else if ((tool === "brush" || tool === "eraser") && engine) {
-        const { x, y } = screenToCanvas(e.clientX, e.clientY);
-        const pressure = e.pointerType === "pen" ? e.pressure : 1.0;
-        const catchUp = smootherRef.current.end(x, y, pressure);
-        if (catchUp) {
-          engine.strokeMove(
-            engine.getActiveLayer(),
-            catchUp.x,
-            catchUp.y,
-            catchUp.pressure,
-          );
+        if (wetStrokeActiveRef.current && interpolatorRef.current) {
+          // Wet media: emit final spline segment
+          const { x, y } = screenToCanvas(e.clientX, e.clientY);
+          const stylusPt = extractStylusPoint(e, x, y);
+          interpolatorRef.current.addPoint(stylusPt);
+          const finalPts = interpolatorRef.current.finish();
+          for (const mp of finalPts) {
+            engine.strokeMoveWithStylus(
+              engine.getActiveLayer(),
+              { ...stylusPt, x: mp.x, y: mp.y, pressure: mp.pressure, altitude: mp.altitude, azimuth: mp.azimuth, twist: mp.twist },
+              { x: mp.velocity * Math.cos(mp.velocityAngle), y: mp.velocity * Math.sin(mp.velocityAngle) },
+            );
+          }
+          interpolatorRef.current = null;
+          wetStrokeActiveRef.current = false;
+        } else {
+          // Standard stamp brush: EMA smoother catch-up
+          const { x, y } = screenToCanvas(e.clientX, e.clientY);
+          const pressure = e.pointerType === "pen" ? e.pressure : 1.0;
+          const catchUp = smootherRef.current.end(x, y, pressure);
+          if (catchUp) {
+            engine.strokeMove(
+              engine.getActiveLayer(),
+              catchUp.x,
+              catchUp.y,
+              catchUp.pressure,
+            );
+          }
         }
         engine.strokeEnd();
       }

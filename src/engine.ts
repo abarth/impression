@@ -22,6 +22,22 @@ import {
 } from "./gpu";
 import type { Storage, DocumentMeta } from "./storage";
 import type { SerializableBrushSettings } from "./hooks/useBrushSettings";
+import type { StylusPoint } from "./lib/stylusInput";
+
+/**
+ * Stylus telemetry state for the current stroke.
+ * Stored per-frame so GPU bristle shaders can read tilt, twist, and velocity.
+ */
+export interface StylusState {
+  x: number;
+  y: number;
+  pressure: number;
+  altitude: number;
+  azimuth: number;
+  twist: number;
+  velocityX: number;
+  velocityY: number;
+}
 
 export interface PersistenceOptions {
   storage: Storage;
@@ -45,6 +61,11 @@ export class Engine {
   private _onLayersChanged?: () => void;
   /** Simulation frames elapsed per wet media layer since last stroke, for deterministic replay. */
   private wetMediaSimFrames: Map<number, number> = new Map();
+  /** Current stylus telemetry state, updated each stroke event for GPU bristle shaders. */
+  private _stylusState: StylusState = {
+    x: 0, y: 0, pressure: 0, altitude: Math.PI / 2,
+    azimuth: 0, twist: 0, velocityX: 0, velocityY: 0,
+  };
 
   constructor(
     canvas: ImpressionCanvas,
@@ -182,6 +203,29 @@ export class Engine {
     }
   }
 
+  /**
+   * Begin a stroke with full stylus telemetry.
+   * Stores the stylus state for GPU bristle shaders and delegates
+   * to the standard strokeBegin for WASM processing.
+   */
+  strokeBeginWithStylus(
+    layer: number,
+    stylus: StylusPoint,
+    velocity: { x: number; y: number },
+    settings: SerializableBrushSettings,
+  ): void {
+    this._stylusState = {
+      x: stylus.x, y: stylus.y,
+      pressure: stylus.pressure,
+      altitude: stylus.altitude,
+      azimuth: stylus.azimuth,
+      twist: stylus.twist,
+      velocityX: velocity.x,
+      velocityY: velocity.y,
+    };
+    this.strokeBegin(layer, stylus.x, stylus.y, stylus.pressure, settings);
+  }
+
   strokeMove(layer: number, x: number, y: number, pressure: number): void {
     this.canvas.stroke_move(layer, x, y, pressure);
     this._dirty = true;
@@ -192,9 +236,36 @@ export class Engine {
     }
   }
 
+  /**
+   * Move a stroke with full stylus telemetry.
+   * Stores the stylus state for GPU bristle shaders and delegates
+   * to the standard strokeMove for WASM processing.
+   */
+  strokeMoveWithStylus(
+    layer: number,
+    stylus: StylusPoint,
+    velocity: { x: number; y: number },
+  ): void {
+    this._stylusState = {
+      x: stylus.x, y: stylus.y,
+      pressure: stylus.pressure,
+      altitude: stylus.altitude,
+      azimuth: stylus.azimuth,
+      twist: stylus.twist,
+      velocityX: velocity.x,
+      velocityY: velocity.y,
+    };
+    this.strokeMove(layer, stylus.x, stylus.y, stylus.pressure);
+  }
+
   strokeEnd(): void {
     this.canvas.stroke_end();
     this.flushAll();
+  }
+
+  /** Current stylus telemetry for GPU bristle shader consumption. */
+  get stylusState(): Readonly<StylusState> {
+    return this._stylusState;
   }
 
   /** Read wet media footprints from WASM and dispatch GPU deposit for each. */
