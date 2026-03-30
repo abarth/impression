@@ -13,6 +13,7 @@ import wetMediaAbsorptionShaderSource from "../shaders/wet_media_absorption.wgsl
 import wetMediaCapillaryShaderSource from "../shaders/wet_media_capillary.wgsl?raw";
 import bristleInitShaderSource from "../shaders/bristle_init.wgsl?raw";
 import bristleSimShaderSource from "../shaders/bristle_sim.wgsl?raw";
+import bristleCollideShaderSource from "../shaders/bristle_collide.wgsl?raw";
 import mixboxShaderSource from "../shaders/mixbox.wgsl?raw";
 import kubelkaMunkShaderSource from "../shaders/kubelka_munk.wgsl?raw";
 import { generatePaperTexture } from "./paperTexture";
@@ -98,6 +99,10 @@ export interface GPUContext {
   // Bristle kinematic simulation compute pipeline
   bristleSimPipeline: GPUComputePipeline;
   bristleSimBindGroupLayout: GPUBindGroupLayout;
+
+  // Bristle heightmap collision compute pipeline
+  bristleCollidePipeline: GPUComputePipeline;
+  bristleCollideBindGroupLayout: GPUBindGroupLayout;
 
   // Mixbox pigment mixing LUT
   mixboxLUT: GPUTexture;
@@ -547,6 +552,19 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
     compute: { module: device.createShaderModule({ code: bristleSimShaderSource }), entryPoint: "main" },
   });
 
+  // --- Bristle heightmap collision compute pipeline ---
+  const bristleCollideBindGroupLayout = device.createBindGroupLayout({
+    entries: [
+      { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+      { binding: 1, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "read-only", format: "r32float" } },
+      { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+    ],
+  });
+  const bristleCollidePipeline = device.createComputePipeline({
+    layout: device.createPipelineLayout({ bindGroupLayouts: [bristleCollideBindGroupLayout] }),
+    compute: { module: device.createShaderModule({ code: bristleCollideShaderSource }), entryPoint: "main" },
+  });
+
   // --- Selection overlay pipeline ---
 
   const selectionBindGroupLayout = device.createBindGroupLayout({
@@ -666,6 +684,8 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
     bristleInitBindGroupLayout,
     bristleSimPipeline,
     bristleSimBindGroupLayout,
+    bristleCollidePipeline,
+    bristleCollideBindGroupLayout,
     mixboxLUT: mixboxResources.lutTexture,
     mixboxSampler: mixboxResources.lutSampler,
   };
@@ -1751,6 +1771,10 @@ export interface BristleGPUState {
   simParamsUniformBuffer: GPUBuffer;
   /** Bind group for the bristle sim pipeline. */
   simBindGroup: GPUBindGroup;
+  /** Uniform buffer for CollisionParams. */
+  collisionParamsBuffer: GPUBuffer;
+  /** Bind group for the bristle collide pipeline (includes paper heightmap). */
+  collideBindGroup: GPUBindGroup | null;
   /** Number of bristles currently allocated. */
   bristleCount: number;
 }
@@ -1774,6 +1798,7 @@ export function createBristleState(
     prev.initUniformBuffer.destroy();
     prev.stylusUniformBuffer.destroy();
     prev.simParamsUniformBuffer.destroy();
+    prev.collisionParamsBuffer.destroy();
   }
 
   const bufferSize = bristleCount * 20 * 4; // 20 f32s per bristle
@@ -1800,6 +1825,12 @@ export function createBristleState(
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
 
+  // CollisionParams uniform: 8 values = 32 bytes
+  const collisionParamsBuffer = gpu.device.createBuffer({
+    size: 32,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+
   const initBindGroup = gpu.device.createBindGroup({
     layout: gpu.bristleInitBindGroupLayout,
     entries: [
@@ -1817,6 +1848,9 @@ export function createBristleState(
     ],
   });
 
+  // Collision bind group needs the paper heightmap texture from the wet media
+  // layer. We create it lazily in ensureBristleCollideBindGroup since the wet
+  // media layer may not exist yet at bristle state creation time.
   const state: BristleGPUState = {
     buffer,
     initUniformBuffer,
@@ -1824,6 +1858,8 @@ export function createBristleState(
     stylusUniformBuffer,
     simParamsUniformBuffer,
     simBindGroup,
+    collisionParamsBuffer,
+    collideBindGroup: null,
     bristleCount,
   };
   bristleStates.set(layerIndex, state);
@@ -1893,6 +1929,54 @@ export function updateBristleSimParams(
   gpu.device.queue.writeBuffer(state.simParamsUniformBuffer, 0, simParamsData);
 }
 
+/**
+ * Ensure the collision bind group exists for a layer, creating it lazily.
+ * Must be called before dispatchBristleCollide. Requires the wet media layer
+ * to exist so we can reference its paper heightmap texture.
+ */
+export function ensureBristleCollideBindGroup(
+  gpu: GPUContext,
+  layerIndex: number,
+): void {
+  const state = bristleStates.get(layerIndex);
+  if (!state || state.collideBindGroup) return;
+
+  const wm = wetMediaLayers.get(layerIndex);
+  if (!wm) return;
+
+  state.collideBindGroup = gpu.device.createBindGroup({
+    layout: gpu.bristleCollideBindGroupLayout,
+    entries: [
+      { binding: 0, resource: { buffer: state.buffer } },
+      { binding: 1, resource: wm.paperTexture.createView() },
+      { binding: 2, resource: { buffer: state.collisionParamsBuffer } },
+    ],
+  });
+}
+
+/**
+ * Update collision params and dispatch the bristle collision compute shader.
+ * Call after dispatchBristleSim each sub-step.
+ */
+export function dispatchBristleCollide(
+  gpu: GPUContext,
+  layerIndex: number,
+  collisionParamsData: Float32Array,
+): void {
+  const state = bristleStates.get(layerIndex);
+  if (!state || !state.collideBindGroup) return;
+
+  gpu.device.queue.writeBuffer(state.collisionParamsBuffer, 0, collisionParamsData);
+
+  const encoder = gpu.device.createCommandEncoder();
+  const pass = encoder.beginComputePass();
+  pass.setPipeline(gpu.bristleCollidePipeline);
+  pass.setBindGroup(0, state.collideBindGroup);
+  pass.dispatchWorkgroups(Math.ceil(state.bristleCount / 64));
+  pass.end();
+  gpu.device.queue.submit([encoder.finish()]);
+}
+
 /** Clean up bristle GPU resources for a layer. */
 export function destroyBristleState(layerIndex: number): void {
   const state = bristleStates.get(layerIndex);
@@ -1901,6 +1985,7 @@ export function destroyBristleState(layerIndex: number): void {
     state.initUniformBuffer.destroy();
     state.stylusUniformBuffer.destroy();
     state.simParamsUniformBuffer.destroy();
+    state.collisionParamsBuffer.destroy();
     bristleStates.delete(layerIndex);
   }
 }
