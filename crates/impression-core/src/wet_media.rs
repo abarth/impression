@@ -957,21 +957,6 @@ pub fn wet_media_stroke_move(
             }
         }
 
-        // Simulated canvas color pickup: as paint depletes, bristle colors
-        // fade toward a muted version (less saturated, slightly darker)
-        // rather than adding random noise that drifts toward white/gray
-        let pickup_strength = depletion_ratio * 0.03;
-        if pickup_strength > 0.001 {
-            for color in state.bristle_colors.iter_mut() {
-                // Desaturate toward luminance (muted color, not random white)
-                let lum = color[0] * 0.299 + color[1] * 0.587 + color[2] * 0.114;
-                for c in 0..3 {
-                    color[c] += (lum - color[c]) * pickup_strength;
-                    color[c] = color[c].clamp(0.0, 1.0);
-                }
-            }
-        }
-
         // Average bristle colors for the footprint's paint color
         let avg_color = average_bristle_colors(&state.bristle_colors);
 
@@ -1844,7 +1829,7 @@ mod tests {
     }
 
     #[test]
-    fn test_canvas_color_pickup_desaturates_bristle_colors() {
+    fn test_bristle_colors_preserve_chroma_during_depletion() {
         let settings = WetMediaBrushSettings {
             paint_load: 0.3,
             paint_depletion_rate: 0.8, // very fast depletion
@@ -1854,7 +1839,6 @@ mod tests {
             ..Default::default()
         };
         let mut state = WetMediaStrokeState::default();
-        // Use a saturated red color so desaturation is observable
         let color = [0.9, 0.1, 0.1];
 
         wet_media_stroke_begin(
@@ -1865,7 +1849,7 @@ mod tests {
 
         let initial_colors = state.bristle_colors.clone();
 
-        // Move many times to deplete paint and accumulate desaturation
+        // Move many times to fully deplete paint
         for i in 1..=40 {
             wet_media_stroke_move(
                 &mut state, 10.0 + i as f32 * 3.0, 10.0, 1.0,
@@ -1874,18 +1858,19 @@ mod tests {
             );
         }
 
-        // After depletion, bristle colors should have desaturated
-        // (green and blue channels should have moved closer to the red channel)
-        let initial_saturation: f32 = initial_colors.iter()
+        // Bristle colors should remain close to the original paint color
+        // (small drift from mixing_strength is acceptable, but no major chroma loss)
+        let initial_sat: f32 = initial_colors.iter()
             .map(|c| (c[0] - c[1]).abs() + (c[0] - c[2]).abs())
             .sum::<f32>() / initial_colors.len() as f32;
-        let final_saturation: f32 = state.bristle_colors.iter()
+        let final_sat: f32 = state.bristle_colors.iter()
             .map(|c| (c[0] - c[1]).abs() + (c[0] - c[2]).abs())
             .sum::<f32>() / state.bristle_colors.len() as f32;
+        // Allow at most 20% saturation loss from color drift
         assert!(
-            final_saturation < initial_saturation,
-            "Bristle colors should desaturate after depletion: initial_sat={}, final_sat={}",
-            initial_saturation, final_saturation
+            final_sat > initial_sat * 0.8,
+            "Bristle colors should preserve chroma: initial_sat={}, final_sat={}",
+            initial_sat, final_sat
         );
     }
 
