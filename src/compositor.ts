@@ -75,7 +75,10 @@ export function composite(gpu: GPUContext, options: CompositeOptions): void {
       const wm = getWetMediaLayer(i);
       if (wm) {
         pass.setPipeline(gpu.wetMediaPipeline);
-        pass.setBindGroup(0, wm.bindGroup);
+        // Select the bind group matching the current ping-pong state so
+        // the compositor reads whichever texture was most recently written.
+        const bg = wm.pingPong === 0 ? wm.bindGroup : wm.bindGroupB;
+        pass.setBindGroup(0, bg);
         pass.setBindGroup(1, gpu.dstBindGroups[srcIdx]);
         pass.draw(3, 1, 0, 0);
       }
