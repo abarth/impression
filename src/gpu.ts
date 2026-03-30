@@ -12,6 +12,7 @@ import wetMediaShadowShaderSource from "../shaders/wet_media_shadow.wgsl?raw";
 import wetMediaAbsorptionShaderSource from "../shaders/wet_media_absorption.wgsl?raw";
 import wetMediaCapillaryShaderSource from "../shaders/wet_media_capillary.wgsl?raw";
 import bristleInitShaderSource from "../shaders/bristle_init.wgsl?raw";
+import bristleSimShaderSource from "../shaders/bristle_sim.wgsl?raw";
 import mixboxShaderSource from "../shaders/mixbox.wgsl?raw";
 import kubelkaMunkShaderSource from "../shaders/kubelka_munk.wgsl?raw";
 import { generatePaperTexture } from "./paperTexture";
@@ -93,6 +94,10 @@ export interface GPUContext {
   // Bristle initialization compute pipeline
   bristleInitPipeline: GPUComputePipeline;
   bristleInitBindGroupLayout: GPUBindGroupLayout;
+
+  // Bristle kinematic simulation compute pipeline
+  bristleSimPipeline: GPUComputePipeline;
+  bristleSimBindGroupLayout: GPUBindGroupLayout;
 
   // Mixbox pigment mixing LUT
   mixboxLUT: GPUTexture;
@@ -529,6 +534,19 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
     compute: { module: device.createShaderModule({ code: bristleInitShaderSource }), entryPoint: "main" },
   });
 
+  // --- Bristle kinematic simulation compute pipeline ---
+  const bristleSimBindGroupLayout = device.createBindGroupLayout({
+    entries: [
+      { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+      { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+      { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+    ],
+  });
+  const bristleSimPipeline = device.createComputePipeline({
+    layout: device.createPipelineLayout({ bindGroupLayouts: [bristleSimBindGroupLayout] }),
+    compute: { module: device.createShaderModule({ code: bristleSimShaderSource }), entryPoint: "main" },
+  });
+
   // --- Selection overlay pipeline ---
 
   const selectionBindGroupLayout = device.createBindGroupLayout({
@@ -646,6 +664,8 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
     wetMediaShadowBindGroupLayout,
     bristleInitPipeline,
     bristleInitBindGroupLayout,
+    bristleSimPipeline,
+    bristleSimBindGroupLayout,
     mixboxLUT: mixboxResources.lutTexture,
     mixboxSampler: mixboxResources.lutSampler,
   };
@@ -1725,6 +1745,12 @@ export interface BristleGPUState {
   initUniformBuffer: GPUBuffer;
   /** Bind group for the bristle init pipeline. */
   initBindGroup: GPUBindGroup;
+  /** Uniform buffer for StylusState (updated every sub-step). */
+  stylusUniformBuffer: GPUBuffer;
+  /** Uniform buffer for SimParams (updated per-stroke or per-frame). */
+  simParamsUniformBuffer: GPUBuffer;
+  /** Bind group for the bristle sim pipeline. */
+  simBindGroup: GPUBindGroup;
   /** Number of bristles currently allocated. */
   bristleCount: number;
 }
@@ -1746,6 +1772,8 @@ export function createBristleState(
   if (prev) {
     prev.buffer.destroy();
     prev.initUniformBuffer.destroy();
+    prev.stylusUniformBuffer.destroy();
+    prev.simParamsUniformBuffer.destroy();
   }
 
   const bufferSize = bristleCount * 20 * 4; // 20 f32s per bristle
@@ -1760,6 +1788,18 @@ export function createBristleState(
   });
   gpu.device.queue.writeBuffer(initUniformBuffer, 0, initUniformData);
 
+  // StylusState uniform: 8 f32 = 32 bytes
+  const stylusUniformBuffer = gpu.device.createBuffer({
+    size: 32,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+
+  // SimParams uniform: 8 values = 32 bytes
+  const simParamsUniformBuffer = gpu.device.createBuffer({
+    size: 32,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+
   const initBindGroup = gpu.device.createBindGroup({
     layout: gpu.bristleInitBindGroupLayout,
     entries: [
@@ -1768,10 +1808,22 @@ export function createBristleState(
     ],
   });
 
+  const simBindGroup = gpu.device.createBindGroup({
+    layout: gpu.bristleSimBindGroupLayout,
+    entries: [
+      { binding: 0, resource: { buffer } },
+      { binding: 1, resource: { buffer: stylusUniformBuffer } },
+      { binding: 2, resource: { buffer: simParamsUniformBuffer } },
+    ],
+  });
+
   const state: BristleGPUState = {
     buffer,
     initUniformBuffer,
     initBindGroup,
+    stylusUniformBuffer,
+    simParamsUniformBuffer,
+    simBindGroup,
     bristleCount,
   };
   bristleStates.set(layerIndex, state);
@@ -1803,12 +1855,52 @@ export function getBristleState(layerIndex: number): BristleGPUState | undefined
   return bristleStates.get(layerIndex);
 }
 
+/**
+ * Update the StylusState uniform for a layer and dispatch the bristle sim shader.
+ * Called once per sub-step during a stroke. The simParams uniform should be written
+ * once at stroke begin (or when dt changes) via updateBristleSimParams.
+ */
+export function dispatchBristleSim(
+  gpu: GPUContext,
+  layerIndex: number,
+  stylusData: Float32Array,
+): void {
+  const state = bristleStates.get(layerIndex);
+  if (!state) return;
+
+  gpu.device.queue.writeBuffer(state.stylusUniformBuffer, 0, stylusData);
+
+  const encoder = gpu.device.createCommandEncoder();
+  const pass = encoder.beginComputePass();
+  pass.setPipeline(gpu.bristleSimPipeline);
+  pass.setBindGroup(0, state.simBindGroup);
+  pass.dispatchWorkgroups(Math.ceil(state.bristleCount / 64));
+  pass.end();
+  gpu.device.queue.submit([encoder.finish()]);
+}
+
+/**
+ * Write (or update) the SimParams uniform buffer for a layer.
+ * Typically called once at stroke begin, or when brush settings change mid-stroke.
+ */
+export function updateBristleSimParams(
+  gpu: GPUContext,
+  layerIndex: number,
+  simParamsData: Float32Array,
+): void {
+  const state = bristleStates.get(layerIndex);
+  if (!state) return;
+  gpu.device.queue.writeBuffer(state.simParamsUniformBuffer, 0, simParamsData);
+}
+
 /** Clean up bristle GPU resources for a layer. */
 export function destroyBristleState(layerIndex: number): void {
   const state = bristleStates.get(layerIndex);
   if (state) {
     state.buffer.destroy();
     state.initUniformBuffer.destroy();
+    state.stylusUniformBuffer.destroy();
+    state.simParamsUniformBuffer.destroy();
     bristleStates.delete(layerIndex);
   }
 }
